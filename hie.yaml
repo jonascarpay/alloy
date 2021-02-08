@@ -1,0 +1,16 @@
+cradle:
+  multi:
+    # - path: "ignore/"
+    #   config: {cradle: {none: }}
+
+    - path: "src"
+      config: {cradle: {cabal: {component: "lib:alloy"}}}
+
+    - path: "app"
+      config: {cradle: {cabal: {component: "alloy:alloy-exe"}}}
+
+    - path: "test"
+      config: {cradle: {cabal: {component: "alloy:alloy-test"}}}
+
+    - path: "bench"
+      config: {cradle: {cabal: {component: "alloy:alloy-bench"}}}
