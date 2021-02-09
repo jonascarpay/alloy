@@ -1,8 +1,6 @@
-{-# LANGUAGE DeriveTraversable #-}
-
 module Expr where
 
-import Data.Map (Map)
+newtype Fix f = Fix {unFix :: f (Fix f)}
 
 type Name = String
 
@@ -11,22 +9,13 @@ data ExprF f
   | App f f
   | Lam Name f
   | Lit Int
+  | ASTLit (BlockF f)
   | Add f f
-  deriving (Eq, Show)
-
-data ValueF val
-  = VInt Int
-  | VClosure Name Expr (Map Name val)
-  deriving (Functor, Foldable, Traversable)
-
---TODO Closure Args (p -> m r)
-
-newtype Fix f = Fix {unFix :: f (Fix f)}
-
-instance Show (ValueF val) where
-  show (VInt n) = show n
-  show VClosure {} = "<<closure>>"
 
 type Expr = Fix ExprF
 
-type Value = Fix ValueF
+data ASTF f = Return f
+
+newtype BlockF f = BlockF {unBlockF :: [ASTF f]}
+
+type AST = Fix ASTF

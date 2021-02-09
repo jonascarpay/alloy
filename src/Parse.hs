@@ -2,6 +2,8 @@ module Parse where
 
 import Control.Monad
 import Data.Functor.Identity
+import Data.Set (Set)
+import Data.Set qualified as S
 import Data.Void
 import Expr
 import Text.Megaparsec
@@ -10,17 +12,32 @@ import Text.Megaparsec.Char.Lexer qualified as Lex
 
 type Parser = ParsecT Void String Identity
 
+lexeme :: Parser a -> Parser a
+lexeme p = p <* space
+
+lchunk :: String -> Parser ()
+lchunk = void . lexeme . chunk
+
+parens :: Parser p -> Parser p
+parens p = lchunk "(" *> p <* lchunk ")"
+
+braces :: Parser p -> Parser p
+braces p = lchunk "{" *> p <* lchunk "}"
+
+pName :: Parser Name
+pName = lexeme $ do
+  n <- takeWhile1P (Just "identifier") (`elem` ['a' .. 'z'])
+  if S.member n keywords
+    then fail "keyword"
+    else pure n
+  where
+    keywords :: Set Name
+    keywords = S.fromList ["return"]
+
 pExpr :: Parser Expr
 pExpr = foldl1 (\a b -> Fix (App a b)) <$> some pTerm
   where
-    pTerm = choice [parens pExpr, pLam, pLit, pVar]
-    lexeme :: Parser a -> Parser a
-    lexeme p = p <* space
-    lchunk = void . lexeme . chunk
-    pName :: Parser String
-    pName = lexeme $ takeWhile1P (Just "identifier") (`elem` ['a' .. 'z'])
-    parens :: Parser p -> Parser p
-    parens p = lchunk "(" *> p <* lchunk ")"
+    pTerm = choice [Fix . ASTLit <$> pBlock pExpr, parens pExpr, pLam, pLit, pVar]
     pLam = do
       void $ lchunk "\\"
       xs <- some pName
@@ -29,3 +46,13 @@ pExpr = foldl1 (\a b -> Fix (App a b)) <$> some pTerm
       pure $ foldr (\a b -> Fix (Lam a b)) body xs
     pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
     pVar = Fix . Var <$> pName
+
+pBlock :: Parser f -> Parser (BlockF f)
+pBlock pf =
+  braces $
+    BlockF <$> sepEndBy1 (pAst pf) (lchunk ";")
+
+pAst :: Parser f -> Parser (ASTF f)
+pAst pf = choice [pReturn]
+  where
+    pReturn = lchunk "return" *> (Return <$> pf)
