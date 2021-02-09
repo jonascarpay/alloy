@@ -40,7 +40,10 @@ common common-options
 library
   import:          common-options
   hs-source-dirs:  src
-  exposed-modules: Lib
+  exposed-modules:
+    Expr
+    Lib
+
   build-depends:
 
 executable alloy-exe
