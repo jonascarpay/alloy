@@ -57,6 +57,13 @@ evalTests =
         ),
         ( "laziness test",
           "let diverge = (x: x x) (x: x x); in 9"
+        ),
+        ( "lazy inheritance test",
+          "let diverge = (x: x x) (x: x x); \
+          \    x = 9;                       \
+          \ in { inherit diverge;           \
+          \      inherit x;                 \
+          \    }.x"
         )
       ]
 
