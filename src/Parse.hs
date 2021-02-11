@@ -17,6 +17,14 @@ type Parser = ParsecT Void String Identity
 lexeme :: Parser a -> Parser a
 lexeme p = p <* space
 
+withPred :: (a -> Maybe String) -> Parser a -> Parser a
+withPred hasError p = do
+  o <- getOffset
+  r <- p
+  case hasError r of
+    Nothing -> pure r
+    Just err -> setOffset o >> fail err
+
 symbol :: String -> Parser ()
 symbol = void . Lex.symbol space
 
@@ -29,20 +37,31 @@ braces = between (symbol "{") (symbol "}")
 pToplevel :: Parser Expr
 pToplevel = pExpr <* eof
 
+pWord :: Parser String
+pWord = lexeme $ takeWhile1P (Just "identifier") (`elem` ['a' .. 'z'])
+
 pName :: Parser Name
-pName = lexeme $ do
-  n <- takeWhile1P (Just "identifier") (`elem` ['a' .. 'z'])
-  if S.member n keywords
-    then fail "keyword"
-    else pure n
+pName = withPred hasError pWord
   where
-    keywords :: Set Name
-    keywords = S.fromList ["return"]
+    hasError w
+      | S.member w keywords = Just $ "Unexpected keyword \"" <> w <> "\""
+      | otherwise = Nothing
+
+keywords :: Set Name
+keywords = S.fromList ["return", "let", "in", "inherit"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Fix . Attr . M.fromList <$> many pField
+
+pField :: Parser (Name, Expr)
+pField = pInherit <|> pNormalField
   where
-    pField = do
+    pInherit = do
+      symbol "inherit"
+      name <- pName
+      symbol ";"
+      pure (name, Fix $ Var name)
+    pNormalField = do
       n <- pName
       symbol "="
       x <- pExpr
@@ -53,7 +72,7 @@ pAttrs = braces $ Fix . Attr . M.fromList <$> many pField
 -- first try to parse term as app
 -- TODO is this a hack?
 pExpr :: Parser Expr
-pExpr = pLam <|> makeExprParser pTerm operatorTable
+pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
   where
     pTerm1 = choice [parens pExpr, pAttrs, pVar, pLit]
     pTerm = foldl1 (\a b -> Fix $ App a b) <$> some pTerm1 -- TODO foldl
@@ -76,8 +95,19 @@ pFieldAcc = do
   field <- pName
   pure $ Fix . Acc field
 
+pLet :: Parser Expr
+pLet = do
+  try $ symbol "let"
+  fields <- many (notFollowedBy (symbol "in") *> pField)
+  symbol "in"
+  body <- pExpr
+  pure $ foldr (\(name, value) body' -> Fix $ App (Fix $ Lam name body') value) body fields
+
+-- pLit :: Parser Expr
+-- pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
+
 pLit :: Parser Expr
-pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
+pLit = lexeme $ Fix . Lit <$> Lex.decimal
 
 pVar :: Parser Expr
 pVar = Fix . Var <$> pName

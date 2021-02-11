@@ -42,8 +42,11 @@ library
   import:          common-options
   hs-source-dirs:  src
   exposed-modules:
+    Eval
     Expr
     Lib
+    Parse
+    Print
 
   build-depends:
 

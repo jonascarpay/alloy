@@ -4,6 +4,7 @@ module Lib where
 
 import Eval
 import Parse
+import Print
 import System.Console.Haskeline
 import Text.Megaparsec as MP
 
@@ -16,5 +17,5 @@ repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
         Just str -> case parse pToplevel "" str of
           Left err -> outputStrLn (errorBundlePretty err) >> loop
           Right expr -> case eval expr of
-            Left err -> outputStrLn err >> loop
-            Right val -> outputStrLn (show . prettyVal $ val) >> loop
+            Left err -> outputStrLn err >> outputStrLn (show $ ppExpr expr) >> loop
+            Right val -> outputStrLn (show . ppVal $ val) >> loop

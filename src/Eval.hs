@@ -10,7 +10,6 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Expr
 import Lens.Micro.Platform
-import Prettyprinter
 
 type ThunkID = Int
 
@@ -20,11 +19,6 @@ data ValueF val
   | VClosure Name Expr (Map Name ThunkID)
   | VAttr (Map Name val)
   deriving (Functor, Foldable, Traversable)
-
-prettyVal :: Value -> Doc ann
-prettyVal (Fix (VInt n)) = pretty n
-prettyVal (Fix (VAttr attrs)) = braces $ align . vcat $ (\(a, x) -> hsep [pretty a, "=", prettyVal x <> ";"]) <$> M.toList attrs
-prettyVal (Fix VClosure {}) = "<<closure>>"
 
 arith :: ArithOp -> Int -> Int -> Int
 arith Add = (+)
@@ -61,7 +55,7 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
         (VClosure arg (Fix body) env) -> local (const $ M.insert arg tx env) (step body)
         _ -> throwError "Calling a non-function"
     step (Var x) = do
-      tid <- asks (M.lookup x) ?> "Unbound variable"
+      tid <- asks (M.lookup x) ?> ("Unbound variable: " <> x)
       force tid
     step (Lam arg body) = VClosure arg body <$> ask
     step (Arith op (Fix a) (Fix b)) = do
