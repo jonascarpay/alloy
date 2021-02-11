@@ -13,10 +13,13 @@
   - [x] syntax rework
 - [ ] step 2
   - [ ] figure out step 2
+- [ ] step n
+  - [ ] builtins
+    - [ ] error
+  - [ ] imports
 - [ ] eventually
   - [ ] recursion
   - [ ] trace
-  - [ ] error
   - [x] remove lens dependency?
   - [x] remove microlens dependency?
 
