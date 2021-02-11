@@ -16,7 +16,7 @@ type ThunkID = Int
 --TODO Closure Args (p -> m r)
 data ValueF val
   = VInt Int
-  | VClosure Name Expr (Map Name ThunkID)
+  | VClosure Name Expr Env
   | VAttr (Map Name val)
   deriving (Functor, Foldable, Traversable)
 
@@ -27,10 +27,16 @@ arith Mul = (*)
 
 type Value = Fix ValueF
 
--- TODO Thunk m v = Deferred (m v) | Computed v
-data Thunk = Deferred Expr | Computed (ValueF ThunkID)
+type Env = Map Name ThunkID
 
-type Lazy = RWST (Map Name ThunkID) () (Int, Map ThunkID Thunk) (Either String)
+-- TODO Thunk m v = Deferred (m v) | Computed v
+-- Thoughts on thunks:
+-- it's scary how few problems not having the Env here actually caused.
+-- not sure to what degree that's solved by the above
+-- this seems memory intensive though?
+data Thunk = Deferred Env Expr | Computed (ValueF ThunkID)
+
+type Lazy = RWST Env () (Int, Map ThunkID Thunk) (Either String)
 
 (?>) :: MonadError e m => m (Maybe a) -> e -> m a
 (?>) m e = m >>= maybe (throwError e) pure
@@ -75,12 +81,12 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
     step (ASTLit _) = throwError "I don't know what to do with code literals yet"
 
     defer :: Expr -> Lazy ThunkID
-    defer expr = state $ \(n, m) -> (n, (n + 1, M.insert n (Deferred expr) m))
+    defer expr = ask >>= \env -> state $ \(n, m) -> (n, (n + 1, M.insert n (Deferred env expr) m))
 
     force :: ThunkID -> Lazy (ValueF ThunkID)
     force tid =
       gets (M.lookup tid . snd) >>= \case
-        Just (Deferred (Fix expr)) -> do
+        Just (Deferred env (Fix expr)) -> local (const env) $ do
           v <- step expr
           _2 . at tid .= Just (Computed v)
           pure v
