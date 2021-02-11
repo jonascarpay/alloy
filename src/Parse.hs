@@ -2,6 +2,7 @@ module Parse where
 
 import Control.Monad
 import Data.Functor.Identity
+import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Void
@@ -34,10 +35,20 @@ pName = lexeme $ do
     keywords :: Set Name
     keywords = S.fromList ["return"]
 
+pAttrs :: Parser Expr
+pAttrs = braces $ Fix . Attr . M.fromList <$> many pField
+  where
+    pField = do
+      n <- pName
+      lchunk "="
+      x <- pExpr
+      lchunk ";"
+      pure (n, x)
+
 pExpr :: Parser Expr
 pExpr = foldl1 (\a b -> Fix (App a b)) <$> some pTerm
   where
-    pTerm = choice [Fix . ASTLit <$> pBlock pExpr, parens pExpr, pLam, pLit, pVar]
+    pTerm = choice [parens pExpr, try pAttrs, pCode, pLam, pLit, pVar]
     pLam = do
       void $ lchunk "\\"
       xs <- some pName
@@ -46,6 +57,9 @@ pExpr = foldl1 (\a b -> Fix (App a b)) <$> some pTerm
       pure $ foldr (\a b -> Fix (Lam a b)) body xs
     pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
     pVar = Fix . Var <$> pName
+
+pCode :: Parser Expr
+pCode = Fix . ASTLit <$> pBlock pExpr
 
 pBlock :: Parser f -> Parser (BlockF f)
 pBlock pf =

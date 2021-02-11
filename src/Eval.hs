@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Eval where
 
@@ -9,18 +10,21 @@ import Control.Monad.RWS
 import Data.Map (Map)
 import Data.Map qualified as M
 import Expr
+import Prettyprinter
 
 type ThunkID = Int
 
 --TODO Closure Args (p -> m r)
 data ValueF val
   = VInt Int
-  | VClosure Name Expr (Map Name val)
+  | VClosure Name Expr (Map Name ThunkID)
+  | VAttr (Map Name val)
   deriving (Functor, Foldable, Traversable)
 
-instance Show (ValueF val) where
-  show (VInt n) = show n
-  show VClosure {} = "<<closure>>"
+prettyVal :: Value -> Doc ann
+prettyVal (Fix (VInt n)) = pretty n
+prettyVal (Fix (VAttr attrs)) = braces $ align . vcat $ (\(a, x) -> hsep [pretty a, "=", prettyVal x <> ";"]) <$> M.toList attrs
+prettyVal (Fix VClosure {}) = "<<closure>>"
 
 type Value = Fix ValueF
 
@@ -34,9 +38,10 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
   where
     runLazy :: Lazy a -> Either String a
     runLazy m = fst <$> evalRWST m mempty (0, mempty)
-    deepEval :: ValueF ThunkID -> Lazy Value
 
+    deepEval :: ValueF ThunkID -> Lazy Value
     deepEval v = Fix <$> traverse (force >=> deepEval) v
+
     step :: ExprF Expr -> Lazy (ValueF ThunkID)
     step (Lit n) = pure $ VInt n
     step (App (Fix f) x) = do
@@ -56,7 +61,9 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
             VInt vb -> pure (VInt (va + vb))
             _ -> throwError "Adding a non-integer"
         _ -> throwError "Adding a non-integer"
-    step (ASTLit (BlockF stmts)) = throwError "I don't know what to do with code literals yet"
+    step (Attr m) = VAttr <$> traverse defer m
+    step (ASTLit (BlockF _)) = throwError "I don't know what to do with code literals yet"
+
     defer :: Expr -> Lazy ThunkID
     defer expr = state $ \(n, m) -> (n, (n + 1, M.insert n (Deferred expr) m))
 

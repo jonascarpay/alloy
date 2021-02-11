@@ -9,7 +9,7 @@ import System.Console.Haskeline
 import Text.Megaparsec as MP
 
 repl :: IO ()
-repl = runInputT defaultSettings loop
+repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
   where
     loop =
       getInputLine "Vandelay Industries> " >>= \case
@@ -18,4 +18,4 @@ repl = runInputT defaultSettings loop
           Left err -> outputStrLn (errorBundlePretty err) >> loop
           Right expr -> case eval expr of
             Left err -> outputStrLn err >> loop
-            Right val -> outputStrLn (show $ unFix val) >> loop
+            Right val -> outputStrLn (show . prettyVal $ val) >> loop

@@ -1,5 +1,7 @@
 module Expr where
 
+import Data.Map (Map)
+
 newtype Fix f = Fix {unFix :: f (Fix f)}
 
 type Name = String
@@ -11,10 +13,11 @@ data ExprF f
   | Lit Int
   | ASTLit (BlockF f)
   | Add f f
+  | Attr (Map Name f)
 
 type Expr = Fix ExprF
 
-data ASTF f = Return f
+newtype ASTF f = Return f
 
 newtype BlockF f = BlockF {unBlockF :: [ASTF f]}
 

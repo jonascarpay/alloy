@@ -1,9 +1,9 @@
 # alloy
 
 ## TODO
-- [ ] Closure scope contains ThunkIDs instead of values
+- [x] Closure scope contains ThunkIDs instead of values
 - [ ] arithmetic expressions
-- [ ] attribute sets
+- [x] attribute sets
 - [ ] let bindings
 - [ ] syntax rework
 - [ ] recursion
