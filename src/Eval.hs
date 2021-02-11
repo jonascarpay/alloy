@@ -4,12 +4,12 @@
 
 module Eval where
 
-import Control.Lens
 import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Map (Map)
 import Data.Map qualified as M
 import Expr
+import Lens.Micro.Platform
 import Prettyprinter
 
 type ThunkID = Int
@@ -25,6 +25,11 @@ prettyVal :: Value -> Doc ann
 prettyVal (Fix (VInt n)) = pretty n
 prettyVal (Fix (VAttr attrs)) = braces $ align . vcat $ (\(a, x) -> hsep [pretty a, "=", prettyVal x <> ";"]) <$> M.toList attrs
 prettyVal (Fix VClosure {}) = "<<closure>>"
+
+arith :: ArithOp -> Int -> Int -> Int
+arith Add = (+)
+arith Sub = (-)
+arith Mul = (*)
 
 type Value = Fix ValueF
 
@@ -59,11 +64,11 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
       tid <- asks (M.lookup x) ?> "Unbound variable"
       force tid
     step (Lam arg body) = VClosure arg body <$> ask
-    step (Add (Fix a) (Fix b)) = do
+    step (Arith op (Fix a) (Fix b)) = do
       step a >>= \case
         VInt va ->
           step b >>= \case
-            VInt vb -> pure (VInt (va + vb))
+            VInt vb -> pure (VInt $ arith op va vb)
             _ -> throwError "Adding a non-integer"
         _ -> throwError "Adding a non-integer"
     step (Attr m) = VAttr <$> traverse defer m

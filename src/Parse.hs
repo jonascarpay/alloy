@@ -1,6 +1,7 @@
-module Parse where
+module Parse (pToplevel) where
 
 import Control.Monad
+import Control.Monad.Combinators.Expr
 import Data.Functor.Identity
 import Data.Map qualified as M
 import Data.Set (Set)
@@ -16,14 +17,17 @@ type Parser = ParsecT Void String Identity
 lexeme :: Parser a -> Parser a
 lexeme p = p <* space
 
-lchunk :: String -> Parser ()
-lchunk = void . lexeme . chunk
+symbol :: String -> Parser ()
+symbol = void . Lex.symbol space
 
 parens :: Parser p -> Parser p
-parens p = lchunk "(" *> p <* lchunk ")"
+parens = between (symbol "(") (symbol ")")
 
 braces :: Parser p -> Parser p
-braces p = lchunk "{" *> p <* lchunk "}"
+braces = between (symbol "{") (symbol "}")
+
+pToplevel :: Parser Expr
+pToplevel = pExpr <* eof
 
 pName :: Parser Name
 pName = lexeme $ do
@@ -40,33 +44,45 @@ pAttrs = braces $ Fix . Attr . M.fromList <$> many pField
   where
     pField = do
       n <- pName
-      lchunk "="
+      symbol "="
       x <- pExpr
-      lchunk ";"
+      symbol ";"
       pure (n, x)
 
+-- first try to parse expr as lambda
+-- first try to parse term as app
+-- TODO is this a hack?
 pExpr :: Parser Expr
-pExpr = foldl1 (\a b -> Fix (App a b)) <$> some pTerm
+pExpr = pLam <|> makeExprParser pTerm operatorTable
   where
-    pTerm = choice [parens pExpr, try pAttrs, pCode, pLam, pLit, pVar]
-    pLam = do
-      void $ lchunk "\\"
-      xs <- some pName
-      lchunk "."
-      body <- pExpr
-      pure $ foldr (\a b -> Fix (Lam a b)) body xs
-    pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
-    pVar = Fix . Var <$> pName
+    pTerm1 = choice [parens pExpr, pAttrs, pVar, pLit]
+    pTerm = foldl1 (\a b -> Fix $ App a b) <$> some pTerm1 -- TODO foldl
 
-pCode :: Parser Expr
-pCode = Fix . ASTLit <$> pBlock pExpr
-
-pBlock :: Parser f -> Parser (BlockF f)
-pBlock pf =
-  braces $
-    BlockF <$> sepEndBy1 (pAst pf) (lchunk ";")
-
-pAst :: Parser f -> Parser (ASTF f)
-pAst pf = choice [pReturn]
+operatorTable :: [[Operator Parser Expr]]
+operatorTable =
+  [ [repeatedPostfix pFieldAcc],
+    [arith "*" Mul],
+    [arith "+" Add, arith "-" Sub]
+  ]
   where
-    pReturn = lchunk "return" *> (Return <$> pf)
+    arith :: String -> ArithOp -> Operator Parser Expr
+    arith sym op = InfixL ((\l r -> Fix $ Arith op l r) <$ symbol sym)
+    repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
+    repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
+
+pFieldAcc :: Parser (Expr -> Expr)
+pFieldAcc = do
+  symbol "."
+  field <- pName
+  pure $ Fix . Acc field
+
+pLit :: Parser Expr
+pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
+
+pVar :: Parser Expr
+pVar = Fix . Var <$> pName
+
+pLam :: Parser Expr
+pLam = do
+  arg <- try $ pName <* symbol ":"
+  Fix . Lam arg <$> pExpr

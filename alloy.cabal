@@ -22,12 +22,13 @@ extra-doc-files:
 
 common common-options
   build-depends:
-    , base           >=4.9 && <5
+    , base                >=4.9 && <5
     , containers
     , haskeline
-    , lens
     , megaparsec
+    , microlens-platform
     , mtl
+    , parser-combinators
     , prettyprinter
 
   default-language:   Haskell2010

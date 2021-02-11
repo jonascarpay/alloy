@@ -2,15 +2,16 @@
 
 ## TODO
 - [x] Closure scope contains ThunkIDs instead of values
-- [ ] arithmetic expressions
+- [x] arithmetic expressions
 - [x] attribute sets
-- [ ] field accessor parsing
+- [x] field accessor parsing
 - [ ] let bindings
-- [ ] syntax rework
+- [x] syntax rework
 - [ ] recursion
 - [ ] trace
 - [ ] error
-- [ ] remove lens dependency?
+- [x] remove lens dependency?
+- [x] remove microlens dependency?
 
 ## Design Questions
 - [ ] Everything

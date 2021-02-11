@@ -11,10 +11,12 @@ data ExprF f
   | App f f
   | Lam Name f
   | Lit Int
-  | ASTLit (BlockF f)
-  | Add f f
+  | Arith ArithOp f f
   | Attr (Map Name f)
   | Acc Name f
+  | ASTLit (BlockF f)
+
+data ArithOp = Add | Sub | Mul
 
 type Expr = Fix ExprF
 
