@@ -33,6 +33,12 @@ data Thunk = Deferred Expr | Computed (ValueF ThunkID)
 
 type Lazy = RWST (Map Name ThunkID) () (Int, Map ThunkID Thunk) (Either String)
 
+(?>) :: MonadError e m => m (Maybe a) -> e -> m a
+(?>) m e = m >>= maybe (throwError e) pure
+
+(<?>) :: MonadError e m => Maybe a -> e -> m a
+(<?>) m e = maybe (throwError e) pure m
+
 eval :: Expr -> Either String Value
 eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
   where
@@ -49,10 +55,9 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
       step f >>= \case
         (VClosure arg (Fix body) env) -> local (const $ M.insert arg tx env) (step body)
         _ -> throwError "Calling a non-function"
-    step (Var x) =
-      asks (M.lookup x) >>= \case
-        Nothing -> throwError "Unbound variable"
-        Just tid -> force tid
+    step (Var x) = do
+      tid <- asks (M.lookup x) ?> "Unbound variable"
+      force tid
     step (Lam arg body) = VClosure arg body <$> ask
     step (Add (Fix a) (Fix b)) = do
       step a >>= \case
@@ -62,7 +67,13 @@ eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
             _ -> throwError "Adding a non-integer"
         _ -> throwError "Adding a non-integer"
     step (Attr m) = VAttr <$> traverse defer m
-    step (ASTLit (BlockF _)) = throwError "I don't know what to do with code literals yet"
+    step (Acc f (Fix em)) =
+      step em >>= \case
+        VAttr m -> do
+          tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
+          force tid
+        _ -> throwError "Accessing field of not an attribute set"
+    step (ASTLit _) = throwError "I don't know what to do with code literals yet"
 
     defer :: Expr -> Lazy ThunkID
     defer expr = state $ \(n, m) -> (n, (n + 1, M.insert n (Deferred expr) m))

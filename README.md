@@ -4,6 +4,7 @@
 - [x] Closure scope contains ThunkIDs instead of values
 - [ ] arithmetic expressions
 - [x] attribute sets
+- [ ] field accessor parsing
 - [ ] let bindings
 - [ ] syntax rework
 - [ ] recursion

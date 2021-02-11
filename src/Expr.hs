@@ -14,6 +14,7 @@ data ExprF f
   | ASTLit (BlockF f)
   | Add f f
   | Attr (Map Name f)
+  | Acc Name f
 
 type Expr = Fix ExprF
 
