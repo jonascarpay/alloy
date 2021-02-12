@@ -11,17 +11,20 @@
     - [x] `let x = 4; in {a = x;}` gives unbound variable, `let x=4; in x` works
   - [x] let bindings
   - [x] syntax rework
+  - [x] remove lens dependency?
 - [ ] step 2
   - [ ] figure out step 2
-- [ ] step n
   - [ ] builtins
     - [ ] error
-  - [ ] imports
+      - [ ] strings
+- [ ] step n
+  - [ ] booleans
 - [ ] eventually
   - [ ] recursion
   - [ ] trace
-  - [x] remove lens dependency?
-  - [x] remove microlens dependency?
+  - [ ] stack traces
+  - [ ] imports
+  - [ ] remove microlens dependency?
 
 ## Design Questions
 - [ ] Everything

@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Eval where
+module Eval (ValueF (..), Value, eval) where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
 import Expr
@@ -36,7 +38,14 @@ type Env = Map Name ThunkID
 -- this seems memory intensive though?
 data Thunk = Deferred Env Expr | Computed (ValueF ThunkID)
 
-type Lazy = RWST Env () (Int, Map ThunkID Thunk) (Either String)
+-- data ThunkF m v = Deferred (m v) | Computed v
+
+-- type Thunk = ThunkF Lazy (ValueF ThunkID)
+
+newtype LazyT m a = LazyT {unLazyT :: RWST Env () (Int, Map ThunkID Thunk) (ExceptT String m) a}
+  deriving (Functor, Applicative, Monad, MonadReader Env, MonadError String, MonadState (Int, Map ThunkID Thunk))
+
+type Lazy = LazyT Identity
 
 (?>) :: MonadError e m => m (Maybe a) -> e -> m a
 (?>) m e = m >>= maybe (throwError e) pure
@@ -46,49 +55,49 @@ type Lazy = RWST Env () (Int, Map ThunkID Thunk) (Either String)
 
 eval :: Expr -> Either String Value
 eval (Fix eRoot) = runLazy $ step eRoot >>= deepEval
-  where
-    runLazy :: Lazy a -> Either String a
-    runLazy m = fst <$> evalRWST m mempty (0, mempty)
 
-    deepEval :: ValueF ThunkID -> Lazy Value
-    deepEval v = Fix <$> traverse (force >=> deepEval) v
+runLazy :: Lazy a -> Either String a
+runLazy (LazyT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
 
-    step :: ExprF Expr -> Lazy (ValueF ThunkID)
-    step (Lit n) = pure $ VInt n
-    step (App (Fix f) x) = do
-      tx <- defer x
-      step f >>= \case
-        (VClosure arg (Fix body) env) -> local (const $ M.insert arg tx env) (step body)
-        _ -> throwError "Calling a non-function"
-    step (Var x) = do
-      tid <- asks (M.lookup x) ?> ("Unbound variable: " <> x)
-      force tid
-    step (Lam arg body) = VClosure arg body <$> ask
-    step (Arith op (Fix a) (Fix b)) = do
-      step a >>= \case
-        VInt va ->
-          step b >>= \case
-            VInt vb -> pure (VInt $ arith op va vb)
-            _ -> throwError "Adding a non-integer"
+deepEval :: ValueF ThunkID -> Lazy Value
+deepEval v = Fix <$> traverse (force >=> deepEval) v
+
+step :: ExprF Expr -> Lazy (ValueF ThunkID)
+step (Lit n) = pure $ VInt n
+step (App (Fix f) x) = do
+  tx <- defer x
+  step f >>= \case
+    (VClosure arg (Fix body) env) -> local (const $ M.insert arg tx env) (step body)
+    _ -> throwError "Calling a non-function"
+step (Var x) = do
+  tid <- asks (M.lookup x) ?> ("Unbound variable: " <> x)
+  force tid
+step (Lam arg body) = VClosure arg body <$> ask
+step (Arith op (Fix a) (Fix b)) = do
+  step a >>= \case
+    VInt va ->
+      step b >>= \case
+        VInt vb -> pure (VInt $ arith op va vb)
         _ -> throwError "Adding a non-integer"
-    step (Attr m) = VAttr <$> traverse defer m
-    step (Acc f (Fix em)) =
-      step em >>= \case
-        VAttr m -> do
-          tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
-          force tid
-        _ -> throwError "Accessing field of not an attribute set"
-    step (ASTLit _) = throwError "I don't know what to do with code literals yet"
+    _ -> throwError "Adding a non-integer"
+step (Attr m) = VAttr <$> traverse defer m
+step (Acc f (Fix em)) =
+  step em >>= \case
+    VAttr m -> do
+      tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
+      force tid
+    _ -> throwError "Accessing field of not an attribute set"
+step (ASTLit _) = throwError "I don't know what to do with code literals yet"
 
-    defer :: Expr -> Lazy ThunkID
-    defer expr = ask >>= \env -> state $ \(n, m) -> (n, (n + 1, M.insert n (Deferred env expr) m))
+defer :: Expr -> Lazy ThunkID
+defer expr = ask >>= \env -> state $ \(n, m) -> (n, (n + 1, M.insert n (Deferred env expr) m))
 
-    force :: ThunkID -> Lazy (ValueF ThunkID)
-    force tid =
-      gets (M.lookup tid . snd) >>= \case
-        Just (Deferred env (Fix expr)) -> local (const env) $ do
-          v <- step expr
-          _2 . at tid .= Just (Computed v)
-          pure v
-        Just (Computed x) -> pure x
-        Nothing -> throwError "Looking up invalid thunk?"
+force :: ThunkID -> Lazy (ValueF ThunkID)
+force tid =
+  gets (M.lookup tid . snd) >>= \case
+    Just (Deferred env (Fix expr)) -> local (const env) $ do
+      v <- step expr
+      _2 . at tid .= Just (Computed v)
+      pure v
+    Just (Computed x) -> pure x
+    Nothing -> throwError "Looking up invalid thunk?"

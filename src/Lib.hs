@@ -19,3 +19,11 @@ repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
           Right expr -> case eval expr of
             Left err -> outputStrLn err >> outputStrLn (show $ ppExpr expr) >> loop
             Right val -> outputStrLn (show . ppVal $ val) >> loop
+
+evalFile :: FilePath -> IO ()
+evalFile fp = do
+  input <- readFile fp
+  expr <- either (fail . errorBundlePretty) pure (parse pToplevel fp input)
+  either fail (print . ppVal) (eval expr)
+
+evalFile1 = evalFile "./syntax.ayy"
