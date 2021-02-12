@@ -1,9 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Lib where
 
 import Eval
 import Parse
+import Prettyprinter
 import Print
 import System.Console.Haskeline
 import Text.Megaparsec as MP
@@ -17,7 +19,15 @@ repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
         Just str -> case parse pToplevel "" str of
           Left err -> outputStrLn (errorBundlePretty err) >> loop
           Right expr -> case eval expr of
-            Left err -> outputStrLn err >> outputStrLn (show $ ppExpr expr) >> loop
+            Left err -> do
+              outputStrLn . show $
+                vcat
+                  [ "Encountered error during evaluation:",
+                    indent 2 $ pretty err,
+                    "AST:",
+                    indent 2 $ ppExpr expr
+                  ]
+              loop
             Right val -> outputStrLn (show . ppVal $ val) >> loop
 
 evalFile :: FilePath -> IO ()

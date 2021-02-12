@@ -24,8 +24,11 @@
   - [ ] trace
   - [ ] stack traces
   - [ ] imports
+    - [ ] check for unbound variables to avoid capture issues
+  - [ ] warnings
+  - [ ] inherit from set, inherit multiple
+  - [ ] performance stuff
+  - [ ] design questions
+    - [ ] Everything
+    - [ ] Atoms
   - [ ] remove microlens dependency?
-
-## Design Questions
-- [ ] Everything
-- [ ] Atoms

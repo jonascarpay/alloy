@@ -64,6 +64,10 @@ evalTests =
           \ in { inherit diverge;           \
           \      inherit x;                 \
           \    }.x"
+        ),
+        ("simple builtin", "builtins.nine"),
+        ( "laziness ignores undefined",
+          "let x = builtins.undefined; y = builtins.nine; in y"
         )
       ]
 

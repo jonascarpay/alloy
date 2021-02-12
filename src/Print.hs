@@ -18,8 +18,8 @@ ppExprF :: (r -> Doc ann) -> ExprF r -> Doc ann
 ppExprF f = go
   where
     go (Var x) = pretty x
-    go (App a b) = f a <> f b
-    go (Lam a b) = parens $ pretty a <> ":" <> f b
+    go (App a b) = f a <+> f b
+    go (Lam a b) = parens $ pretty a <> ":" <+> f b
     go (Lit n) = pretty n
     go (Arith _ a b) = parens $ hsep ["_", f a, f b]
     go (Attr m) = ppMap pretty f m
