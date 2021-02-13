@@ -1,9 +1,12 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Monad
+import Data.Bifunctor
 import Data.Map qualified as M
 import Eval
 import Expr
+import Lib
 import Parse
 import Prettyprinter
 import Print
@@ -13,7 +16,26 @@ import Test.Tasty.HUnit
 import Text.Megaparsec qualified as MP
 
 main :: IO ()
-main = defaultMain $ testGroup "alloy-test" [evalTests]
+main =
+  defaultMain $
+    testGroup
+      "alloy-test"
+      [ evalTests,
+        testSyntax
+      ]
+
+assertParse :: String -> IO (Either String Value)
+assertParse str = do
+  case MP.parse pToplevel "" str of
+    Left err -> assertFailure $ MP.errorBundlePretty err
+    Right r -> pure $ first show (evalInfo r)
+
+testSyntax :: TestTree
+testSyntax = testCase "syntax.ayy" $ do
+  f <- readFile "syntax.ayy"
+  assertParse f >>= \case
+    Left err -> assertFailure err
+    Right _ -> pure ()
 
 evalTests :: TestTree
 evalTests =
@@ -42,7 +64,7 @@ evalTests =
           \ in attrs.foo.bar"
         ),
         ("reference in attr binding", "(x: {a = x;}.a) 9"),
-        ( "not sure what to call it but it ~fails~ used to fail",
+        ( "not sure what to call it but it used to fail",
           "let id = x: x; \
           \    x = 9; \
           \ in id x"
@@ -68,6 +90,9 @@ evalTests =
         ("simple builtin", "builtins.nine"),
         ( "laziness ignores undefined",
           "let x = builtins.undefined; y = builtins.nine; in y"
+        ),
+        ( "line comments",
+          unlines ["let a = 9; # comment", "in a"]
         )
       ]
 
@@ -80,9 +105,8 @@ valueCompare (Fix (VAttr na)) (Fix (VAttr nb)) | M.keys na == M.keys nb = zipWit
 valueCompare a b = Left $ hsep ["mismatch between", ppVal a, "and", ppVal b]
 
 assertEval :: String -> String -> Value -> TestTree
-assertEval name program expect = testCase name $
-  case MP.parse pToplevel "" program of
-    Left err -> assertFailure $ MP.errorBundlePretty err
-    Right expr -> case eval expr of
+assertEval name program expect =
+  testCase name $
+    assertParse program >>= \case
       Left err -> assertFailure err
       Right got -> either (assertFailure . show) (const $ pure ()) $ valueCompare expect got

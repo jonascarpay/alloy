@@ -23,9 +23,13 @@
   - [ ] recursion
   - [ ] trace
   - [ ] stack traces
+  - [ ] proper megaparsec errors for unexpected keywords
+  - [ ] check whether all rejected words are actually keywords
   - [ ] imports
     - [ ] check for unbound variables to avoid capture issues
   - [ ] warnings
+  - [ ] benchmarks
+    - [ ] use Text instead of String
   - [ ] inherit from set, inherit multiple
   - [ ] performance stuff
   - [ ] design questions

@@ -1,0 +1,14 @@
+let
+  # add = fn(a, b) {
+  #   return a+b;
+  # };
+  addinline = a: b: {
+    break a + b;
+  };
+in {
+  var a = 2;
+  var b = 5;
+  var c = 0;
+  c = { break a + b; };
+  break addinline a b;
+}

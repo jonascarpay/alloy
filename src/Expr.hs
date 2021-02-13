@@ -6,22 +6,32 @@ newtype Fix f = Fix {unFix :: f (Fix f)}
 
 type Name = String
 
-data ExprF f
+data Expr
   = Var Name
-  | App f f
-  | Lam Name f
+  | App Expr Expr
+  | Lam Name Expr
   | Lit Int
-  | Arith ArithOp f f
-  | Attr (Map Name f)
-  | Acc Name f
-  | ASTLit (BlockF f)
+  | Arith ArithOp Expr Expr
+  | Attr (Map Name Expr)
+  | Acc Name Expr
+  | BlockLit BlockExpr
 
 data ArithOp = Add | Sub | Mul
 
-type Expr = Fix ExprF
+newtype BlockExpr = BlockExpr {unBlockExpr :: [StmtExpr]}
 
-newtype ASTF f = Return f
+data StmtExpr
+  = Break RTExpr
+  | Decl Name RTExpr
+  | Assign Name RTExpr
 
-newtype BlockF f = BlockF {unBlockF :: [ASTF f]}
+-- TODO Maybe unify app var (num lit)
+-- eventually also struct literals in rt
+-- maybe just unify with Expr entirely?
 
-type AST = Fix ASTF
+data RTExpr
+  = RTVar Name
+  | RTLit Int
+  | RTApp RTExpr RTExpr
+  | RTArith ArithOp RTExpr RTExpr
+  | RTBlock BlockExpr

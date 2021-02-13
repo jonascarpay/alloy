@@ -12,19 +12,29 @@ ppMap :: (k -> Doc ann) -> (v -> Doc ann) -> Map k v -> Doc ann
 ppMap fk fv attrs = braces $ align . vcat $ (\(k, v) -> hsep [fk k, "=", fv v <> ";"]) <$> M.toList attrs
 
 ppExpr :: Expr -> Doc ann
-ppExpr (Fix e) = ppExprF ppExpr e
+ppExpr (Var x) = pretty x
+ppExpr (App a b) = ppExpr a <+> ppExpr b
+ppExpr (Lam a b) = parens $ pretty a <> ":" <+> ppExpr b
+ppExpr (Lit n) = pretty n
+ppExpr (Arith _ a b) = parens $ hsep ["_", ppExpr a, ppExpr b]
+ppExpr (Attr m) = ppMap pretty ppExpr m
+ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
+ppExpr (BlockLit b) = ppBlock b
 
-ppExprF :: (r -> Doc ann) -> ExprF r -> Doc ann
-ppExprF f = go
-  where
-    go (Var x) = pretty x
-    go (App a b) = f a <+> f b
-    go (Lam a b) = parens $ pretty a <> ":" <+> f b
-    go (Lit n) = pretty n
-    go (Arith _ a b) = parens $ hsep ["_", f a, f b]
-    go (Attr m) = ppMap pretty f m
-    go (Acc a m) = f m <> "." <> pretty a
-    go (ASTLit _) = "<<code>>"
+ppBlock :: BlockExpr -> Doc ann
+ppBlock (BlockExpr stmts) = braces $ align $ vcat (ppStatement <$> stmts)
+
+ppStatement :: StmtExpr -> Doc ann
+ppStatement (Break expr) = "break" <+> ppRTExpr expr <> ";"
+ppStatement (Decl name expr) = "var" <+> pretty name <+> "=" <+> ppRTExpr expr <> ";"
+ppStatement (Assign name expr) = pretty name <+> "=" <+> ppRTExpr expr <> ";"
+
+ppRTExpr :: RTExpr -> Doc ann
+ppRTExpr (RTVar x) = pretty x
+ppRTExpr (RTLit n) = pretty n
+ppRTExpr (RTApp f x) = ppRTExpr f <+> ppRTExpr x
+ppRTExpr (RTArith _ a b) = parens $ "_" <+> ppRTExpr a <+> ppRTExpr b
+ppRTExpr (RTBlock b) = ppBlock b
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VInt n)) = pretty n

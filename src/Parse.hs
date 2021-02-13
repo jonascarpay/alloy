@@ -9,10 +9,13 @@ import Data.Set qualified as S
 import Data.Void
 import Expr
 import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec.Char hiding (space)
 import Text.Megaparsec.Char.Lexer qualified as Lex
 
 type Parser = ParsecT Void String Identity
+
+space :: Parser ()
+space = Lex.space space1 (Lex.skipLineComment "#") empty
 
 lexeme :: Parser a -> Parser a
 lexeme p = p <* space
@@ -48,10 +51,10 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "let", "in", "inherit"]
+keywords = S.fromList ["return", "let", "in", "inherit", "break", "var"]
 
 pAttrs :: Parser Expr
-pAttrs = braces $ Fix . Attr . M.fromList <$> many pField
+pAttrs = braces $ Attr . M.fromList <$> many pField
 
 pField :: Parser (Name, Expr)
 pField = pInherit <|> pNormalField
@@ -59,13 +62,13 @@ pField = pInherit <|> pNormalField
     pInherit = do
       symbol "inherit"
       name <- pName
-      symbol ";"
-      pure (name, Fix $ Var name)
+      semicolon
+      pure (name, Var name)
     pNormalField = do
       n <- pName
       symbol "="
       x <- pExpr
-      symbol ";"
+      semicolon
       pure (n, x)
 
 -- first try to parse expr as lambda
@@ -74,26 +77,51 @@ pField = pInherit <|> pNormalField
 pExpr :: Parser Expr
 pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
   where
-    pTerm1 = choice [parens pExpr, pAttrs, pVar, pLit]
-    pTerm = foldl1 (\a b -> Fix $ App a b) <$> some pTerm1 -- TODO foldl
+    -- TODO the try before pAttrs here is so allow it to parse the block expression if it fails
+    pTerm1 =
+      choice
+        [ parens pExpr,
+          try pAttrs,
+          BlockLit <$> pBlock,
+          Var <$> pName,
+          Lit <$> pLit
+        ]
+    pTerm = foldl1 App <$> some pTerm1 -- TODO foldl
+    operatorTable :: [[Operator Parser Expr]]
+    operatorTable =
+      [ [repeatedPostfix pFieldAcc],
+        [arith "*" Mul],
+        [arith "+" Add, arith "-" Sub]
+      ]
+      where
+        arith :: String -> ArithOp -> Operator Parser Expr
+        arith sym op = InfixL (Arith op <$ symbol sym)
+        repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
+        repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
 
-operatorTable :: [[Operator Parser Expr]]
-operatorTable =
-  [ [repeatedPostfix pFieldAcc],
-    [arith "*" Mul],
-    [arith "+" Add, arith "-" Sub]
-  ]
+-- TODO unify with pExpr?
+pRTExpr :: Parser RTExpr
+pRTExpr = makeExprParser pTerm operatorTable
   where
-    arith :: String -> ArithOp -> Operator Parser Expr
-    arith sym op = InfixL ((\l r -> Fix $ Arith op l r) <$ symbol sym)
-    repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
-    repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
+    pTerm1 =
+      choice
+        [ parens pRTExpr,
+          RTLit <$> pLit,
+          RTVar <$> pName,
+          RTBlock <$> pBlock
+        ]
+    pTerm = foldl1 RTApp <$> some pTerm1
+    operatorTable :: [[Operator Parser RTExpr]]
+    operatorTable =
+      [ [arith "*" Mul],
+        [arith "+" Add, arith "-" Sub]
+      ]
+      where
+        arith :: String -> ArithOp -> Operator Parser RTExpr
+        arith sym op = InfixL (RTArith op <$ symbol sym)
 
 pFieldAcc :: Parser (Expr -> Expr)
-pFieldAcc = do
-  symbol "."
-  field <- pName
-  pure $ Fix . Acc field
+pFieldAcc = symbol "." *> (Acc <$> pName)
 
 pLet :: Parser Expr
 pLet = do
@@ -101,18 +129,39 @@ pLet = do
   fields <- many (notFollowedBy (symbol "in") *> pField)
   symbol "in"
   body <- pExpr
-  pure $ foldr (\(name, value) body' -> Fix $ App (Fix $ Lam name body') value) body fields
+  pure $ foldr (\(name, value) body' -> App (Lam name body') value) body fields
 
--- pLit :: Parser Expr
--- pLit = lexeme $ Fix . Lit <$> Lex.signed (pure ()) Lex.decimal
-
-pLit :: Parser Expr
-pLit = lexeme $ Fix . Lit <$> Lex.decimal
-
-pVar :: Parser Expr
-pVar = Fix . Var <$> pName
+pLit :: Parser Int
+pLit = lexeme Lex.decimal
 
 pLam :: Parser Expr
 pLam = do
   arg <- try $ pName <* symbol ":"
-  Fix . Lam arg <$> pExpr
+  Lam arg <$> pExpr
+
+semicolon :: Parser ()
+semicolon = symbol ";"
+
+pBlock :: Parser BlockExpr
+pBlock = braces $ BlockExpr <$> many pStatement
+  where
+    pStatement :: Parser StmtExpr
+    pStatement = choice [pBreak, pDecl, pAssign]
+    pBreak = Break <$> (symbol "break" *> pRTExpr <* semicolon)
+
+pDecl :: Parser StmtExpr
+pDecl = do
+  symbol "var"
+  name <- pName
+  symbol "="
+  body <- pRTExpr
+  semicolon
+  pure $ Decl name body
+
+pAssign :: Parser StmtExpr
+pAssign = do
+  name <- pName
+  symbol "="
+  body <- pRTExpr
+  semicolon
+  pure $ Assign name body
