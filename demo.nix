@@ -1,11 +1,11 @@
 let
   pkgs = import ./pkgs.nix;
-  monitor =
+  alloy-demo =
     let
       entr = "${pkgs.entr}/bin/entr";
       comp = "${pkgs.hsPkgs.alloy.components.exes.alloy-exe}/bin/alloy-exe";
     in
-    pkgs.writeShellScriptBin "monitor" ''
+    pkgs.writeShellScriptBin "alloy-demo" ''
       ls *.ayy | ${entr} -c ${comp} -f syntax.ayy
     '';
 in
@@ -13,5 +13,5 @@ pkgs.stdenv.mkDerivation {
   name = "shell";
   buildPhase = "true";
   src = "./.";
-  buildInputs = [ monitor ];
+  buildInputs = [ alloy-demo ];
 }

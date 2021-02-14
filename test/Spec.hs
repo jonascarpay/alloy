@@ -94,6 +94,12 @@ evalTests =
         ( "laziness ignores undefined",
           "let x = builtins.undefined; y = builtins.nine; in y"
         ),
+        ( "fix",
+          "let attr = (builtins.fix) (self: { \
+          \      three: 3, \
+          \      nine: self.three * self.three}); \
+          \ in attr.nine"
+        ),
         ( "line comments",
           unlines ["let a = 9; # comment", "in a"]
         )
