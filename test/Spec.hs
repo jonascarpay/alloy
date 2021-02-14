@@ -35,7 +35,7 @@ testSyntax = testCase "syntax.ayy" $ do
   f <- readFile "syntax.ayy"
   assertParse f >>= \case
     Left err -> assertFailure err
-    Right _ -> pure ()
+    Right val -> assertFailure . show $ ppVal val
 
 evalTests :: TestTree
 evalTests =

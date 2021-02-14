@@ -21,10 +21,14 @@ import Program
 type ThunkID = Int
 
 --TODO Closure Args (p -> m r)
+--TODO How to properly handle RT Vars
+--TODO I think spliced variables can escape their scope?
+-- maybe just tag them from fresh to make sure
 data ValueF val
   = VInt Int
   | VClosure Name Expr Env
   | VAttr (Map Name val)
+  | VRTVar Name
   | VBlock (Closure (Block RTExpr))
   deriving (Functor, Foldable, Traversable)
 
@@ -44,18 +48,28 @@ data ThunkF m v = Deferred (m v) | Computed v
 
 type Thunk = ThunkF Lazy (ValueF ThunkID)
 
-type Env = Map Name ThunkID
-
 newtype LazyT m a = LazyT {_unLazyT :: RWST Env () (Int, Map ThunkID Thunk) (ExceptT String m) a}
   deriving (Functor, Applicative, Monad, MonadReader Env, MonadError String, MonadState (Int, Map ThunkID Thunk))
 
 type Lazy = LazyT Identity
 
+type Env = Map Name (Either ThunkID ())
+
+lookupVar :: Name -> (ThunkID -> Lazy r) -> (() -> Lazy r) -> Lazy r
+lookupVar name kct krt = do
+  asks (M.lookup name) >>= \case
+    Nothing -> throwError $ "undefined variable " <> show name
+    Just (Left tid) -> kct tid
+    Just (Right _) -> krt ()
+
+bindThunk :: Name -> ThunkID -> Env -> Env
+bindThunk n tid = M.insert n (Left tid)
+
+bindRtvar :: Name -> () -> Env -> Env
+bindRtvar n _ = M.insert n (Right ())
+
 yCombinator :: Expr
 yCombinator = Lam "f" (App (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))) (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))))
-
-(?>) :: MonadError e m => m (Maybe a) -> e -> m a
-(?>) m e = m >>= maybe (throwError e) pure
 
 (<?>) :: MonadError e m => Maybe a -> e -> m a
 (<?>) m e = maybe (throwError e) pure m
@@ -78,7 +92,7 @@ withBuiltins m = do
           ("nine", tNine),
           ("fix", tFix)
         ]
-  local (M.insert "builtins" tBuiltins) m
+  local (bindThunk "builtins" tBuiltins) m
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
@@ -93,11 +107,9 @@ step (Lit n) = pure $ VInt n
 step (App f x) = do
   tx <- deferExpr x
   step f >>= \case
-    (VClosure arg body env) -> local (const $ M.insert arg tx env) (step body)
+    (VClosure arg body env) -> local (const $ bindThunk arg tx env) (step body)
     _ -> throwError "Calling a non-function"
-step (Var x) = do
-  tid <- asks (M.lookup x) ?> ("Unbound variable: " <> x)
-  force tid
+step (Var x) = lookupVar x force (const . pure $ VRTVar x)
 step (Lam arg body) = VClosure arg body <$> ask
 step (Arith op a b) = do
   step a >>= \case
@@ -113,63 +125,47 @@ step (Acc f em) =
       tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
       force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr (Block _)) = throwError "Can't handle code blocks yet" -- pure $ VBlock (Closure mempty undefined)
+step (BlockExpr b) = VBlock . Closure mempty <$> genBlock b
 
--- TODO use the writer to track closed functinos
--- TODO what do runtime variables actually map to?
--- TODO rename this to something like runtimegen
--- TODO can the map be a reader?
--- does the count need to be a state?
-newtype CodegenT m a = CodegenT
-  { _unCodegenT ::
-      RWST (Map Name Int) () Int m a
-  }
-  deriving (Functor, Applicative, Monad, MonadTrans, MonadState Int, MonadReader (Map Name Int))
+genBlock :: Block Expr -> Lazy (Block RTExpr)
+genBlock (Block stmts) = Block <$> genStmt stmts
 
--- TODO this forces undecidable instances, monomoprhize at some point
-deriving instance MonadError e m => MonadError e (CodegenT m)
-
-fresh :: Monad m => CodegenT m Int
-fresh = state $ \n -> (n, n + 1)
-
-type Codegen = CodegenT Lazy
-
-runCodegen :: Codegen a -> Lazy a
-runCodegen (CodegenT m) = fst <$> evalRWST m mempty 0
-
-genBlock :: Block Expr -> Codegen (Block RTExpr)
-genBlock = undefined
+genStmt :: [Stmt Expr] -> Lazy [Stmt RTExpr]
+genStmt [Break expr] = pure . Break <$> rtFromExpr expr
+genStmt (Break _ : _) = throwError "Break is not final expression in block"
+genStmt (Decl name expr : r) = do
+  expr' <- rtFromExpr expr
+  r' <- local (bindRtvar name ()) (genStmt r)
+  pure (Decl name expr' : r')
+genStmt (Assign name expr : r) = do
+  expr' <- rtFromExpr expr
+  (Assign name expr' :) <$> genStmt r
+genStmt [] = pure []
 
 -- TODO document why this is split into rtFromExpr and rtFromVal
 -- TODO see if there is potential unification
 -- TODO really this is just for reusing arithmetic ops (and vars?) I think which may be unnecessary
-rtFromExpr :: Expr -> Codegen RTExpr
+rtFromExpr :: Expr -> Lazy RTExpr
 rtFromExpr (Arith op a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
   pure $ RTArith op rta rtb
-rtFromExpr (Var n) =
-  asks (M.lookup n) >>= \case
-    Nothing ->
-      -- TODO lift only once?
-      lift (asks $ M.lookup n) >>= \case
-        Nothing -> throwError $ "Neither runtime nor comptime variable: " <> n
-        Just tid -> lift (deepEval tid) >>= rtFromVal
-    Just _ -> pure $ RTVar n
-rtFromExpr expr@App {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Lit {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr (Var n) = lookupVar n (deepEval >=> rtFromVal) (const $ pure $ RTVar n)
+rtFromExpr expr@App {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@Lam {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@Lit {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@Attr {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@Acc {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@BlockExpr {} = deepEvalExpr expr >>= rtFromVal
 
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
-rtFromVal :: Value -> Codegen RTExpr
+rtFromVal :: Value -> Lazy RTExpr
 rtFromVal (Fix (VInt n)) = pure $ RTLit n
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix (VBlock (Closure _USEME b))) = pure $ RTBlock b
+rtFromVal (Fix (VRTVar n)) = pure $ RTVar n
 
 -- rtFromVal (Fix (VBlock _)) = throwError "can't handle attribute set values yet"
 

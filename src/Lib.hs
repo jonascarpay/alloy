@@ -27,7 +27,7 @@ repl :: IO ()
 repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
   where
     loop =
-      getInputLine "Vandelay Industries> " >>= \case
+      getInputLine "> " >>= \case
         Nothing -> outputStrLn "You're my favorite customer"
         Just str ->
           case parse pToplevel "" str of
