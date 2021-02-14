@@ -7,7 +7,6 @@ import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Void
-import Debug.Trace
 import Expr
 import Text.Megaparsec
 import Text.Megaparsec.Char hiding (space)
@@ -55,22 +54,19 @@ keywords :: Set Name
 keywords = S.fromList ["return", "let", "in", "inherit", "break", "var"]
 
 pAttrs :: Parser Expr
-pAttrs = braces $ Attr . M.fromList <$> many pField
-
-pField :: Parser (Name, Expr)
-pField = pInherit <|> pNormalField
+pAttrs = braces $ Attr . M.fromList <$> sepBy (pInherit <|> pAttrField) comma
   where
-    pInherit = do
-      symbol "inherit"
+    pAttrField = do
       name <- pName
-      semicolon
-      pure (name, Var name)
-    pNormalField = do
-      n <- pName
-      symbol "="
-      x <- pExpr
-      semicolon
-      pure (n, x)
+      symbol ":"
+      expr <- pExpr
+      pure (name, expr)
+
+pInherit :: Parser (Name, Expr)
+pInherit = do
+  symbol "inherit"
+  name <- pName
+  pure (name, Var name)
 
 -- first try to parse expr as lambda
 -- first try to parse term as app
@@ -127,10 +123,16 @@ pFieldAcc = symbol "." *> (Acc <$> pName)
 pLet :: Parser Expr
 pLet = do
   try $ symbol "let"
-  fields <- many (notFollowedBy (symbol "in") *> pField)
+  fields <- many $ notFollowedBy (symbol "in") *> (pInherit <|> pField) <* semicolon
   symbol "in"
   body <- pExpr
   pure $ foldr (\(name, value) body' -> App (Lam name body') value) body fields
+  where
+    pField = do
+      n <- pName
+      symbol "="
+      x <- pExpr
+      pure (n, x)
 
 pLit :: Parser Int
 pLit = lexeme Lex.decimal
@@ -142,6 +144,9 @@ pLam = do
 
 semicolon :: Parser ()
 semicolon = symbol ";"
+
+comma :: Parser ()
+comma = symbol ","
 
 pBlock :: Parser Expr
 pBlock = braces $ BlockExpr . Block <$> many pStatement

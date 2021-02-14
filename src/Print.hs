@@ -10,7 +10,7 @@ import Prettyprinter
 import Program
 
 ppMap :: (k -> Doc ann) -> (v -> Doc ann) -> Map k v -> Doc ann
-ppMap fk fv attrs = braces' $ align . vcat $ (\(k, v) -> hsep [fk k, "=", fv v <> ";"]) <$> M.toList attrs
+ppMap fk fv attrs = braces' $ align . vcat $ (\(k, v) -> fk k <+> ":" <+> fv v <> ",") <$> M.toList attrs
 
 braces' :: Doc ann -> Doc ann
 braces' d = vcat [lbrace, indent 2 d, rbrace]

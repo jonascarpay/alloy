@@ -52,7 +52,7 @@ evalTests =
         ("id", "(x: x) 9"),
         ("fst", "(x: y: x) 9 11"),
         ("snd", "(x: y: y) 11 9"),
-        ("simple attribute set", "{foo = 9;}.foo"),
+        ("simple attribute set", "{foo: 9}.foo"),
         ("simple let binding", "let x = 9; in x"),
         ( "let with local reference",
           "let y = 9; \
@@ -60,13 +60,13 @@ evalTests =
           \ in x"
         ),
         ( "nested attrs",
-          "{foo = {bar = 9;};}.foo.bar"
+          "{foo: {bar: 9}}.foo.bar"
         ),
         ( "let binding with nested attrs",
-          "let attrs = {foo = {bar = 9;};}; \
+          "let attrs = {foo: {bar: 9}}; \
           \ in attrs.foo.bar"
         ),
-        ("reference in attr binding", "(x: {a = x;}.a) 9"),
+        ("reference in attr binding", "(x: {a: x}.a) 9"),
         ( "not sure what to call it but it used to fail",
           "let id = x: x; \
           \    x = 9; \
@@ -86,8 +86,8 @@ evalTests =
         ( "lazy inheritance test",
           "let diverge = (x: x x) (x: x x); \
           \    x = 9;                       \
-          \ in { inherit diverge;           \
-          \      inherit x;                 \
+          \ in { inherit diverge,           \
+          \      inherit x                  \
           \    }.x"
         ),
         ("simple builtin", "builtins.nine"),
