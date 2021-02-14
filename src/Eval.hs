@@ -14,6 +14,8 @@ import Control.Monad.RWS
 import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Sequence (Seq)
+import Data.Sequence qualified as Seq
 import Debug.Trace
 import Expr
 import Lens.Micro.Platform
@@ -31,6 +33,7 @@ data ValueF val
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock (Closure (Block RTExpr))
+  | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
 arith :: ArithOp -> Int -> Int -> Int
@@ -127,6 +130,7 @@ step (Acc f em) =
       force tid
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) = VBlock . Closure mempty <$> genBlock b
+step (List l) = VList <$> traverse deferExpr l
 
 genBlock :: Block Expr -> Lazy (Block RTExpr)
 genBlock (Block stmts) = Block <$> genStmt stmts

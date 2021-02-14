@@ -2,6 +2,7 @@
 
 module Print (ppExpr, ppVal) where
 
+import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
 import Eval
@@ -24,6 +25,7 @@ ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppMap pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock ppExpr b
+ppExpr (List l) = list (ppExpr <$> toList l)
 
 ppBlock :: (expr -> Doc ann) -> Block expr -> Doc ann
 ppBlock _ (Block []) = "{}"
@@ -55,3 +57,4 @@ ppVal (Fix VRTVar {}) = error "I'm not sure" -- TODO
 ppVal (Fix (VBlock (Closure env b)))
   | null env = ppBlock ppRTExpr b
   | otherwise = error "closure actually has values" -- TODO
+ppVal (Fix (VList l)) = list (ppVal <$> toList l)

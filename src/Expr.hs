@@ -1,6 +1,7 @@
 module Expr where
 
 import Data.Map (Map)
+import Data.Sequence (Seq)
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
 
@@ -11,6 +12,7 @@ data Expr
   | App Expr Expr
   | Lam Name Expr
   | Lit Int
+  | List (Seq Expr)
   | Arith ArithOp Expr Expr
   | Attr (Map Name Expr)
   | Acc Name Expr

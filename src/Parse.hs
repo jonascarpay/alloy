@@ -4,6 +4,7 @@ import Control.Monad
 import Control.Monad.Combinators.Expr
 import Data.Functor.Identity
 import Data.Map qualified as M
+import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Void
@@ -36,6 +37,11 @@ parens = between (symbol "(") (symbol ")")
 
 braces :: Parser p -> Parser p
 braces = between (symbol "{") (symbol "}")
+
+pList :: Parser Expr
+pList = between (symbol "[") (symbol "]") $ do
+  exprs <- sepEndBy pExpr comma
+  pure $ List $ Seq.fromList exprs
 
 pToplevel :: Parser Expr
 pToplevel = pExpr <* eof
@@ -81,6 +87,7 @@ pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
     pTerm1 =
       choice
         [ parens pExpr,
+          pList,
           try pAttrs,
           pBlock,
           Var <$> pName, -- TODO turn back into pVar

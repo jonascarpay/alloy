@@ -24,6 +24,7 @@
     - [ ] are they just atoms? would be weird to have 0 not equal false though
   - [ ] trace
   - [ ] stack traces
+  - [ ] list builtins
   - [ ] nix-style { foo.bar = 4; }
   - [ ] proper megaparsec errors for unexpected keywords
   - [ ] check whether all rejected words are actually keywords
