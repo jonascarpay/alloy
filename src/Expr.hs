@@ -14,24 +14,17 @@ data Expr
   | Arith ArithOp Expr Expr
   | Attr (Map Name Expr)
   | Acc Name Expr
-  | BlockLit BlockExpr
+  | BlockExpr (Block Expr)
+  deriving (Eq, Show)
 
 data ArithOp = Add | Sub | Mul
+  deriving (Eq, Show)
 
-newtype BlockExpr = BlockExpr {unBlockExpr :: [StmtExpr]}
+newtype Block expr = Block {unBlock :: [Stmt expr]}
+  deriving (Eq, Show)
 
-data StmtExpr
-  = Break RTExpr
-  | Decl Name RTExpr
-  | Assign Name RTExpr
-
--- TODO Maybe unify app var (num lit)
--- eventually also struct literals in rt
--- maybe just unify with Expr entirely?
-
-data RTExpr
-  = RTVar Name
-  | RTLit Int
-  | RTApp RTExpr RTExpr
-  | RTArith ArithOp RTExpr RTExpr
-  | RTBlock BlockExpr
+data Stmt expr
+  = Break expr
+  | Decl Name expr
+  | Assign Name expr
+  deriving (Eq, Show)

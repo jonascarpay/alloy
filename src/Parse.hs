@@ -82,9 +82,9 @@ pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
       choice
         [ parens pExpr,
           try pAttrs,
-          BlockLit <$> pBlock,
-          Var <$> pName,
-          Lit <$> pLit
+          pBlock,
+          Var <$> pName, -- TODO turn back into pVar
+          Lit <$> pLit -- TODO turn back into pLit
         ]
     pTerm = foldl1 App <$> some pTerm1 -- TODO foldl
     operatorTable :: [[Operator Parser Expr]]
@@ -99,26 +99,26 @@ pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
         repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
         repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
 
--- TODO unify with pExpr?
-pRTExpr :: Parser RTExpr
-pRTExpr = makeExprParser pTerm operatorTable
-  where
-    pTerm1 =
-      choice
-        [ parens pRTExpr,
-          RTLit <$> pLit,
-          RTVar <$> pName,
-          RTBlock <$> pBlock
-        ]
-    pTerm = foldl1 RTApp <$> some pTerm1
-    operatorTable :: [[Operator Parser RTExpr]]
-    operatorTable =
-      [ [arith "*" Mul],
-        [arith "+" Add, arith "-" Sub]
-      ]
-      where
-        arith :: String -> ArithOp -> Operator Parser RTExpr
-        arith sym op = InfixL (RTArith op <$ symbol sym)
+-- -- TODO unify with pExpr?
+-- pRTExpr :: Parser RTExpr
+-- pRTExpr = makeExprParser pTerm operatorTable
+--   where
+--     pTerm1 =
+--       choice
+--         [ parens pRTExpr,
+--           RTLit <$> pLit,
+--           RTVar <$> pName,
+--           RTBlock <$> pBlock
+--         ]
+--     pTerm = foldl1 RTApp <$> some pTerm1
+--     operatorTable :: [[Operator Parser RTExpr]]
+--     operatorTable =
+--       [ [arith "*" Mul],
+--         [arith "+" Add, arith "-" Sub]
+--       ]
+--       where
+--         arith :: String -> ArithOp -> Operator Parser RTExpr
+--         arith sym op = InfixL (RTArith op <$ symbol sym)
 
 pFieldAcc :: Parser (Expr -> Expr)
 pFieldAcc = symbol "." *> (Acc <$> pName)
@@ -142,26 +142,26 @@ pLam = do
 semicolon :: Parser ()
 semicolon = symbol ";"
 
-pBlock :: Parser BlockExpr
-pBlock = braces $ BlockExpr <$> many pStatement
+pBlock :: Parser Expr
+pBlock = braces $ BlockExpr . Block <$> many pStatement
   where
-    pStatement :: Parser StmtExpr
+    pStatement :: Parser (Stmt Expr)
     pStatement = choice [pBreak, pDecl, pAssign]
-    pBreak = Break <$> (symbol "break" *> pRTExpr <* semicolon)
+    pBreak = Break <$> (symbol "break" *> pExpr <* semicolon)
 
-pDecl :: Parser StmtExpr
+pDecl :: Parser (Stmt Expr)
 pDecl = do
   symbol "var"
   name <- pName
   symbol "="
-  body <- pRTExpr
+  body <- pExpr
   semicolon
   pure $ Decl name body
 
-pAssign :: Parser StmtExpr
+pAssign :: Parser (Stmt Expr)
 pAssign = do
   name <- pName
   symbol "="
-  body <- pRTExpr
+  body <- pExpr
   semicolon
   pure $ Assign name body

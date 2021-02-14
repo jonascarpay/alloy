@@ -19,24 +19,18 @@ ppExpr (Lit n) = pretty n
 ppExpr (Arith _ a b) = parens $ hsep ["_", ppExpr a, ppExpr b]
 ppExpr (Attr m) = ppMap pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockLit b) = ppBlock b
+ppExpr (BlockExpr b) = ppBlock b
 
-ppBlock :: BlockExpr -> Doc ann
-ppBlock (BlockExpr stmts) = braces $ align $ vcat (ppStatement <$> stmts)
+ppBlock :: Block Expr -> Doc ann
+ppBlock (Block stmts) = braces $ align $ vcat (ppStatement <$> stmts)
 
-ppStatement :: StmtExpr -> Doc ann
-ppStatement (Break expr) = "break" <+> ppRTExpr expr <> ";"
-ppStatement (Decl name expr) = "var" <+> pretty name <+> "=" <+> ppRTExpr expr <> ";"
-ppStatement (Assign name expr) = pretty name <+> "=" <+> ppRTExpr expr <> ";"
-
-ppRTExpr :: RTExpr -> Doc ann
-ppRTExpr (RTVar x) = pretty x
-ppRTExpr (RTLit n) = pretty n
-ppRTExpr (RTApp f x) = ppRTExpr f <+> ppRTExpr x
-ppRTExpr (RTArith _ a b) = parens $ "_" <+> ppRTExpr a <+> ppRTExpr b
-ppRTExpr (RTBlock b) = ppBlock b
+ppStatement :: Stmt Expr -> Doc ann
+ppStatement (Break expr) = "break" <+> ppExpr expr <> ";"
+ppStatement (Decl name expr) = "var" <+> pretty name <+> "=" <+> ppExpr expr <> ";"
+ppStatement (Assign name expr) = pretty name <+> "=" <+> ppExpr expr <> ";"
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VInt n)) = pretty n
 ppVal (Fix (VAttr attrs)) = ppMap pretty ppVal attrs
-ppVal (Fix VClosure {}) = "<<closure>>"
+ppVal (Fix VClosure {}) = "<<comptime closure>>"
+ppVal (Fix VBlock {}) = "<<runtime closure>>"

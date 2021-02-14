@@ -47,6 +47,7 @@ library
     Lib
     Parse
     Print
+    Program
 
   build-depends:
 

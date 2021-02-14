@@ -14,24 +14,32 @@
   - [x] remove lens dependency?
 - [ ] step 2
   - [ ] figure out step 2
+  - [x] recursion
   - [ ] builtins
     - [ ] error
       - [ ] strings
-- [ ] step n
-  - [ ] booleans
 - [ ] eventually
-  - [ ] recursion
+  - [ ] recursion but really
+  - [ ] booleans
+    - [ ] are they just atoms? would be weird to have 0 not equal false though
   - [ ] trace
   - [ ] stack traces
+  - [ ] nix-style { foo.bar = 4; }
   - [ ] proper megaparsec errors for unexpected keywords
   - [ ] check whether all rejected words are actually keywords
+  - [ ] rename stuff
+    - [ ] lazy evaluation terminology
+    - [ ] code closure
   - [ ] imports
     - [ ] check for unbound variables to avoid capture issues
   - [ ] warnings
+  - [ ] fix precedence issue (`builtins.fix (self: 0)` fails)
   - [ ] benchmarks
     - [ ] use Text instead of String
   - [ ] inherit from set, inherit multiple
   - [ ] performance stuff
+  - [ ] (!) syntax issue with braces for function calls, f(x) has different meaning in rt and ct. spaces?
+  - [ ] `where`?
   - [ ] design questions
     - [ ] Everything
     - [ ] Atoms

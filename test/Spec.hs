@@ -46,6 +46,9 @@ evalTests =
         ("add", "4+5"),
         ("mul", "3*3"),
         ("sub", "13-4"),
+        ("precedence", "3 * 5 - 6"),
+        ("precedence 2", "3 * 13 - 5 * 6"),
+        ("associativity", "15 - 5 - 1"),
         ("id", "(x: x) 9"),
         ("fst", "(x: y: x) 9 11"),
         ("snd", "(x: y: y) 11 9"),
@@ -74,7 +77,7 @@ evalTests =
           \    x = 9; \
           \ in id id id id x"
         ),
-        ( "scoping test 1",
+        ( "scoping test",
           "(id: x: (id id) (id x)) (x: x) 9"
         ),
         ( "laziness test",
