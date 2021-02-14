@@ -1,7 +1,7 @@
 let
   x = 4;
   addone = x: x + 1;
-  isfour = {
+  rtfour = {
     var a = 0;
     var b = 3;
     break a + b;
@@ -10,7 +10,7 @@ let
 in
 {
   var a = 0;
-  var b = isfour;
+  var b = rtfour;
   addonert b;
   c = x + 3;
 }

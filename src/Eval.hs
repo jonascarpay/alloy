@@ -139,8 +139,15 @@ genStmt (Decl name expr : r) = do
   r' <- local (bindRtvar name ()) (genStmt r)
   pure (Decl name expr' : r')
 genStmt (Assign name expr : r) = do
+  name' <-
+    let ct tid =
+          force tid >>= \case
+            VRTVar v -> pure v
+            _ -> throwError $ "Assigning to non-runtime-variable " <> show name
+        rt _ = pure name
+     in lookupVar name ct rt
   expr' <- rtFromExpr expr
-  (Assign name expr' :) <$> genStmt r
+  (Assign name' expr' :) <$> genStmt r
 genStmt (ExprStmt expr : r) = do
   expr' <- rtFromExpr expr
   (ExprStmt expr' :) <$> genStmt r
