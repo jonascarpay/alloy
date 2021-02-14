@@ -27,4 +27,5 @@ data Stmt expr
   = Break expr
   | Decl Name expr
   | Assign Name expr
+  | ExprStmt expr
   deriving (Eq, Show)

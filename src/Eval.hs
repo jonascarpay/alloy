@@ -14,6 +14,7 @@ import Control.Monad.RWS
 import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
+import Debug.Trace
 import Expr
 import Lens.Micro.Platform
 import Program
@@ -140,6 +141,9 @@ genStmt (Decl name expr : r) = do
 genStmt (Assign name expr : r) = do
   expr' <- rtFromExpr expr
   (Assign name expr' :) <$> genStmt r
+genStmt (ExprStmt expr : r) = do
+  expr' <- rtFromExpr expr
+  (ExprStmt expr' :) <$> genStmt r
 genStmt [] = pure []
 
 -- TODO document why this is split into rtFromExpr and rtFromVal

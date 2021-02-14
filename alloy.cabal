@@ -55,7 +55,10 @@ executable alloy-exe
   import:         common-options
   hs-source-dirs: app
   main-is:        Main.hs
-  build-depends:  alloy
+  build-depends:
+    , alloy
+    , optparse-applicative
+
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
 
 test-suite alloy-test

@@ -7,6 +7,7 @@ import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Void
+import Debug.Trace
 import Expr
 import Text.Megaparsec
 import Text.Megaparsec.Char hiding (space)
@@ -146,8 +147,9 @@ pBlock :: Parser Expr
 pBlock = braces $ BlockExpr . Block <$> many pStatement
   where
     pStatement :: Parser (Stmt Expr)
-    pStatement = choice [pBreak, pDecl, pAssign]
+    pStatement = choice [pBreak, pDecl, try pAssign, pExprStmt] -- TODO try to avoid ambiguity with naked statement
     pBreak = Break <$> (symbol "break" *> pExpr <* semicolon)
+    pExprStmt = ExprStmt <$> pExpr <* semicolon
 
 pDecl :: Parser (Stmt Expr)
 pDecl = do

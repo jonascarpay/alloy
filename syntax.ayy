@@ -1,14 +1,19 @@
 let
-  # add = fn(a, b) {
-  #   return a+b;
-  # };
-  addinline = a: b: {
+  x = 4;
+  addone = x: x + 1;
+  isfour = {
+    var a = 0;
+    var b = 3;
     break a + b;
   };
-in {
-  var a = 2;
-  var b = 5;
-  var c = 0;
-  c = { break a + b; };
-  break addinline a b;
+  addonert = a: {
+    var c = 0;
+    a = a + 1;
+  };
+in
+{
+  var a = 0;
+  var b = isfour;
+  addonert b;
+  c = x + 3;
 }
