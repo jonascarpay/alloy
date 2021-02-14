@@ -41,7 +41,10 @@ pToplevel :: Parser Expr
 pToplevel = pExpr <* eof
 
 pWord :: Parser String
-pWord = lexeme $ takeWhile1P (Just "identifier") (`elem` ['a' .. 'z'])
+pWord = lexeme . (<?> "identifier") $ do
+  h <- letterChar
+  t <- many (alphaNumChar <|> char '_')
+  pure $ h : t
 
 pName :: Parser Name
 pName = withPred hasError pWord

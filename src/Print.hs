@@ -26,6 +26,8 @@ ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock ppExpr b
 
 ppBlock :: (expr -> Doc ann) -> Block expr -> Doc ann
+ppBlock _ (Block []) = "{}"
+ppBlock f (Block [stmt]) = braces $ ppStatement f stmt
 ppBlock f (Block stmts) = braces' $ align $ vcat (ppStatement f <$> stmts)
 
 ppStatement :: (epxr -> Doc ann) -> Stmt epxr -> Doc ann

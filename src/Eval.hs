@@ -117,8 +117,8 @@ step (Arith op a b) = do
     VInt va ->
       step b >>= \case
         VInt vb -> pure (VInt $ arith op va vb)
-        _ -> throwError "Adding a non-integer"
-    _ -> throwError "Adding a non-integer"
+        _ -> throwError "Arithmetic on a non-integer"
+    _ -> throwError "Arithmetic on a non-integer"
 step (Attr m) = VAttr <$> traverse deferExpr m
 step (Acc f em) =
   step em >>= \case
