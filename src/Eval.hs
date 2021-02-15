@@ -34,8 +34,8 @@ data ValueF val
   | VClosure Name Expr Env
   | VAttr (Map Name val)
   | VRTVar Name
-  | VBlock (Closure (Block RTExpr))
-  | VFunc [Name] (Closure (Block RTExpr))
+  | VBlock (Block RTExpr)
+  | VFunc [Name] (Block RTExpr)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -55,12 +55,22 @@ data ThunkF m v = Deferred (m v) | Computed v
 
 type Thunk = ThunkF Lazy (ValueF ThunkID)
 
-newtype LazyT m a = LazyT {_unLazyT :: RWST Env () (Int, Map ThunkID Thunk) (ExceptT String m) a}
-  deriving (Functor, Applicative, Monad, MonadReader Env, MonadError String, MonadState (Int, Map ThunkID Thunk))
+newtype LazyT m a = LazyT {_unLazyT :: RWST Env RuntimeEnv (Int, Map ThunkID Thunk) (ExceptT String m) a}
+  deriving (Functor, Applicative, Monad, MonadReader Env, MonadError String, MonadState (Int, Map ThunkID Thunk), MonadWriter RuntimeEnv)
 
 type Lazy = LazyT Identity
 
 type Env = Map Name (Either ThunkID ())
+
+data RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([Name], Block RTExpr)}
+  deriving (Eq, Show)
+
+tellFunction :: Name -> [Name] -> Block RTExpr -> Lazy ()
+tellFunction name args body = tell (RuntimeEnv (M.singleton name (args, body)))
+
+instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
+
+instance Monoid RuntimeEnv where mempty = RuntimeEnv mempty
 
 lookupVar :: Name -> (ThunkID -> Lazy r) -> (() -> Lazy r) -> Lazy r
 lookupVar name kct krt = do
@@ -132,7 +142,7 @@ step (Acc f em) =
       tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
       force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) = VBlock . Closure mempty <$> genBlock b
+step (BlockExpr b) = VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (Func args body) = local (flip (foldr bindRtvar) args . forgetRT) $ do
   step body >>= \case
@@ -176,18 +186,19 @@ rtFromExpr (Arith op a b) = do
   rtb <- rtFromExpr b
   pure $ RTArith op rta rtb
 rtFromExpr (Var n) = lookupVar n (deepEval >=> rtFromVal) (const $ pure $ RTVar n)
-rtFromExpr expr@(App f x) = do
+rtFromExpr (App f x) = do
   tf <- deferExpr f
   force tf >>= \case
     (VClosure arg body env) -> do
-      tx <- deferExpr x -- TODO this can happen later, right?
+      tx <- deferExpr x
       local (const $ bindThunk arg tx env) $
         deepEvalExpr body >>= rtFromVal
-    (VFunc _names _body) ->
+    (VFunc argNames body) ->
       case x of
-        List args -> do
-          rtArgs <- traverse rtFromExpr (toList args)
+        List argExprs -> do
+          rtArgs <- traverse rtFromExpr (toList argExprs)
           let name = "function_" <> show tf
+          tellFunction name (toList argNames) body
           pure $ RTCall name rtArgs
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
@@ -210,7 +221,7 @@ rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime e
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
-rtFromVal (Fix (VBlock (Closure _USEME b))) = pure $ RTBlock b
+rtFromVal (Fix (VBlock b)) = pure $ RTBlock b
 rtFromVal (Fix (VRTVar n)) = pure $ RTVar n
 
 -- rtFromVal (Fix (VBlock _)) = throwError "can't handle attribute set values yet"
