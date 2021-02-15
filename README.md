@@ -27,6 +27,7 @@
   - [ ] list builtins
   - [ ] nix-style { foo.bar = 4; }
   - [ ] proper megaparsec errors for unexpected keywords
+  - [ ] Does an attribute set of programs share RT stuff between itself?
   - [ ] check whether all rejected words are actually keywords
   - [ ] think about runtime function call syntax
     - [ ] it's not lists

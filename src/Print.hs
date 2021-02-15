@@ -51,13 +51,19 @@ opSymbol Add = "+"
 opSymbol Mul = "*"
 opSymbol Sub = "-"
 
+ppWithRuntimeEnv :: RuntimeEnv -> Doc ann -> Doc ann
+ppWithRuntimeEnv (RuntimeEnv fns) doc
+  | null fns = doc
+  | otherwise = vcat [indent 2 doc, "where", indent 2 . vcat $ (\(name, (args, body)) -> ppFunction name args body) <$> M.toList fns]
+
+ppFunction :: Name -> [Name] -> Block RTExpr -> Doc ann
+ppFunction name args body = pretty name <> list (pretty <$> args) <> ":" <+> ppBlock ppRTExpr body
+
 ppVal :: Value -> Doc ann
 ppVal (Fix (VInt n)) = pretty n
 ppVal (Fix (VAttr attrs)) = ppMap pretty ppVal attrs
 ppVal (Fix VClosure {}) = "<<comptime closure>>"
 ppVal (Fix VRTVar {}) = error "I'm not sure" -- TODO
-ppVal (Fix (VBlock (Closure env b)))
-  | null env = ppBlock ppRTExpr b
-  | otherwise = "<<closure actually has values>>" -- TODO
+ppVal (Fix (VBlock env b)) = ppWithRuntimeEnv env (ppBlock ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
-ppVal (Fix (VFunc args body)) = list (pretty <$> args) <> ":" <+> ppVal (Fix $ VBlock body)
+ppVal (Fix (VFunc env args body)) = ppWithRuntimeEnv env $ ppFunction "" args body

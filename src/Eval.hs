@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -7,18 +8,17 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Eval (ValueF (..), Value, eval) where
+module Eval (ValueF (..), Value, eval, RuntimeEnv (..)) where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Control.Monad.Writer
 import Data.Either (isLeft)
 import Data.Foldable
 import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
-import Debug.Trace
 import Expr
 import Lens.Micro.Platform
 import Program
@@ -34,8 +34,8 @@ data ValueF val
   | VClosure Name Expr Env
   | VAttr (Map Name val)
   | VRTVar Name
-  | VBlock (Block RTExpr)
-  | VFunc [Name] (Block RTExpr)
+  | VBlock RuntimeEnv (Block RTExpr)
+  | VFunc RuntimeEnv [Name] (Block RTExpr)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -53,26 +53,23 @@ type Value = Fix ValueF
 
 data ThunkF m v = Deferred (m v) | Computed v
 
-type Thunk = ThunkF Lazy (ValueF ThunkID)
+type Thunk = ThunkF Eval (ValueF ThunkID)
 
-newtype LazyT m a = LazyT {_unLazyT :: RWST Env RuntimeEnv (Int, Map ThunkID Thunk) (ExceptT String m) a}
+newtype EvalT m a = EvalT {_unLazyT :: RWST Env RuntimeEnv (Int, Map ThunkID Thunk) (ExceptT String m) a}
   deriving (Functor, Applicative, Monad, MonadReader Env, MonadError String, MonadState (Int, Map ThunkID Thunk), MonadWriter RuntimeEnv)
 
-type Lazy = LazyT Identity
+type Eval = EvalT Identity
 
 type Env = Map Name (Either ThunkID ())
 
-data RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([Name], Block RTExpr)}
+newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([Name], Block RTExpr)}
   deriving (Eq, Show)
-
-tellFunction :: Name -> [Name] -> Block RTExpr -> Lazy ()
-tellFunction name args body = tell (RuntimeEnv (M.singleton name (args, body)))
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
 
 instance Monoid RuntimeEnv where mempty = RuntimeEnv mempty
 
-lookupVar :: Name -> (ThunkID -> Lazy r) -> (() -> Lazy r) -> Lazy r
+lookupVar :: (MonadReader Env m, MonadError String m) => Name -> (ThunkID -> m r) -> (() -> m r) -> m r
 lookupVar name kct krt = do
   asks (M.lookup name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
@@ -92,12 +89,12 @@ yCombinator = Lam "f" (App (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))) (
 (<?>) m e = maybe (throwError e) pure m
 
 eval :: Expr -> Either String Value
-eval eRoot = runLazy $ withBuiltins $ deepEvalExpr eRoot
+eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
-runLazy :: Lazy a -> Either String a
-runLazy (LazyT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
+runEval :: Eval a -> Either String a
+runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
 
-withBuiltins :: Lazy a -> Lazy a
+withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
   tNine <- deferVal $ VInt 9
@@ -113,13 +110,13 @@ withBuiltins m = do
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
-deepEvalExpr :: Expr -> Lazy Value
+deepEvalExpr :: Expr -> Eval Value
 deepEvalExpr = deferExpr >=> deepEval
 
-deepEval :: ThunkID -> Lazy Value
+deepEval :: ThunkID -> Eval Value
 deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 
-step :: Expr -> Lazy (ValueF ThunkID)
+step :: Expr -> Eval (ValueF ThunkID)
 step (Lit n) = pure $ VInt n
 step (App f x) = do
   tx <- deferExpr x -- TODO this can happen later, right?
@@ -142,20 +139,25 @@ step (Acc f em) =
       tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
       force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) = VBlock <$> genBlock b
+step (BlockExpr b) = uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (Func args body) = local (flip (foldr bindRtvar) args . forgetRT) $ do
   step body >>= \case
-    VBlock b -> pure $ VFunc args b
+    VBlock env b -> pure $ VFunc env args b
     _ -> throwError "Function body did not evaluate to code block"
 
 forgetRT :: Env -> Env
 forgetRT = M.filter isLeft
 
-genBlock :: Block Expr -> Lazy (Block RTExpr)
-genBlock (Block stmts) = Block <$> genStmt stmts
+genBlock :: Block Expr -> Eval (RuntimeEnv, Block RTExpr)
+genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriterT (genStmt stmts)
 
-genStmt :: [Stmt Expr] -> Lazy [Stmt RTExpr]
+type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
+
+tellFunction :: Name -> [Name] -> Block RTExpr -> RTEval ()
+tellFunction name args body = tell (RuntimeEnv $ M.singleton name (args, body))
+
+genStmt :: [Stmt Expr] -> RTEval [Stmt RTExpr]
 genStmt [Break expr] = pure . Break <$> rtFromExpr expr
 genStmt (Break _ : _) = throwError "Break is not final expression in block"
 genStmt (Decl name expr : r) = do
@@ -169,7 +171,7 @@ genStmt (Assign name expr : r) = do
             VRTVar v -> pure v
             _ -> throwError $ "Assigning to non-runtime-variable " <> show name
         rt _ = pure name
-     in lookupVar name ct rt
+     in lift $ lookupVar name ct rt
   expr' <- rtFromExpr expr
   (Assign name' expr' :) <$> genStmt r
 genStmt (ExprStmt expr : r) = do
@@ -180,65 +182,66 @@ genStmt [] = pure []
 -- TODO document why this is split into rtFromExpr and rtFromVal
 -- TODO see if there is potential unification
 -- TODO really this is just for reusing arithmetic ops (and vars?) I think which may be unnecessary
-rtFromExpr :: Expr -> Lazy RTExpr
+rtFromExpr :: Expr -> RTEval RTExpr
 rtFromExpr (Arith op a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
   pure $ RTArith op rta rtb
-rtFromExpr (Var n) = lookupVar n (deepEval >=> rtFromVal) (const $ pure $ RTVar n)
+rtFromExpr (Var n) = lookupVar n (lift . deepEval >=> rtFromVal) (const $ pure $ RTVar n)
 rtFromExpr (App f x) = do
-  tf <- deferExpr f
-  force tf >>= \case
+  tf <- lift $ deferExpr f
+  lift (force tf) >>= \case
     (VClosure arg body env) -> do
-      tx <- deferExpr x
+      tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
-        deepEvalExpr body >>= rtFromVal
-    (VFunc argNames body) ->
+        lift (deepEvalExpr body) >>= rtFromVal
+    (VFunc env argNames body) ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           let name = "function_" <> show tf
+          tell env
           tellFunction name (toList argNames) body
           pure $ RTCall name rtArgs
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
-rtFromExpr expr@Lam {} = deepEvalExpr expr >>= rtFromVal
-rtFromExpr expr@Lit {} = deepEvalExpr expr >>= rtFromVal
-rtFromExpr expr@Attr {} = deepEvalExpr expr >>= rtFromVal
-rtFromExpr expr@List {} = deepEvalExpr expr >>= rtFromVal
-rtFromExpr expr@Acc {} = deepEvalExpr expr >>= rtFromVal
-rtFromExpr expr@BlockExpr {} = deepEvalExpr expr >>= rtFromVal
-rtFromExpr expr@Func {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Lit {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 
 -- (VFunc arg body) ->
 --   let name = "function_" <> show tf
 --    in pure
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
-rtFromVal :: Value -> Lazy RTExpr
+rtFromVal :: Value -> RTEval RTExpr
 rtFromVal (Fix (VInt n)) = pure $ RTLit n
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
-rtFromVal (Fix (VBlock b)) = pure $ RTBlock b
+rtFromVal (Fix (VBlock env b)) = RTBlock b <$ tell env
 rtFromVal (Fix (VRTVar n)) = pure $ RTVar n
 
 -- rtFromVal (Fix (VBlock _)) = throwError "can't handle attribute set values yet"
 
-mkThunk :: Thunk -> Lazy ThunkID
+mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(n, m) -> (n, (n + 1, M.insert n thunk m))
 
-deferM :: Lazy (ValueF ThunkID) -> Lazy ThunkID
+deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
 deferM = mkThunk . Deferred
 
-deferVal :: ValueF ThunkID -> Lazy ThunkID
+deferVal :: ValueF ThunkID -> Eval ThunkID
 deferVal = mkThunk . Computed
 
-deferExpr :: Expr -> Lazy ThunkID
+deferExpr :: Expr -> Eval ThunkID
 deferExpr expr = ask >>= \env -> mkThunk . Deferred $ local (const env) (step expr)
 
-force :: ThunkID -> Lazy (ValueF ThunkID)
+force :: ThunkID -> Eval (ValueF ThunkID)
 force tid =
   gets (M.lookup tid . snd) >>= \case
     Just (Deferred m) -> do
