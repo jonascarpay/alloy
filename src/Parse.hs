@@ -38,13 +38,14 @@ parens = between (symbol "(") (symbol ")")
 braces :: Parser p -> Parser p
 braces = between (symbol "{") (symbol "}")
 
+list :: Parser a -> Parser [a]
+list = between (symbol "[") (symbol "]") . flip sepEndBy comma
+
 pList :: Parser Expr
-pList = between (symbol "[") (symbol "]") $ do
-  exprs <- sepEndBy pExpr comma
-  pure $ List $ Seq.fromList exprs
+pList = List . Seq.fromList <$> list pExpr
 
 pToplevel :: Parser Expr
-pToplevel = pExpr <* eof
+pToplevel = space *> pExpr <* eof
 
 pWord :: Parser String
 pWord = lexeme . (<?> "identifier") $ do
@@ -63,7 +64,7 @@ keywords :: Set Name
 keywords = S.fromList ["return", "let", "in", "inherit", "break", "var"]
 
 pAttrs :: Parser Expr
-pAttrs = braces $ Attr . M.fromList <$> sepBy (pInherit <|> pAttrField) comma
+pAttrs = braces $ Attr . M.fromList <$> sepEndBy (pInherit <|> pAttrField) comma
   where
     pAttrField = do
       name <- pName
@@ -81,7 +82,7 @@ pInherit = do
 -- first try to parse term as app
 -- TODO is this a hack?
 pExpr :: Parser Expr
-pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
+pExpr = pLam <|> pFunc <|> pLet <|> makeExprParser pTerm operatorTable
   where
     -- TODO the try before pAttrs here is so allow it to parse the block expression if it fails
     pTerm1 =
@@ -106,27 +107,6 @@ pExpr = pLam <|> pLet <|> makeExprParser pTerm operatorTable
         repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
         repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
 
--- -- TODO unify with pExpr?
--- pRTExpr :: Parser RTExpr
--- pRTExpr = makeExprParser pTerm operatorTable
---   where
---     pTerm1 =
---       choice
---         [ parens pRTExpr,
---           RTLit <$> pLit,
---           RTVar <$> pName,
---           RTBlock <$> pBlock
---         ]
---     pTerm = foldl1 RTApp <$> some pTerm1
---     operatorTable :: [[Operator Parser RTExpr]]
---     operatorTable =
---       [ [arith "*" Mul],
---         [arith "+" Add, arith "-" Sub]
---       ]
---       where
---         arith :: String -> ArithOp -> Operator Parser RTExpr
---         arith sym op = InfixL (RTArith op <$ symbol sym)
-
 pFieldAcc :: Parser (Expr -> Expr)
 pFieldAcc = symbol "." *> (Acc <$> pName)
 
@@ -146,6 +126,12 @@ pLet = do
 
 pLit :: Parser Int
 pLit = lexeme Lex.decimal
+
+pFunc :: Parser Expr
+pFunc = do
+  args <- list pName
+  symbol ":"
+  Func args <$> pExpr
 
 pLam :: Parser Expr
 pLam = do

@@ -11,6 +11,8 @@ module Eval (ValueF (..), Value, eval) where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Data.Either (isLeft)
+import Data.Foldable
 import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -33,6 +35,7 @@ data ValueF val
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock (Closure (Block RTExpr))
+  | VFunc [Name] (Closure (Block RTExpr))
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -69,8 +72,8 @@ lookupVar name kct krt = do
 bindThunk :: Name -> ThunkID -> Env -> Env
 bindThunk n tid = M.insert n (Left tid)
 
-bindRtvar :: Name -> () -> Env -> Env
-bindRtvar n _ = M.insert n (Right ())
+bindRtvar :: Name -> Env -> Env
+bindRtvar n = M.insert n (Right ())
 
 yCombinator :: Expr
 yCombinator = Lam "f" (App (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))) (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))))
@@ -109,7 +112,7 @@ deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 step :: Expr -> Lazy (ValueF ThunkID)
 step (Lit n) = pure $ VInt n
 step (App f x) = do
-  tx <- deferExpr x
+  tx <- deferExpr x -- TODO this can happen later, right?
   step f >>= \case
     (VClosure arg body env) -> local (const $ bindThunk arg tx env) (step body)
     _ -> throwError "Calling a non-function"
@@ -131,6 +134,13 @@ step (Acc f em) =
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) = VBlock . Closure mempty <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
+step (Func args body) = local (flip (foldr bindRtvar) args . forgetRT) $ do
+  step body >>= \case
+    VBlock b -> pure $ VFunc args b
+    _ -> throwError "Function body did not evaluate to code block"
+
+forgetRT :: Env -> Env
+forgetRT = M.filter isLeft
 
 genBlock :: Block Expr -> Lazy (Block RTExpr)
 genBlock (Block stmts) = Block <$> genStmt stmts
@@ -140,7 +150,7 @@ genStmt [Break expr] = pure . Break <$> rtFromExpr expr
 genStmt (Break _ : _) = throwError "Break is not final expression in block"
 genStmt (Decl name expr : r) = do
   expr' <- rtFromExpr expr
-  r' <- local (bindRtvar name ()) (genStmt r)
+  r' <- local (bindRtvar name) (genStmt r)
   pure (Decl name expr' : r')
 genStmt (Assign name expr : r) = do
   name' <-
@@ -166,19 +176,40 @@ rtFromExpr (Arith op a b) = do
   rtb <- rtFromExpr b
   pure $ RTArith op rta rtb
 rtFromExpr (Var n) = lookupVar n (deepEval >=> rtFromVal) (const $ pure $ RTVar n)
-rtFromExpr expr@App {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@(App f x) = do
+  tf <- deferExpr f
+  force tf >>= \case
+    (VClosure arg body env) -> do
+      tx <- deferExpr x -- TODO this can happen later, right?
+      local (const $ bindThunk arg tx env) $
+        deepEvalExpr body >>= rtFromVal
+    (VFunc _names _body) ->
+      case x of
+        List args -> do
+          rtArgs <- traverse rtFromExpr (toList args)
+          let name = "function_" <> show tf
+          pure $ RTCall name rtArgs
+        _ -> throwError "Trying to call a function with a non-list-like-thing"
+    _ -> throwError "Calling a non-function"
 rtFromExpr expr@Lam {} = deepEvalExpr expr >>= rtFromVal
 rtFromExpr expr@Lit {} = deepEvalExpr expr >>= rtFromVal
 rtFromExpr expr@Attr {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@List {} = deepEvalExpr expr >>= rtFromVal
 rtFromExpr expr@Acc {} = deepEvalExpr expr >>= rtFromVal
 rtFromExpr expr@BlockExpr {} = deepEvalExpr expr >>= rtFromVal
+rtFromExpr expr@Func {} = deepEvalExpr expr >>= rtFromVal
 
+-- (VFunc arg body) ->
+--   let name = "function_" <> show tf
+--    in pure
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
 rtFromVal :: Value -> Lazy RTExpr
 rtFromVal (Fix (VInt n)) = pure $ RTLit n
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
+rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
+rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
 rtFromVal (Fix (VBlock (Closure _USEME b))) = pure $ RTBlock b
 rtFromVal (Fix (VRTVar n)) = pure $ RTVar n
 

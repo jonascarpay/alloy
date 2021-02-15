@@ -11,6 +11,7 @@ data Expr
   = Var Name
   | App Expr Expr
   | Lam Name Expr
+  | Func [Name] Expr
   | Lit Int
   | List (Seq Expr)
   | Arith ArithOp Expr Expr

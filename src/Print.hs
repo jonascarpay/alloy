@@ -26,6 +26,7 @@ ppExpr (Attr m) = ppMap pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
+ppExpr (Func args body) = list (pretty <$> args) <> ":" <+> ppExpr body
 
 ppBlock :: (expr -> Doc ann) -> Block expr -> Doc ann
 ppBlock _ (Block []) = "{}"
@@ -43,6 +44,7 @@ ppRTExpr (RTVar x) = pretty x
 ppRTExpr (RTLit n) = pretty n
 ppRTExpr (RTArith op a b) = ppRTExpr a <+> opSymbol op <+> ppRTExpr b
 ppRTExpr (RTBlock b) = ppBlock ppRTExpr b
+ppRTExpr (RTCall name args) = pretty name <> list (ppRTExpr <$> args)
 
 opSymbol :: ArithOp -> Doc ann
 opSymbol Add = "+"
@@ -56,5 +58,6 @@ ppVal (Fix VClosure {}) = "<<comptime closure>>"
 ppVal (Fix VRTVar {}) = error "I'm not sure" -- TODO
 ppVal (Fix (VBlock (Closure env b)))
   | null env = ppBlock ppRTExpr b
-  | otherwise = error "closure actually has values" -- TODO
+  | otherwise = "<<closure actually has values>>" -- TODO
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
+ppVal (Fix (VFunc args body)) = list (pretty <$> args) <> ":" <+> ppVal (Fix $ VBlock body)

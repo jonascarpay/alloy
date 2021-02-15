@@ -28,6 +28,8 @@
   - [ ] nix-style { foo.bar = 4; }
   - [ ] proper megaparsec errors for unexpected keywords
   - [ ] check whether all rejected words are actually keywords
+  - [ ] think about runtime function call syntax
+    - [ ] it's not lists
   - [ ] rename stuff
     - [ ] lazy evaluation terminology
     - [ ] code closure
