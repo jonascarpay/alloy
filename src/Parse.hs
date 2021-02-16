@@ -82,10 +82,10 @@ pInherit = do
 -- first try to parse term as app
 -- TODO is this a hack?
 pExpr :: Parser Expr
-pExpr = pLam <|> pFunc <|> pLet <|> makeExprParser pTerm operatorTable
+pExpr = choice [pLet, pLam, pFunc, makeExprParser pTerm operatorTable]
   where
     -- TODO the try before pAttrs here is so allow it to parse the block expression if it fails
-    pTerm1 =
+    pTerm =
       choice
         [ parens pExpr,
           pList,
@@ -94,10 +94,10 @@ pExpr = pLam <|> pFunc <|> pLet <|> makeExprParser pTerm operatorTable
           Var <$> pName, -- TODO turn back into pVar
           Lit <$> pLit -- TODO turn back into pLit
         ]
-    pTerm = foldl1 App <$> some pTerm1 -- TODO foldl
     operatorTable :: [[Operator Parser Expr]]
     operatorTable =
       [ [repeatedPostfix pFieldAcc],
+        [InfixL (pure App)], -- function call
         [arith "*" Mul],
         [arith "+" Add, arith "-" Sub]
       ]

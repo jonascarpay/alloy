@@ -36,7 +36,7 @@
   - [ ] imports
     - [ ] check for unbound variables to avoid capture issues
   - [ ] warnings
-  - [ ] fix precedence issue (`builtins.fix (self: 0)` fails)
+  - [x] fix precedence issue (`builtins.fix (self: 0)` fails)
   - [ ] benchmarks
     - [ ] use Text instead of String
   - [ ] inherit from set, inherit multiple
