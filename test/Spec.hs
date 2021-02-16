@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 import Control.Monad
 import Data.Bifunctor
@@ -14,6 +15,7 @@ import Test.Tasty
 import Test.Tasty.Focus
 import Test.Tasty.HUnit
 import Text.Megaparsec qualified as MP
+import Text.RawString.QQ
 
 main :: IO ()
 main =
@@ -55,27 +57,29 @@ evalTests =
         ("simple attribute set", "{foo: 9}.foo"),
         ("simple let binding", "let x = 9; in x"),
         ( "let with local reference",
-          "let y = 9; \
-          \    x = y; \
-          \ in x"
+          [r| let y = 9;
+                  x = y;
+               in x
+          |]
         ),
         ( "nested attrs",
           "{foo: {bar: 9}}.foo.bar"
         ),
         ( "let binding with nested attrs",
-          "let attrs = {foo: {bar: 9}}; \
-          \ in attrs.foo.bar"
+          "let attrs = {foo: {bar: 9}}; in attrs.foo.bar"
         ),
         ("reference in attr binding", "(x: {a: x}.a) 9"),
         ( "not sure what to call it but it used to fail",
-          "let id = x: x; \
-          \    x = 9; \
-          \ in id x"
+          [r|let id = x: x;
+                 x = 9;
+              in id x
+          |]
         ),
         ( "id id id id id",
-          "let id = x: x; \
-          \    x = 9; \
-          \ in id id id id x"
+          [r| let id = x: x;
+                  x = 9;
+               in id id id id x
+           |]
         ),
         ( "scoping test",
           "(id: x: (id id) (id x)) (x: x) 9"
@@ -84,24 +88,31 @@ evalTests =
           "let diverge = (x: x x) (x: x x); in 9"
         ),
         ( "lazy inheritance test",
-          "let diverge = (x: x x) (x: x x); \
-          \    x = 9;                       \
-          \ in { inherit diverge,           \
-          \      inherit x                  \
-          \    }.x"
+          [r| let diverge = (x: x x) (x: x x);
+                  x = 9;
+               in { inherit diverge,
+                    inherit x
+                  }.x
+          |]
         ),
         ("simple builtin", "builtins.nine"),
         ( "laziness ignores undefined",
-          "let x = builtins.undefined; y = builtins.nine; in y"
+          [r| let x = builtins.undefined;
+                  y = builtins.nine;
+               in y
+          |]
         ),
         ( "fix",
-          "let attr = builtins.fix (self: { \
-          \      three: 3, \
-          \      nine: self.three * self.three}); \
-          \ in attr.nine"
+          [r| let attr = builtins.fix (self: {
+                  three: 3,
+                  nine: self.three * self.three});
+               in attr.nine
+          |]
         ),
         ( "line comments",
-          unlines ["let a = 9; # comment", "in a"]
+          [r| let a = 9; # comment"
+               in a
+          |]
         )
       ]
 

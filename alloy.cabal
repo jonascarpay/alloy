@@ -68,6 +68,7 @@ test-suite alloy-test
   main-is:        Spec.hs
   build-depends:
     , alloy
+    , raw-strings-qq
     , tasty
     , tasty-expected-failure
     , tasty-focus
