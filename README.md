@@ -23,13 +23,14 @@
 - [ ] step 3
   - [ ] figure out step 3
 - [ ] eventually
-  - [ ] RTExpr values?
+  - [ ] RTExpr values/syntax?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
     - maybe it's just a matter of making syntax slightly more explicit
       - `fn @comptimeArg (rta + rtb)`?
     - blocks _are_ RTExpr values
       - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
   - [ ] recursion but properly
+    - implementation should be pretty easy, but it would require turning `let` into more than syntactic sugar
   - [ ] booleans, enums, atoms
     - [ ] unscoped/global atoms?
       - would mean the compiler collects them and assigns unique int ids to them
