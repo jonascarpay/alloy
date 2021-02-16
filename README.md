@@ -72,6 +72,7 @@
   - [ ] imports
     - [ ] check for unbound variables to avoid capture issues
   - [ ] warnings
+  - [ ] have subcommands in the executable for the building and the repl
   - [ ] benchmarks
     - [ ] use Text instead of String
   - [ ] inherit from set, inherit multiple
