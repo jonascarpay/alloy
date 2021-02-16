@@ -84,6 +84,12 @@ evalTests =
         ( "scoping test",
           "(id: x: (id id) (id x)) (x: x) 9"
         ),
+        ( "let scoping test",
+          [r| let id = x: x;
+                  x = 9;
+               in (id id) (id x)
+          |]
+        ),
         ( "laziness test",
           "let diverge = (x: x x) (x: x x); in 9"
         ),
@@ -110,8 +116,19 @@ evalTests =
           |]
         ),
         ( "line comments",
-          [r| let a = 9; # comment"
+          [r| let a = 9; # comment
                in a
+          |]
+        ),
+        ( "forward let reference",
+          [r| let a = b;
+                  b = 9;
+               in a
+          |]
+        ),
+        ( "recursive let reference",
+          [r| let attr = { foo: 9, bar: attr.foo };
+               in attr.bar
           |]
         )
       ]

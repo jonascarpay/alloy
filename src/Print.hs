@@ -20,6 +20,13 @@ ppExpr :: Expr -> Doc ann
 ppExpr (Var x) = pretty x
 ppExpr (App a b) = ppExpr a <+> ppExpr b
 ppExpr (Lam a b) = parens $ pretty a <> ":" <+> ppExpr b
+ppExpr (Let args body) =
+  vcat
+    [ "let",
+      indent 2 $ vcat ((\(name, bbody) -> pretty name <+> "=" <+> ppExpr bbody <> ";") <$> args),
+      "in",
+      indent 2 $ ppExpr body
+    ]
 ppExpr (Lit n) = pretty n
 ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppMap pretty ppExpr m

@@ -1,12 +1,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Eval (ValueF (..), Value, eval, RuntimeEnv (..)) where
 
@@ -119,12 +114,18 @@ deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 step :: Expr -> Eval (ValueF ThunkID)
 step (Lit n) = pure $ VInt n
 step (App f x) = do
-  tx <- deferExpr x -- TODO this can happen later, right?
   step f >>= \case
-    (VClosure arg body env) -> local (const $ bindThunk arg tx env) (step body)
+    (VClosure arg body env) -> do
+      tx <- deferExpr x
+      local (const $ bindThunk arg tx env) (step body)
     _ -> throwError "Calling a non-function"
 step (Var x) = lookupVar x force (const . pure $ VRTVar x)
 step (Lam arg body) = VClosure arg body <$> ask
+step (Let binds body) = do
+  n0 <- gets fst
+  let (names, exprs) = unzip binds
+      env env0 = foldr (\(name, tid) m -> M.insert name (Left tid) m) env0 $ zip names [n0 ..]
+  local env $ mapM_ deferExpr exprs >> step body
 step (Arith op a b) = do
   step a >>= \case
     VInt va ->
@@ -207,6 +208,7 @@ rtFromExpr (App f x) = do
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lit {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal

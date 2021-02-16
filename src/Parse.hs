@@ -115,8 +115,7 @@ pLet = do
   try $ symbol "let"
   fields <- many $ notFollowedBy (symbol "in") *> (pInherit <|> pField) <* semicolon
   symbol "in"
-  body <- pExpr
-  pure $ foldr (\(name, value) body' -> App (Lam name body') value) body fields
+  Let fields <$> pExpr
   where
     pField = do
       n <- pName
