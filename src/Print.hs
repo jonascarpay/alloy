@@ -54,7 +54,13 @@ opSymbol Sub = "-"
 ppWithRuntimeEnv :: RuntimeEnv -> Doc ann -> Doc ann
 ppWithRuntimeEnv (RuntimeEnv fns) doc
   | null fns = doc
-  | otherwise = vcat [indent 2 doc, "where", indent 2 . vcat $ (\(name, (args, body)) -> ppFunction name args body) <$> M.toList fns]
+  | otherwise =
+    vcat
+      [ "let",
+        indent 2 . vcat $ (\(name, (args, body)) -> ppFunction name args body) <$> M.toList fns,
+        "in",
+        indent 2 doc
+      ]
 
 ppFunction :: Name -> [Name] -> Block RTExpr -> Doc ann
 ppFunction name args body = pretty name <> list (pretty <$> args) <> ":" <+> ppBlock ppRTExpr body

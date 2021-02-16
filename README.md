@@ -12,41 +12,64 @@
   - [x] let bindings
   - [x] syntax rework
   - [x] remove lens dependency?
-- [ ] step 2
-  - [ ] figure out step 2
+- [x] step 2
+  - [x] figure out step 2
+  - [x] (!) syntax issue with braces for function calls, f(x) has different meaning in rt and ct. spaces?
+    - related to the unsolved issue about RTExprs as values
   - [x] recursion
-  - [ ] builtins
-    - [ ] error
-      - [ ] strings
+  - [x] builtins
+  - [x] runtime functions POC
+  - [x] fix precedence issue (`builtins.fix (self: 0)` fails)
 - [ ] eventually
-  - [ ] recursion but really
-  - [ ] booleans
-    - [ ] are they just atoms? would be weird to have 0 not equal false though
-  - [ ] trace
-  - [ ] stack traces
-  - [ ] list builtins
-  - [ ] nix-style { foo.bar = 4; }
-  - [ ] proper megaparsec errors for unexpected keywords
-  - [ ] Does an attribute set of programs share RT stuff between itself?
-  - [ ] RTExprs as values, or different way of splicing
+  - [ ] RTExpr values?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
+    - maybe it's just a matter of making syntax slightly more explicit
+      - [ ] `fn @comptimeArg (rta + rtb)`?
+    - blocks _are_ RTExpr values
+      - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
+  - [ ] recursion but properly
+  - [ ] booleans, enums, atoms
+    - [ ] unscoped/global atoms?
+      - would mean the compiler collects them and assigns unique int ids to them
+        - for this to work across modules, it could/would need to be a hash of its name
+        - not sure if that's a good idea though
+      - similar to how zig does error values
+    - [ ] are enums just namespaced atoms?
+      - _would_ be numbered in ascending order
+      - still need global atoms?
+    - [ ] are booleans just enums?
+  - [ ] `builtins.trace`
+    - could just use Haskell's `trace` for now
+    - requires strings
+  - [ ] function naming and deduplication
+    - ideally `let someFn = [..]: {..}` would actually get the `someFn` symbol, but that might become tricky if it's behind a ct argument
+    - Zig has memoization, but our functions can come from weirder places, and can be anonymous
+    - maybe we perform a pass before evaluation where we find every function expression and name it after it's place in the expression
+      - if it's behind arguments, include the applied arguments in the function name
+    - the easy way out would be hashing function definitions
+  - [ ] comptime stack traces
+  - [ ] `builtins.error`
+    - strings
+  - [ ] list builtins
+    - [ ] concatenation
+    - [ ] destructing
+  - [ ] nix-style `{ foo.bar: 4 }`?
+  - [ ] proper megaparsec errors for unexpected keywords
+    - highlight the entire word, say what was expected, etc.
+  - [ ] Does an attribute set of programs share RT stuff between itself?
+    - may be just a question of naming them well
+      - if functions are hashed this is free
   - [ ] check whether all rejected words are actually keywords
+    - at a later point just make sure we didn't leave anything in there that we don't use
   - [ ] think about runtime function call syntax
-    - [ ] it's not lists
+    - it's not lists
   - [ ] rename stuff
     - [ ] lazy evaluation terminology
-    - [ ] code closure
   - [ ] imports
     - [ ] check for unbound variables to avoid capture issues
   - [ ] warnings
-  - [x] fix precedence issue (`builtins.fix (self: 0)` fails)
   - [ ] benchmarks
     - [ ] use Text instead of String
   - [ ] inherit from set, inherit multiple
-  - [ ] performance stuff
-  - [ ] (!) syntax issue with braces for function calls, f(x) has different meaning in rt and ct. spaces?
-  - [ ] `where`?
-  - [ ] design questions
-    - [ ] Everything
-    - [ ] Atoms
+  - [ ] `where` expressions?
   - [ ] remove microlens dependency?
