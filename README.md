@@ -55,7 +55,7 @@
   - [ ] `builtins.error`
     - strings
   - [ ] black holes
-  - [ ] turn the test cases into test cases so we can focus them
+  - [x] turn the test cases into test cases so we can focus them
   - [ ] list builtins
     - [ ] concatenation
     - [ ] destructing

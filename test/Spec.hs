@@ -42,96 +42,90 @@ testSyntax = testCase "syntax.ayy" $ do
 evalTests :: TestTree
 evalTests =
   withFocus . testGroup "eval" $
-    fmap
-      (uncurry is9)
-      [ ("const", "9"),
-        ("add", "4+5"),
-        ("mul", "3*3"),
-        ("sub", "13-4"),
-        ("precedence", "3 * 5 - 6"),
-        ("precedence 2", "3 * 13 - 5 * 6"),
-        ("associativity", "15 - 5 - 1"),
-        ("id", "(x: x) 9"),
-        ("fst", "(x: y: x) 9 11"),
-        ("snd", "(x: y: y) 11 9"),
-        ("simple attribute set", "{foo: 9}.foo"),
-        ("simple let binding", "let x = 9; in x"),
-        ( "let with local reference",
-          [r| let y = 9;
+    [ is9 "const" "9",
+      is9 "add" "4+5",
+      is9 "mul" "3*3",
+      is9 "sub" "13-4",
+      is9 "precedence" "3 * 5 - 6",
+      is9 "precedence 2" "3 * 13 - 5 * 6",
+      is9 "associativity" "15 - 5 - 1",
+      is9 "id" "(x: x) 9",
+      is9 "fst" "(x: y: x) 9 11",
+      is9 "snd" "(x: y: y) 11 9",
+      is9 "simple attribute set" "{foo: 9}.foo",
+      is9 "simple let binding" "let x = 9; in x",
+      is9
+        "let with local reference"
+        [r| let y = 9;
                   x = y;
                in x
-          |]
-        ),
-        ( "nested attrs",
-          "{foo: {bar: 9}}.foo.bar"
-        ),
-        ( "let binding with nested attrs",
-          "let attrs = {foo: {bar: 9}}; in attrs.foo.bar"
-        ),
-        ("reference in attr binding", "(x: {a: x}.a) 9"),
-        ( "not sure what to call it but it used to fail",
-          [r|let id = x: x;
+        |],
+      is9 "nested attrs" "{foo: {bar: 9}}.foo.bar",
+      is9 "let binding with nested attrs" "let attrs = {foo: {bar: 9}}; in attrs.foo.bar",
+      is9 "reference in attr binding" "(x: {a: x}.a) 9",
+      is9
+        "not sure what to call it but it used to fail"
+        [r|let id = x: x;
                  x = 9;
               in id x
-          |]
-        ),
-        ( "id id id id id",
-          [r| let id = x: x;
+        |],
+      is9
+        "id id id id id"
+        [r| let id = x: x;
                   x = 9;
                in id id id id x
-           |]
-        ),
-        ( "scoping test",
-          "(id: x: (id id) (id x)) (x: x) 9"
-        ),
-        ( "let scoping test",
-          [r| let id = x: x;
+        |],
+      is9
+        "scoping test"
+        "(id: x: (id id) (id x)) (x: x) 9",
+      is9
+        "let scoping test"
+        [r| let id = x: x;
                   x = 9;
                in (id id) (id x)
-          |]
-        ),
-        ( "laziness test",
-          "let diverge = (x: x x) (x: x x); in 9"
-        ),
-        ( "lazy inheritance test",
-          [r| let diverge = (x: x x) (x: x x);
+        |],
+      is9
+        "laziness test"
+        "let diverge = (x: x x) (x: x x); in 9",
+      is9
+        "lazy inheritance test"
+        [r| let diverge = (x: x x) (x: x x);
                   x = 9;
                in { inherit diverge,
                     inherit x
                   }.x
-          |]
-        ),
-        ("simple builtin", "builtins.nine"),
-        ( "laziness ignores undefined",
-          [r| let x = builtins.undefined;
+        |],
+      is9 "simple builtin" "builtins.nine",
+      is9
+        "laziness ignores undefined"
+        [r| let x = builtins.undefined;
                   y = builtins.nine;
                in y
-          |]
-        ),
-        ( "fix",
-          [r| let attr = builtins.fix (self: {
+        |],
+      is9
+        "fix"
+        [r| let attr = builtins.fix (self: {
                   three: 3,
                   nine: self.three * self.three});
                in attr.nine
-          |]
-        ),
-        ( "line comments",
-          [r| let a = 9; # comment
+        |],
+      is9
+        "forward let reference"
+        [r| let a = b;
+                b = 9;
                in a
-          |]
-        ),
-        ( "forward let reference",
-          [r| let a = b;
-                  b = 9;
-               in a
-          |]
-        ),
-        ( "recursive let reference",
-          [r| let attr = { foo: 9, bar: attr.foo };
+          |],
+      is9
+        "recursive let reference"
+        [r| let attr = { foo: 9, bar: attr.foo };
                in attr.bar
-          |]
-        )
-      ]
+          |],
+      is9
+        "line comments"
+        [r| let a = 9; # comment"
+               in a
+        |]
+    ]
 
 is9 :: String -> String -> TestTree
 is9 name prog = assertEval name prog (Fix $ VInt 9)
