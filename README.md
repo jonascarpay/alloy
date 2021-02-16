@@ -20,11 +20,13 @@
   - [x] builtins
   - [x] runtime functions POC
   - [x] fix precedence issue (`builtins.fix (self: 0)` fails)
+- [ ] step 3
+  - [ ] figure out step 3
 - [ ] eventually
   - [ ] RTExpr values?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
     - maybe it's just a matter of making syntax slightly more explicit
-      - [ ] `fn @comptimeArg (rta + rtb)`?
+      - `fn @comptimeArg (rta + rtb)`?
     - blocks _are_ RTExpr values
       - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
   - [ ] recursion but properly
@@ -53,6 +55,7 @@
   - [ ] list builtins
     - [ ] concatenation
     - [ ] destructing
+    - [ ] does map need to be a builtin?
   - [ ] nix-style `{ foo.bar: 4 }`?
   - [ ] proper megaparsec errors for unexpected keywords
     - highlight the entire word, say what was expected, etc.
