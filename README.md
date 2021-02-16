@@ -28,6 +28,8 @@
   - [ ] nix-style { foo.bar = 4; }
   - [ ] proper megaparsec errors for unexpected keywords
   - [ ] Does an attribute set of programs share RT stuff between itself?
+  - [ ] RTExprs as values, or different way of splicing
+    - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
   - [ ] check whether all rejected words are actually keywords
   - [ ] think about runtime function call syntax
     - [ ] it's not lists
