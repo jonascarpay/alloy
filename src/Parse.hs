@@ -61,7 +61,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "let", "in", "inherit", "break", "var"]
+keywords = S.fromList ["return", "true", "int", "bool", "void", "double", "false", "let", "in", "inherit", "break", "var"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> sepEndBy (pInherit <|> pAttrField) comma
@@ -91,8 +91,8 @@ pExpr = choice [pLet, pLam, pFunc, makeExprParser pTerm operatorTable]
           pList,
           try pAttrs,
           pBlock,
-          Var <$> pName, -- TODO turn back into pVar
-          Lit <$> pLit -- TODO turn back into pLit
+          Prim <$> pPrim,
+          Var <$> pName
         ]
     operatorTable :: [[Operator Parser Expr]]
     operatorTable =
@@ -123,14 +123,34 @@ pLet = do
       x <- pExpr
       pure (n, x)
 
-pLit :: Parser Int
-pLit = lexeme Lex.decimal
+pPrim :: Parser Prim
+pPrim = choice [PBool <$> try pBool, PInt <$> pInt, PType <$> pType]
+  where
+    pBool :: Parser Bool
+    pBool = True <$ symbol "true" <|> False <$ symbol "false"
+    pInt :: Parser Int
+    pInt = lexeme Lex.decimal
+    pType :: Parser Type
+    pType =
+      choice
+        [ TInt <$ symbol "int",
+          TDouble <$ symbol "double",
+          TBool <$ symbol "bool",
+          TVoid <$ symbol "void"
+        ]
 
 pFunc :: Parser Expr
 pFunc = do
-  args <- list pName
+  args <- list pTypedName
   symbol ":"
   Func args <$> pExpr
+
+pTypedName :: Parser (Name, Expr)
+pTypedName = do
+  name <- pName
+  symbol ":"
+  tp <- pExpr
+  pure (name, tp)
 
 pLam :: Parser Expr
 pLam = do
@@ -154,11 +174,11 @@ pBlock = braces $ BlockExpr . Block <$> many pStatement
 pDecl :: Parser (Stmt Expr)
 pDecl = do
   symbol "var"
-  name <- pName
+  (name, tp) <- pTypedName
   symbol "="
   body <- pExpr
   semicolon
-  pure $ Decl name body
+  pure $ Decl name tp body
 
 pAssign :: Parser (Stmt Expr)
 pAssign = do

@@ -128,10 +128,10 @@ evalTests =
     ]
 
 is9 :: String -> String -> TestTree
-is9 name prog = assertEval name prog (Fix $ VInt 9)
+is9 name prog = assertEval name prog (Fix $ VPrim $ PInt 9)
 
 valueCompare :: Value -> Value -> Either (Doc ann) ()
-valueCompare (Fix (VInt na)) (Fix (VInt nb)) | na == nb = pure ()
+valueCompare (Fix (VPrim pa)) (Fix (VPrim pb)) | pa == pb = pure ()
 valueCompare (Fix (VAttr na)) (Fix (VAttr nb)) | M.keys na == M.keys nb = zipWithM_ valueCompare (M.elems na) (M.elems nb)
 valueCompare a b = Left $ hsep ["mismatch between", ppVal a, "and", ppVal b]
 

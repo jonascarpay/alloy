@@ -25,16 +25,16 @@ type ThunkID = Int
 --TODO I think spliced variables can escape their scope?
 -- maybe just tag them from fresh to make sure
 data ValueF val
-  = VInt Int
+  = VPrim Prim
   | VClosure Name Expr Env
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv (Block RTExpr)
-  | VFunc RuntimeEnv [Name] (Block RTExpr)
+  | VFunc RuntimeEnv [(Name, Type)] (Block RTExpr) -- TODO Type here could be a val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
-arith :: ArithOp -> Int -> Int -> Int
+arith :: Num n => ArithOp -> n -> n -> n
 arith Add = (+)
 arith Sub = (-)
 arith Mul = (*)
@@ -55,9 +55,9 @@ newtype EvalT m a = EvalT {_unLazyT :: RWST Env RuntimeEnv (Int, Map ThunkID Thu
 
 type Eval = EvalT Identity
 
-type Env = Map Name (Either ThunkID ())
+type Env = Map Name (Either ThunkID Type)
 
-newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([Name], Block RTExpr)}
+newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([(Name, Type)], Block RTExpr)}
   deriving (Eq, Show)
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
@@ -74,8 +74,8 @@ lookupVar name kct krt = do
 bindThunk :: Name -> ThunkID -> Env -> Env
 bindThunk n tid = M.insert n (Left tid)
 
-bindRtvar :: Name -> Env -> Env
-bindRtvar n = M.insert n (Right ())
+bindRtvar :: Name -> Type -> Env -> Env
+bindRtvar n typ = M.insert n (Right typ)
 
 yCombinator :: Expr
 yCombinator = Lam "f" (App (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))) (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))))
@@ -92,7 +92,7 @@ runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
-  tNine <- deferVal $ VInt 9
+  tNine <- deferVal . VPrim $ PInt 9
   tFix <- deferExpr yCombinator
   tBuiltins <-
     deferVal . VAttr $
@@ -112,7 +112,7 @@ deepEval :: ThunkID -> Eval Value
 deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 
 step :: Expr -> Eval (ValueF ThunkID)
-step (Lit n) = pure $ VInt n
+step (Prim p) = pure $ VPrim p
 step (App f x) = do
   step f >>= \case
     (VClosure arg body env) -> do
@@ -127,11 +127,11 @@ step (Let binds body) = do
       env env0 = foldr (\(name, tid) m -> M.insert name (Left tid) m) env0 $ zip names [n0 ..]
   local env $ mapM_ deferExpr exprs >> step body
 step (Arith op a b) = do
-  step a >>= \case
-    VInt va ->
-      step b >>= \case
-        VInt vb -> pure (VInt $ arith op va vb)
-        _ -> throwError "Arithmetic on a non-integer"
+  va <- step a
+  vb <- step b
+  case (va, vb) of
+    (VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arith op pa pb
+    (VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arith op pa pb
     _ -> throwError "Arithmetic on a non-integer"
 step (Attr m) = VAttr <$> traverse deferExpr m
 step (Acc f em) =
@@ -142,29 +142,38 @@ step (Acc f em) =
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) = uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
-step (Func args body) = local (flip (foldr bindRtvar) args . forgetRT) $ do
-  step body >>= \case
-    VBlock env b -> pure $ VFunc env args b
-    _ -> throwError "Function body did not evaluate to code block"
+step (Func args body) = do
+  typedArgs <- (traverse . traverse) evalType args
+  local (flip (foldr (uncurry bindRtvar)) typedArgs . forgetRT) $ do
+    step body >>= \case
+      VBlock env b -> pure $ VFunc env typedArgs b
+      _ -> throwError "Function body did not evaluate to code block"
 
 forgetRT :: Env -> Env
 forgetRT = M.filter isLeft
+
+evalType :: Expr -> Eval Type
+evalType expr =
+  step expr >>= \case
+    VPrim (PType tp) -> pure tp
+    _ -> throwError "Expected type, got not-a-type"
 
 genBlock :: Block Expr -> Eval (RuntimeEnv, Block RTExpr)
 genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriterT (genStmt stmts)
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction :: Name -> [Name] -> Block RTExpr -> RTEval ()
+tellFunction :: Name -> [(Name, Type)] -> Block RTExpr -> RTEval ()
 tellFunction name args body = tell (RuntimeEnv $ M.singleton name (args, body))
 
 genStmt :: [Stmt Expr] -> RTEval [Stmt RTExpr]
 genStmt [Break expr] = pure . Break <$> rtFromExpr expr
 genStmt (Break _ : _) = throwError "Break is not final expression in block"
-genStmt (Decl name expr : r) = do
+genStmt (Decl name typ expr : r) = do
+  typ' <- lift $ evalType typ
   expr' <- rtFromExpr expr
-  r' <- local (bindRtvar name) (genStmt r)
-  pure (Decl name expr' : r')
+  r' <- local (bindRtvar name typ') (genStmt r)
+  pure (Decl name (RTPrim $ PType typ') expr' : r')
 genStmt (Assign name expr : r) = do
   name' <-
     let ct tid =
@@ -196,18 +205,18 @@ rtFromExpr (App f x) = do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    (VFunc env argNames body) ->
+    (VFunc env argDecls body) ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           let name = "function_" <> show tf
           tell env
-          tellFunction name (toList argNames) body
+          tellFunction name (toList argDecls) body
           pure $ RTCall name rtArgs
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Lit {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -221,7 +230,7 @@ rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
 rtFromVal :: Value -> RTEval RTExpr
-rtFromVal (Fix (VInt n)) = pure $ RTLit n
+rtFromVal (Fix (VPrim n)) = pure $ RTPrim n
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"

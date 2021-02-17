@@ -55,6 +55,9 @@
   - [ ] `builtins.error`
     - strings
   - [ ] black holes
+  - [ ] negative lit
+  - [ ] proper keyword parsing
+    - currently `truee` parses to `true e`
   - [ ] print `VClosure` using let-bindings?
   - [x] turn the test cases into test cases so we can focus them
   - [ ] list builtins

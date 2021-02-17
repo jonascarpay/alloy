@@ -6,7 +6,7 @@ import Expr
 
 data RTExpr
   = RTVar Name
-  | RTLit Int
+  | RTPrim Prim
   | RTArith ArithOp RTExpr RTExpr
   | RTBlock (Block RTExpr)
   | RTCall Name [RTExpr]
