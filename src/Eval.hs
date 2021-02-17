@@ -30,7 +30,7 @@ data ValueF val
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv (Block RTExpr)
-  | VFunc RuntimeEnv [(Name, Type)] (Block RTExpr) -- TODO Type here could be a val
+  | VFunc RuntimeEnv [(Name, Type)] Type (Block RTExpr) -- TODO Type here could be a val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -57,7 +57,7 @@ type Eval = EvalT Identity
 
 type Env = Map Name (Either ThunkID Type)
 
-newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([(Name, Type)], Block RTExpr)}
+newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([(Name, Type)], Type, Block RTExpr)}
   deriving (Eq, Show)
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
@@ -142,11 +142,12 @@ step (Acc f em) =
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) = uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
-step (Func args body) = do
+step (Func args ret body) = do
   typedArgs <- (traverse . traverse) evalType args
+  retType <- evalType ret
   local (flip (foldr (uncurry bindRtvar)) typedArgs . forgetRT) $ do
     step body >>= \case
-      VBlock env b -> pure $ VFunc env typedArgs b
+      VBlock env b -> pure $ VFunc env typedArgs retType b
       _ -> throwError "Function body did not evaluate to code block"
 
 forgetRT :: Env -> Env
@@ -163,8 +164,8 @@ genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriter
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction :: Name -> [(Name, Type)] -> Block RTExpr -> RTEval ()
-tellFunction name args body = tell (RuntimeEnv $ M.singleton name (args, body))
+tellFunction :: Name -> [(Name, Type)] -> Type -> Block RTExpr -> RTEval ()
+tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (args, ret, body))
 
 genStmt :: [Stmt Expr] -> RTEval [Stmt RTExpr]
 genStmt [Break expr] = pure . Break <$> rtFromExpr expr
@@ -205,13 +206,13 @@ rtFromExpr (App f x) = do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    (VFunc env argDecls body) ->
+    (VFunc env argDecls ret body) ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           let name = "function_" <> show tf
           tell env
-          tellFunction name (toList argDecls) body
+          tellFunction name (toList argDecls) ret body
           pure $ RTCall name rtArgs
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"

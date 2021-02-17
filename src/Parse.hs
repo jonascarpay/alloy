@@ -85,15 +85,7 @@ pExpr :: Parser Expr
 pExpr = choice [pLet, pLam, pFunc, makeExprParser pTerm operatorTable]
   where
     -- TODO the try before pAttrs here is so allow it to parse the block expression if it fails
-    pTerm =
-      choice
-        [ parens pExpr,
-          pList,
-          try pAttrs,
-          pBlock,
-          Prim <$> pPrim,
-          Var <$> pName
-        ]
+
     operatorTable :: [[Operator Parser Expr]]
     operatorTable =
       [ [repeatedPostfix pFieldAcc],
@@ -106,6 +98,17 @@ pExpr = choice [pLet, pLam, pFunc, makeExprParser pTerm operatorTable]
         arith sym op = InfixL (Arith op <$ symbol sym)
         repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
         repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
+
+pTerm :: Parser Expr
+pTerm =
+  choice
+    [ parens pExpr,
+      pList,
+      try pAttrs,
+      pBlock,
+      Prim <$> pPrim,
+      Var <$> pName
+    ]
 
 pFieldAcc :: Parser (Expr -> Expr)
 pFieldAcc = symbol "." *> (Acc <$> pName)
@@ -142,8 +145,9 @@ pPrim = choice [PBool <$> try pBool, PInt <$> pInt, PType <$> pType]
 pFunc :: Parser Expr
 pFunc = do
   args <- list pTypedName
-  symbol ":"
-  Func args <$> pExpr
+  symbol "->"
+  ret <- pTerm
+  Func args ret <$> pExpr
 
 pTypedName :: Parser (Name, Expr)
 pTypedName = do

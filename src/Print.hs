@@ -49,7 +49,7 @@ ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
-ppExpr (Func args body) = list (uncurry (ppTyped pretty ppExpr) <$> args) <> ":" <+> ppExpr body
+ppExpr (Func args ret body) = list (uncurry (ppTyped pretty ppExpr) <$> args) <+> "->" <+> ppExpr ret <+> ppExpr body
 
 ppBlock :: (expr -> Doc ann) -> Block expr -> Doc ann
 ppBlock _ (Block []) = "{}"
@@ -80,13 +80,13 @@ ppWithRuntimeEnv (RuntimeEnv fns) doc
   | otherwise =
     vcat
       [ "let",
-        indent 2 . vcat $ (\(name, (args, body)) -> ppFunction name args body) <$> M.toList fns,
+        indent 2 . vcat $ (\(name, (args, ret, body)) -> ppFunction name args ret body) <$> M.toList fns,
         "in",
         indent 2 doc
       ]
 
-ppFunction :: Name -> [(Name, Type)] -> Block RTExpr -> Doc ann
-ppFunction name args body = pretty name <> list (uncurry (ppTyped pretty ppType) <$> args) <> ":" <+> ppBlock ppRTExpr body
+ppFunction :: Name -> [(Name, Type)] -> Type -> Block RTExpr -> Doc ann
+ppFunction name args ret body = pretty name <> list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppRTExpr body
 
 ppTyped :: (a -> Doc ann) -> (b -> Doc ann) -> a -> b -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
@@ -98,4 +98,4 @@ ppVal (Fix VClosure {}) = "<<comptime closure>>"
 ppVal (Fix VRTVar {}) = error "I'm not sure" -- TODO
 ppVal (Fix (VBlock env b)) = ppWithRuntimeEnv env (ppBlock ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
-ppVal (Fix (VFunc env args body)) = ppWithRuntimeEnv env $ ppFunction "" args body
+ppVal (Fix (VFunc env args ret body)) = ppWithRuntimeEnv env $ ppFunction "" args ret body
