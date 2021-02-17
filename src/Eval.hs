@@ -168,8 +168,8 @@ tellFunction :: Name -> [(Name, Type)] -> Type -> Block RTExpr -> RTEval ()
 tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (args, ret, body))
 
 genStmt :: [Stmt Expr] -> RTEval [Stmt RTExpr]
-genStmt [Break expr] = pure . Break <$> rtFromExpr expr
-genStmt (Break _ : _) = throwError "Break is not final expression in block"
+genStmt [Return expr] = pure . Return <$> rtFromExpr expr
+genStmt (Return _ : _) = throwError "Return is not final expression in block"
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ evalType typ
   expr' <- rtFromExpr expr

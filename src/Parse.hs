@@ -61,7 +61,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "true", "int", "bool", "void", "double", "false", "let", "in", "inherit", "break", "var"]
+keywords = S.fromList ["return", "true", "int", "bool", "void", "double", "false", "let", "in", "inherit"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> sepEndBy (pInherit <|> pAttrField) comma
@@ -170,14 +170,15 @@ comma = symbol ","
 pBlock :: Parser Expr
 pBlock = braces $ BlockExpr . Block <$> many pStatement
   where
+    -- TODO `try` to avoid ambiguity with naked statement, remove
+    -- TODO `try` for decl shouldn't be necessary?
     pStatement :: Parser (Stmt Expr)
-    pStatement = choice [pBreak, pDecl, try pAssign, pExprStmt] -- TODO try to avoid ambiguity with naked statement
-    pBreak = Break <$> (symbol "break" *> pExpr <* semicolon)
+    pStatement = choice [pReturn, try pDecl, try pAssign, pExprStmt]
+    pReturn = Return <$> (symbol "return" *> pExpr <* semicolon)
     pExprStmt = ExprStmt <$> pExpr <* semicolon
 
 pDecl :: Parser (Stmt Expr)
 pDecl = do
-  symbol "var"
   (name, tp) <- pTypedName
   symbol "="
   body <- pExpr

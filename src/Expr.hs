@@ -42,7 +42,7 @@ newtype Block expr = Block {unBlock :: [Stmt expr]}
   deriving (Eq, Show)
 
 data Stmt expr
-  = Break expr
+  = Return expr
   | Decl Name expr expr -- TODO encode that this can only be a type for RTExpr
   | Assign Name expr
   | ExprStmt expr
