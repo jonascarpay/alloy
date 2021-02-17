@@ -55,6 +55,7 @@
   - [ ] `builtins.error`
     - strings
   - [ ] black holes
+  - [ ] print `VClosure` using let-bindings?
   - [x] turn the test cases into test cases so we can focus them
   - [ ] list builtins
     - [ ] concatenation
