@@ -172,12 +172,12 @@ pBlock = braces $ BlockExpr . Block <$> many pStatement
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?
-    pStatement :: Parser (Stmt Expr)
+    pStatement :: Parser (Stmt Expr Expr)
     pStatement = choice [pReturn, try pDecl, try pAssign, pExprStmt]
     pReturn = Return <$> (symbol "return" *> pExpr <* semicolon)
     pExprStmt = ExprStmt <$> pExpr <* semicolon
 
-pDecl :: Parser (Stmt Expr)
+pDecl :: Parser (Stmt Expr Expr)
 pDecl = do
   (name, tp) <- pTypedName
   symbol "="
@@ -185,7 +185,7 @@ pDecl = do
   semicolon
   pure $ Decl name tp body
 
-pAssign :: Parser (Stmt Expr)
+pAssign :: Parser (Stmt Expr Expr)
 pAssign = do
   name <- pName
   symbol "="

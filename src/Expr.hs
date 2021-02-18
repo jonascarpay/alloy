@@ -32,18 +32,18 @@ data Expr
   | Arith ArithOp Expr Expr
   | Attr (Map Name Expr)
   | Acc Name Expr
-  | BlockExpr (Block Expr)
+  | BlockExpr (Block Expr Expr)
   deriving (Eq, Show)
 
 data ArithOp = Add | Sub | Mul
   deriving (Eq, Show)
 
-newtype Block expr = Block {unBlock :: [Stmt expr]}
+newtype Block typ expr = Block {unBlock :: [Stmt typ expr]}
   deriving (Eq, Show)
 
-data Stmt expr
+data Stmt typ expr
   = Return expr
-  | Decl Name expr expr -- TODO encode that this can only be a type for RTExpr
+  | Decl Name typ expr -- TODO encode that this can only be a type for RTExpr
   | Assign Name expr
   | ExprStmt expr
   deriving (Eq, Show)

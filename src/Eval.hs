@@ -29,8 +29,8 @@ data ValueF val
   | VClosure Name Expr Env
   | VAttr (Map Name val)
   | VRTVar Name
-  | VBlock RuntimeEnv (Block RTExpr)
-  | VFunc RuntimeEnv [(Name, Type)] Type (Block RTExpr) -- TODO Type here could be a val
+  | VBlock RuntimeEnv (Block Type RTExpr)
+  | VFunc RuntimeEnv [(Name, Type)] Type (Block Type RTExpr) -- TODO Type here could be a val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -57,7 +57,7 @@ type Eval = EvalT Identity
 
 type Env = Map Name (Either ThunkID Type)
 
-newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([(Name, Type)], Type, Block RTExpr)}
+newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([(Name, Type)], Type, Block Type RTExpr)}
   deriving (Eq, Show)
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
@@ -159,22 +159,22 @@ evalType expr =
     VPrim (PType tp) -> pure tp
     _ -> throwError "Expected type, got not-a-type"
 
-genBlock :: Block Expr -> Eval (RuntimeEnv, Block RTExpr)
+genBlock :: Block Expr Expr -> Eval (RuntimeEnv, Block Type RTExpr)
 genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriterT (genStmt stmts)
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction :: Name -> [(Name, Type)] -> Type -> Block RTExpr -> RTEval ()
+tellFunction :: Name -> [(Name, Type)] -> Type -> Block Type RTExpr -> RTEval ()
 tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (args, ret, body))
 
-genStmt :: [Stmt Expr] -> RTEval [Stmt RTExpr]
+genStmt :: [Stmt Expr Expr] -> RTEval [Stmt Type RTExpr]
 genStmt [Return expr] = pure . Return <$> rtFromExpr expr
 genStmt (Return _ : _) = throwError "Return is not final expression in block"
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ evalType typ
   expr' <- rtFromExpr expr
   r' <- local (bindRtvar name typ') (genStmt r)
-  pure (Decl name (RTPrim $ PType typ') expr' : r')
+  pure (Decl name typ' expr' : r')
 genStmt (Assign name expr : r) = do
   name' <-
     let ct tid =

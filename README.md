@@ -59,6 +59,9 @@
   - [ ] proper keyword parsing
     - currently `truee` parses to `true e`
   - [ ] print `VClosure` using let-bindings?
+  - [ ] custom pretty-printing
+    - [ ] own type class
+      - multi-line, single line
   - [x] turn the test cases into test cases so we can focus them
   - [ ] list builtins
     - [ ] concatenation

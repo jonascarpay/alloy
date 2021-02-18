@@ -47,26 +47,26 @@ ppExpr (Prim n) = ppPrim n
 ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockExpr b) = ppBlock ppExpr b
+ppExpr (BlockExpr b) = ppBlock ppExpr ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (Func args ret body) = list (uncurry (ppTyped pretty ppExpr) <$> args) <+> "->" <+> ppExpr ret <+> ppExpr body
 
-ppBlock :: (expr -> Doc ann) -> Block expr -> Doc ann
-ppBlock _ (Block []) = "{}"
-ppBlock f (Block [stmt]) = braces $ ppStatement f stmt
-ppBlock f (Block stmts) = braces' $ align $ vcat (ppStatement f <$> stmts)
+ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
+ppBlock _ _ (Block []) = "{}"
+ppBlock ft fe (Block [stmt]) = braces $ ppStatement ft fe stmt
+ppBlock ft fe (Block stmts) = braces' $ align $ vcat (ppStatement ft fe <$> stmts)
 
-ppStatement :: (expr -> Doc ann) -> Stmt expr -> Doc ann
-ppStatement f (Return expr) = "return" <+> f expr <> ";"
-ppStatement f (Decl name typ expr) = ppTyped pretty f name typ <+> "=" <+> f expr <> ";"
-ppStatement f (Assign name expr) = pretty name <+> "=" <+> f expr <> ";"
-ppStatement f (ExprStmt expr) = f expr <> ";"
+ppStatement :: (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt typ expr -> Doc ann
+ppStatement _ fe (Return expr) = "return" <+> fe expr <> ";"
+ppStatement ft fe (Decl name typ expr) = ppTyped pretty ft name typ <+> "=" <+> fe expr <> ";"
+ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
+ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
 
 ppRTExpr :: RTExpr -> Doc ann
 ppRTExpr (RTVar x) = pretty x
 ppRTExpr (RTPrim n) = ppPrim n
 ppRTExpr (RTArith op a b) = ppRTExpr a <+> opSymbol op <+> ppRTExpr b
-ppRTExpr (RTBlock b) = ppBlock ppRTExpr b
+ppRTExpr (RTBlock b) = ppBlock ppType ppRTExpr b
 ppRTExpr (RTCall name args) = pretty name <> list (ppRTExpr <$> args)
 
 opSymbol :: ArithOp -> Doc ann
@@ -86,10 +86,10 @@ ppWithRuntimeEnv (RuntimeEnv fns) doc
           indent 2 doc
         ]
 
-ppFunction :: Name -> [(Name, Type)] -> Type -> Block RTExpr -> Doc ann
-ppFunction name args ret body = pretty name <> list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppRTExpr body
+ppFunction :: Name -> [(Name, Type)] -> Type -> Block Type RTExpr -> Doc ann
+ppFunction name args ret body = pretty name <> list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType ppRTExpr body
 
-ppTyped :: (a -> Doc ann) -> (b -> Doc ann) -> a -> b -> Doc ann
+ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
 
 ppVal :: Value -> Doc ann
@@ -97,6 +97,6 @@ ppVal (Fix (VPrim n)) = ppPrim n
 ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
-ppVal (Fix (VBlock env b)) = ppWithRuntimeEnv env (ppBlock ppRTExpr b)
+ppVal (Fix (VBlock env b)) = ppWithRuntimeEnv env (ppBlock ppType ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc env args ret body)) = ppWithRuntimeEnv env $ ppFunction "" args ret body
