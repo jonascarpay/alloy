@@ -58,7 +58,7 @@ ppBlock f (Block stmts) = braces' $ align $ vcat (ppStatement f <$> stmts)
 
 ppStatement :: (expr -> Doc ann) -> Stmt expr -> Doc ann
 ppStatement f (Return expr) = "return" <+> f expr <> ";"
-ppStatement f (Decl name typ expr) = "var" <+> ppTyped pretty f name typ <+> "=" <+> f expr <> ";"
+ppStatement f (Decl name typ expr) = ppTyped pretty f name typ <+> "=" <+> f expr <> ";"
 ppStatement f (Assign name expr) = pretty name <+> "=" <+> f expr <> ";"
 ppStatement f (ExprStmt expr) = f expr <> ";"
 
@@ -95,8 +95,8 @@ ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
 ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
-ppVal (Fix VClosure {}) = "<<comptime closure>>"
-ppVal (Fix VRTVar {}) = error "I'm not sure, is this even possible?" -- TODO
+ppVal (Fix VClosure {}) = "<<closure>>"
+ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock env b)) = ppWithRuntimeEnv env (ppBlock ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc env args ret body)) = ppWithRuntimeEnv env $ ppFunction "" args ret body
