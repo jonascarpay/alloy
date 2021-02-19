@@ -30,7 +30,7 @@ data ValueF val
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv (Block Type RTExpr)
-  | VFunc RuntimeEnv [(Name, Type)] Type (Block Type RTExpr) -- TODO Type here could be a val
+  | VFunc RuntimeEnv (Function Type RTExpr) -- TODO Type here could be a val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -56,13 +56,6 @@ newtype EvalT m a = EvalT {_unLazyT :: RWST Env RuntimeEnv (Int, Map ThunkID Thu
 type Eval = EvalT Identity
 
 type Env = Map Name (Either ThunkID Type)
-
-newtype RuntimeEnv = RuntimeEnv {rtFunctions :: Map Name ([(Name, Type)], Type, Block Type RTExpr)}
-  deriving (Eq, Show)
-
-instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
-
-instance Monoid RuntimeEnv where mempty = RuntimeEnv mempty
 
 lookupVar :: (MonadReader Env m, MonadError String m) => Name -> (ThunkID -> m r) -> (() -> m r) -> m r
 lookupVar name kct krt = do
@@ -147,7 +140,7 @@ step (Func args ret body) = do
   retType <- evalType ret
   local (flip (foldr (uncurry bindRtvar)) typedArgs . forgetRT) $ do
     step body >>= \case
-      VBlock env b -> pure $ VFunc env typedArgs retType b
+      VBlock env b -> pure $ VFunc env (Function typedArgs retType b)
       _ -> throwError "Function body did not evaluate to code block"
 
 forgetRT :: Env -> Env
@@ -165,7 +158,7 @@ genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriter
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
 tellFunction :: Name -> [(Name, Type)] -> Type -> Block Type RTExpr -> RTEval ()
-tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (args, ret, body))
+tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (Function args ret body))
 
 genStmt :: [Stmt Expr Expr] -> RTEval [Stmt Type RTExpr]
 genStmt [Return expr] = pure . Return <$> rtFromExpr expr
@@ -206,7 +199,7 @@ rtFromExpr (App f x) = do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    (VFunc env argDecls ret body) ->
+    (VFunc env (Function argDecls ret body)) ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)

@@ -81,13 +81,13 @@ ppWithRuntimeEnv (RuntimeEnv fns) doc
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ (\(name, (args, ret, body)) -> ppFunction name args ret body) <$> M.toList fns,
+          indent 2 . vcat $ (\(name, func) -> pretty name <> ppFunction func) <$> M.toList fns,
           "Body:",
           indent 2 doc
         ]
 
-ppFunction :: Name -> [(Name, Type)] -> Type -> Block Type RTExpr -> Doc ann
-ppFunction name args ret body = pretty name <> list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType ppRTExpr body
+ppFunction :: Function Type RTExpr -> Doc ann
+ppFunction (Function args ret body) = list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType ppRTExpr body
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
@@ -99,4 +99,4 @@ ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock env b)) = ppWithRuntimeEnv env (ppBlock ppType ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
-ppVal (Fix (VFunc env args ret body)) = ppWithRuntimeEnv env $ ppFunction "" args ret body
+ppVal (Fix (VFunc env func)) = ppWithRuntimeEnv env $ ppFunction func
