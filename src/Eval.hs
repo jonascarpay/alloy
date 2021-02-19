@@ -262,6 +262,7 @@ rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 -- TODO handle(tell) the closure form VBlock
 rtFromVal :: Value -> RTEval (RTExpr Type)
 -- rtFromVal (Fix (VPrim n)) = pure $ RTPrim n
+rtFromVal (Fix (VPrim (PInt n))) = pure $ RTPrim (PInt n) TInt
 rtFromVal (Fix (VPrim _)) = throwError "Cannot handle naked primitives anymore"
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"

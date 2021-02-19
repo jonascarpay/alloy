@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
+import CodeGen
 import Control.Monad
 import Data.Bifunctor
 import Data.Map qualified as M
@@ -11,6 +12,11 @@ import Lib
 import Parse
 import Prettyprinter
 import Print
+import System.Directory (removeFile)
+import System.Exit (ExitCode (..))
+import System.IO
+import System.IO.Temp
+import System.Process
 import Test.Tasty
 import Test.Tasty.Focus
 import Test.Tasty.HUnit
@@ -23,14 +29,15 @@ main =
     testGroup
       "alloy-test"
       [ evalTests,
-        testSyntax
+        testSyntax,
+        assertGen
       ]
 
 assertParse :: String -> IO (Either String Value)
 assertParse str = do
   case MP.parse pToplevel "" str of
     Left err -> assertFailure $ MP.errorBundlePretty err
-    Right r -> pure $ first show (evalInfo r)
+    Right r' -> pure $ first show (evalInfo r')
 
 testSyntax :: TestTree
 testSyntax = testCase "syntax.ayy" $ do
@@ -38,6 +45,27 @@ testSyntax = testCase "syntax.ayy" $ do
   assertParse f >>= \case
     Left err -> assertFailure err
     Right val -> assertFailure . show $ ppVal val
+
+compileAndRun :: String -> IO ()
+compileAndRun code = do
+  tmpdir <- getCanonicalTemporaryDirectory
+  (fp, handle) <- openTempFile tmpdir "code.c"
+  hPutStrLn handle code
+  hClose handle
+  f <- emptyTempFile tmpdir "a.out"
+  callProcess "gcc" [fp, "-o", f]
+  (exitCode, _, _) <- readProcessWithExitCode f [] ""
+  removeFile f
+  removeFile fp
+  assertEqual "Expecting exit code 9" (ExitFailure 9) exitCode
+
+assertGen :: TestTree
+assertGen = testCase "codeGen" $ do
+  f <- readFile "gen.ayy"
+  v <- assertParse f >>= either assertFailure pure
+  Fix (VBlock env' t block) <- pure v
+  let c = codegen env' t block
+  compileAndRun c
 
 evalTests :: TestTree
 evalTests =

@@ -68,12 +68,15 @@ test-suite alloy-test
   main-is:        Spec.hs
   build-depends:
     , alloy
+    , directory
+    , process
     , raw-strings-qq
     , tasty
     , tasty-expected-failure
     , tasty-focus
     , tasty-hunit
     , tasty-quickcheck
+    , temporary
 
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
 
