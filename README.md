@@ -71,6 +71,7 @@
   - [ ] nix-style `{ foo.bar: 4 }`?
   - [ ] proper megaparsec errors for unexpected keywords
     - highlight the entire word, say what was expected, etc.
+  - [ ] Can type unification just be an equality check?
   - [ ] Does an attribute set of programs share RT stuff between itself?
     - may be just a question of naming them well
       - if functions are hashed this is free

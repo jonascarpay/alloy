@@ -29,8 +29,8 @@ data ValueF val
   | VClosure Name Expr Env
   | VAttr (Map Name val)
   | VRTVar Name
-  | VBlock RuntimeEnv (Block Type RTExpr)
-  | VFunc RuntimeEnv (Function Type RTExpr) -- TODO Type here could be a val
+  | VBlock RuntimeEnv Type (Block Type (RTExpr Type)) -- TODO Move Type into Block?
+  | VFunc RuntimeEnv (Function Type (RTExpr Type)) -- TODO Type here could be a val?
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -57,12 +57,12 @@ type Eval = EvalT Identity
 
 type Env = Map Name (Either ThunkID Type)
 
-lookupVar :: (MonadReader Env m, MonadError String m) => Name -> (ThunkID -> m r) -> (() -> m r) -> m r
+lookupVar :: (MonadReader Env m, MonadError String m) => Name -> (ThunkID -> m r) -> (Type -> m r) -> m r
 lookupVar name kct krt = do
   asks (M.lookup name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just (Left tid) -> kct tid
-    Just (Right _) -> krt ()
+    Just (Right typ) -> krt typ
 
 bindThunk :: Name -> ThunkID -> Env -> Env
 bindThunk n tid = M.insert n (Left tid)
@@ -144,14 +144,16 @@ step (Acc f em) =
       tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
       force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) = uncurry VBlock <$> genBlock b
+step (BlockExpr b) = (\(env, typ, b') -> VBlock env typ b') <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (Func args ret body) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
   local (flip (foldr (uncurry bindRtvar)) typedArgs . forgetRT) $ do
     step body >>= \case
-      VBlock env b -> pure $ VFunc env (Function typedArgs retType b)
+      VBlock env t b -> do
+        void $ unify t retType
+        pure $ VFunc env (Function typedArgs retType b)
       _ -> throwError "Function body did not evaluate to code block"
 
 forgetRT :: Env -> Env
@@ -163,22 +165,30 @@ evalType expr =
     VPrim (PType tp) -> pure tp
     _ -> throwError "Expected type, got not-a-type"
 
-genBlock :: Block Expr Expr -> Eval (RuntimeEnv, Block Type RTExpr)
-genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriterT (genStmt stmts)
+genBlock :: Block Expr Expr -> Eval (RuntimeEnv, Type, Block Type (RTExpr Type))
+-- genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriterT (genStmt stmts)
+genBlock (Block stmts) = do
+  ((typ, stmts'), env) <- runWriterT $ genStmt stmts
+  pure (env, typ, Block stmts')
+
+-- pure (env, typ, Block blk)
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction :: Name -> [(Name, Type)] -> Type -> Block Type RTExpr -> RTEval ()
+tellFunction :: Name -> [(Name, Type)] -> Type -> Block Type (RTExpr Type) -> RTEval ()
 tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (Function args ret body))
 
-genStmt :: [Stmt Expr Expr] -> RTEval [Stmt Type RTExpr]
-genStmt [Return expr] = pure . Return <$> rtFromExpr expr
+-- TODO this whole thing is probably better off being a State
+genStmt :: [Stmt Expr Expr] -> RTEval (Type, [Stmt Type (RTExpr Type)])
+genStmt [Return expr] = do
+  rtExpr <- rtFromExpr expr
+  pure (rtType rtExpr, [Return rtExpr])
 genStmt (Return _ : _) = throwError "Return is not final expression in block"
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ evalType typ
   expr' <- rtFromExpr expr
-  r' <- local (bindRtvar name typ') (genStmt r)
-  pure (Decl name typ' expr' : r')
+  (ret, r') <- local (bindRtvar name typ') (genStmt r)
+  pure (ret, Decl name typ' expr' : r')
 genStmt (Assign name expr : r) = do
   name' <-
     let ct tid =
@@ -188,21 +198,36 @@ genStmt (Assign name expr : r) = do
         rt _ = pure name
      in lift $ lookupVar name ct rt
   expr' <- rtFromExpr expr
-  (Assign name' expr' :) <$> genStmt r
+  (ret, r') <- genStmt r
+  pure (ret, Assign name' expr' : r')
 genStmt (ExprStmt expr : r) = do
   expr' <- rtFromExpr expr
-  (ExprStmt expr' :) <$> genStmt r
-genStmt [] = pure []
+  (ret, r') <- genStmt r
+  pure (ret, ExprStmt expr' : r')
+genStmt [] = pure (TVoid, [])
+
+unify :: MonadError String m => Type -> Type -> m Type
+unify ta tb =
+  if ta == tb
+    then pure ta
+    else throwError $ "Couldnt match " <> show ta <> " with " <> show tb
+
+unifyExpr :: RTExpr Type -> RTExpr Type -> RTEval Type
+unifyExpr rta rtb =
+  let ta = rtType rta
+      tb = rtType rtb
+   in unify ta tb
 
 -- TODO document why this is split into rtFromExpr and rtFromVal
 -- TODO see if there is potential unification
 -- TODO really this is just for reusing arithmetic ops (and vars?) I think which may be unnecessary
-rtFromExpr :: Expr -> RTEval RTExpr
+rtFromExpr :: Expr -> RTEval (RTExpr Type)
 rtFromExpr (Arith op a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
-  pure $ RTArith op rta rtb
-rtFromExpr (Var n) = lookupVar n (lift . deepEval >=> rtFromVal) (const $ pure $ RTVar n)
+  t <- unifyExpr rta rtb
+  pure $ RTArith op rta rtb t
+rtFromExpr (Var n) = lookupVar n (lift . deepEval >=> rtFromVal) (pure . RTVar n)
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
@@ -216,8 +241,9 @@ rtFromExpr (App f x) = do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           let name = "function_" <> show tf
           tell env
+          zipWithM_ unify (fmap snd argDecls) (fmap rtType rtArgs)
           tellFunction name (toList argDecls) ret body
-          pure $ RTCall name rtArgs
+          pure $ RTCall name rtArgs ret
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -234,14 +260,16 @@ rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 --    in pure
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
-rtFromVal :: Value -> RTEval RTExpr
-rtFromVal (Fix (VPrim n)) = pure $ RTPrim n
+rtFromVal :: Value -> RTEval (RTExpr Type)
+-- rtFromVal (Fix (VPrim n)) = pure $ RTPrim n
+rtFromVal (Fix (VPrim _)) = throwError "Cannot handle naked primitives anymore"
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
-rtFromVal (Fix (VBlock env b)) = RTBlock b <$ tell env
-rtFromVal (Fix (VRTVar n)) = pure $ RTVar n
+rtFromVal (Fix (VBlock env t b)) = RTBlock b t <$ tell env
+rtFromVal (Fix (VRTVar n)) = do
+  lift $ lookupVar n (const $ throwError "Variable was expected to be a runtime variable, but wasn't. This shouldn't happen, and probably is a scoping issue.") (pure . RTVar n)
 
 -- rtFromVal (Fix (VBlock _)) = throwError "can't handle attribute set values yet"
 
