@@ -27,10 +27,10 @@ ppBool True = "true"
 ppBool False = "false"
 
 ppType :: Type -> Doc ann
-ppType TInt = "int"
-ppType TDouble = "double"
-ppType TBool = "bool"
-ppType TVoid = "void"
+ppType TInt = "<int>"
+ppType TDouble = "<double>"
+ppType TVoid = "<void>"
+ppType TBool = "<bool>"
 
 ppExpr :: Expr -> Doc ann
 ppExpr (Var x) = pretty x

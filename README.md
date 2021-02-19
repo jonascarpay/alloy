@@ -59,6 +59,7 @@
   - [ ] proper keyword parsing
     - currently `truee` parses to `true e`
   - [ ] print `VClosure` using let-bindings?
+  - [ ] (key)word parsing backtracks too much
   - [ ] custom pretty-printing
     - [ ] own type class
       - multi-line, single line

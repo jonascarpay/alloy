@@ -32,6 +32,13 @@ withPred hasError p = do
 symbol :: String -> Parser ()
 symbol = void . Lex.symbol space
 
+keyword :: String -> Parser ()
+keyword kw = try $ do
+  w <- pWord
+  if w == kw
+    then pure ()
+    else fail $ "expected " <> kw
+
 parens :: Parser p -> Parser p
 parens = between (symbol "(") (symbol ")")
 
@@ -61,7 +68,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "true", "int", "bool", "void", "double", "false", "let", "in", "inherit"]
+keywords = S.fromList ["return", "true", "false", "let", "in", "inherit"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> sepEndBy (pInherit <|> pAttrField) comma
@@ -74,7 +81,7 @@ pAttrs = braces $ Attr . M.fromList <$> sepEndBy (pInherit <|> pAttrField) comma
 
 pInherit :: Parser (Name, Expr)
 pInherit = do
-  symbol "inherit"
+  keyword "inherit"
   name <- pName
   pure (name, Var name)
 
@@ -115,9 +122,9 @@ pFieldAcc = symbol "." *> (Acc <$> pName)
 
 pLet :: Parser Expr
 pLet = do
-  try $ symbol "let"
-  fields <- many $ notFollowedBy (symbol "in") *> (pInherit <|> pField) <* semicolon
-  symbol "in"
+  try $ keyword "let"
+  fields <- many $ notFollowedBy (keyword "in") *> (pInherit <|> pField) <* semicolon
+  keyword "in"
   Let fields <$> pExpr
   where
     pField = do
@@ -127,20 +134,12 @@ pLet = do
       pure (n, x)
 
 pPrim :: Parser Prim
-pPrim = choice [PBool <$> try pBool, PInt <$> pInt, PType <$> pType]
+pPrim = choice [PBool <$> try pBool, PInt <$> pInt]
   where
     pBool :: Parser Bool
-    pBool = True <$ symbol "true" <|> False <$ symbol "false"
+    pBool = True <$ keyword "true" <|> False <$ keyword "false"
     pInt :: Parser Int
     pInt = lexeme Lex.decimal
-    pType :: Parser Type
-    pType =
-      choice
-        [ TInt <$ symbol "int",
-          TDouble <$ symbol "double",
-          TBool <$ symbol "bool",
-          TVoid <$ symbol "void"
-        ]
 
 pFunc :: Parser Expr
 pFunc = do
@@ -174,7 +173,7 @@ pBlock = braces $ BlockExpr . Block <$> many pStatement
     -- TODO `try` for decl shouldn't be necessary?
     pStatement :: Parser (Stmt Expr Expr)
     pStatement = choice [pReturn, try pDecl, try pAssign, pExprStmt]
-    pReturn = Return <$> (symbol "return" *> pExpr <* semicolon)
+    pReturn = Return <$> (keyword "return" *> pExpr <* semicolon)
     pExprStmt = ExprStmt <$> pExpr <* semicolon
 
 pDecl :: Parser (Stmt Expr Expr)

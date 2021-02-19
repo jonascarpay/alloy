@@ -82,17 +82,28 @@ eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 runEval :: Eval a -> Either String a
 runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
 
+mkType :: Type -> Eval ThunkID
+mkType typ = do
+  tid <- deferVal $ VPrim $ PType typ
+  deferVal $ VAttr $ M.fromList [("id", tid)]
+
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
   tNine <- deferVal . VPrim $ PInt 9
   tFix <- deferExpr yCombinator
+  tDouble <- mkType TDouble
+  tInt <- mkType TInt
+  tVoid <- mkType TVoid
   tBuiltins <-
     deferVal . VAttr $
       M.fromList
         [ ("undefined", tUndefined),
           ("nine", tNine),
-          ("fix", tFix)
+          ("fix", tFix),
+          ("double", tDouble),
+          ("int", tInt),
+          ("void", tVoid)
         ]
   local (bindThunk "builtins" tBuiltins) m
 
