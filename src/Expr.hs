@@ -26,7 +26,7 @@ data Expr
   | Lam Name Expr
   | Let [(Name, Expr)] Expr
   | Prim Prim
-  | Func [(Name, Expr)] Expr Expr
+  | Func [(Name, Expr)] Expr (Block Expr Expr)
   | List (Seq Expr)
   | Arith ArithOp Expr Expr
   | Attr (Map Name Expr)

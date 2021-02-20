@@ -48,7 +48,11 @@ ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock ppExpr ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
-ppExpr (Func args ret body) = list (uncurry (ppTyped pretty ppExpr) <$> args) <+> "->" <+> ppExpr ret <+> ppExpr body
+ppExpr (Func args ret body) =
+  list (uncurry (ppTyped pretty ppExpr) <$> args)
+    <+> "->"
+    <+> ppExpr ret
+    <+> ppBlock ppExpr ppExpr body
 
 ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
 ppBlock _ _ (Block []) = "{}"

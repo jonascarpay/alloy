@@ -112,7 +112,7 @@ pTerm =
     [ parens pExpr,
       pList,
       try pAttrs,
-      pBlock,
+      BlockExpr <$> pBlock,
       Prim <$> pPrim,
       Var <$> pName
     ]
@@ -146,7 +146,7 @@ pFunc = do
   args <- list pTypedName
   symbol "->"
   ret <- pTerm
-  Func args ret <$> pExpr
+  Func args ret <$> pBlock
 
 pTypedName :: Parser (Name, Expr)
 pTypedName = do
@@ -166,8 +166,8 @@ semicolon = symbol ";"
 comma :: Parser ()
 comma = symbol ","
 
-pBlock :: Parser Expr
-pBlock = braces $ BlockExpr . Block <$> many pStatement
+pBlock :: Parser (Block Expr Expr)
+pBlock = braces $ Block <$> many pStatement
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?
