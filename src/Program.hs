@@ -8,7 +8,9 @@ import Expr
 data RTExpr a
   = RTVar Name a
   | RTPrim Prim a
-  | RTArith ArithOp (RTExpr a) (RTExpr a) a
+  | RTStruct (Map Name (RTExpr a)) a
+  | -- | RTStructAcc (RTExpr a) Name a
+    RTArith ArithOp (RTExpr a) (RTExpr a) a
   | RTBlock (Block Type (RTExpr a)) a
   | RTCall Name [RTExpr a] a
   deriving (Eq, Show)
@@ -19,6 +21,9 @@ rtType (RTPrim _ a) = a
 rtType (RTArith _ _ _ a) = a
 rtType (RTBlock _ a) = a
 rtType (RTCall _ _ a) = a
+rtType (RTStruct _ a) = a
+
+-- rtType (RTStructAcc _ _ a) = a
 
 data Function typ expr = Function
   { _args :: [(Name, typ)],

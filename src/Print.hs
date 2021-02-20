@@ -30,6 +30,7 @@ ppType TInt = "<int>"
 ppType TDouble = "<double>"
 ppType TVoid = "<void>"
 ppType TBool = "<bool>"
+ppType (TStruct m) = angles $ "struct" <> ppAttrs pretty ppType m
 
 ppExpr :: Expr -> Doc ann
 ppExpr (Var x) = pretty x
@@ -71,6 +72,7 @@ ppRTExpr (RTPrim n _) = ppPrim n
 ppRTExpr (RTArith op a b _) = ppRTExpr a <+> opSymbol op <+> ppRTExpr b
 ppRTExpr (RTBlock b _) = ppBlock ppType ppRTExpr b
 ppRTExpr (RTCall name args _) = pretty name <> list (ppRTExpr <$> args)
+ppRTExpr (RTStruct m _) = ppAttrs pretty ppRTExpr m
 
 opSymbol :: ArithOp -> Doc ann
 opSymbol Add = "+"

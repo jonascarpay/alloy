@@ -24,6 +24,8 @@
   - [ ] figure out step 3
   - [x] recursion but properly
     - implementation should be pretty easy, but it would require turning `let` into more than syntactic sugar
+  - [x] types
+  - [x] structs
 - [ ] eventually
   - [ ] RTExpr values/syntax?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function

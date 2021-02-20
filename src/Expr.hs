@@ -18,6 +18,7 @@ data Type
   | TDouble
   | TBool
   | TVoid
+  | TStruct (Map Name Type)
   deriving (Eq, Show)
 
 data Expr

@@ -27,7 +27,8 @@ type ThunkID = Int
 -- maybe just tag them from fresh to make sure
 data ValueF val
   = VPrim Prim
-  | VClosure Name Expr Env
+  | VClosure Name Expr Env -- TODO benchmark if we can safely remove this
+  | VClosure' (ThunkID -> Eval (ValueF ThunkID))
   | VType Type
   | VAttr (Map Name val)
   | VRTVar (Type, Name)
@@ -97,6 +98,7 @@ withBuiltins m = do
   tDouble <- deferVal (VType TDouble)
   tInt <- deferVal (VType TInt)
   tVoid <- deferVal (VType TVoid)
+  tStruct <- deferVal $ VClosure' (force >=> struct)
   tBuiltins <-
     deferVal . VAttr $
       M.fromList
@@ -105,16 +107,33 @@ withBuiltins m = do
           ("fix", tFix),
           ("double", tDouble),
           ("int", tInt),
-          ("void", tVoid)
+          ("void", tVoid),
+          ("struct", tStruct)
         ]
   local (bindThunk "builtins" tBuiltins) m
 
-fromPrimitive :: Type -> ValueF a -> Eval (RTExpr Type)
-fromPrimitive TInt (VPrim (PInt n)) = pure $ RTPrim (PInt n) TInt
-fromPrimitive TDouble (VPrim (PInt n)) = pure $ RTPrim (PDouble $ fromIntegral n) TDouble
-fromPrimitive TDouble (VPrim (PDouble n)) = pure $ RTPrim (PDouble n) TDouble
-fromPrimitive trg (VPrim src) = throwError $ "Cannot convert a " <> show src <> " primitive into type " <> show trg
+fromPrimitive :: Type -> Value -> Eval (RTExpr Type)
+fromPrimitive TInt (Fix (VPrim (PInt n))) = pure $ RTPrim (PInt n) TInt
+fromPrimitive TDouble (Fix (VPrim (PInt n))) = pure $ RTPrim (PDouble $ fromIntegral n) TDouble
+fromPrimitive TDouble (Fix (VPrim (PDouble n))) = pure $ RTPrim (PDouble n) TDouble
+fromPrimitive styp@(TStruct t) (Fix (VAttr m)) = do
+  let field n typ = case M.lookup n m of
+        Just val -> fromPrimitive typ val
+        Nothing -> throwError $ "Missing field in struct literal: " <> n
+  m' <- M.traverseWithKey field t
+  pure $ RTStruct m' styp
+fromPrimitive trg (Fix (VPrim src)) = throwError $ "Cannot convert a " <> show src <> " primitive into type " <> show trg
 fromPrimitive trg _ = throwError $ "Cannot construct a " <> show trg <> " from whatever it is your passing "
+
+struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
+struct (VAttr m) = do
+  let forceType tid = do
+        force tid >>= \case
+          (VType t) -> pure t
+          _ -> throwError "Struct member was not a type expression"
+  types <- traverse forceType m
+  pure $ VType $ TStruct types
+struct _ = throwError "Con/struct/ing a struct from s'thing other than an attr set"
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
@@ -131,6 +150,7 @@ step (App f x) = do
     (VClosure arg body env) -> do
       tx <- deferExpr x
       local (const $ bindThunk arg tx env) (step body)
+    (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
     _ -> throwError "Calling a non-function"
 step (Var x) = lookupVar x force (\t -> pure $ VRTVar (t, x))
 step (Lam arg body) = VClosure arg body <$> ask
@@ -255,12 +275,19 @@ rtFromExpr typ (App f x) = do
           pure $ RTCall name rtArgs typ'
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
+-- rtFromExpr typ (Acc name expr) = do
+--   lift (step expr) >>= \case
+--     VAttr m -> do
+--       case M.lookup name m of
+--         Nothing -> throwError ("Accessing unknown field " <> name)
+--         Just tid -> lift (deepEval tid) >>= rtFromVal typ
+--     sub -> lift (traverse deepEval sub) >>= rtFromVal typ . Fix
+rtFromExpr typ expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 rtFromExpr typ expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 
@@ -270,10 +297,12 @@ rtFromExpr typ expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal typ
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
 rtFromVal :: Maybe Type -> Value -> RTEval (RTExpr Type)
-rtFromVal (Just typ) (Fix v@(VPrim _)) = lift $ fromPrimitive typ v
+rtFromVal (Just typ) v@(Fix (VPrim _)) = lift $ fromPrimitive typ v
 rtFromVal Nothing (Fix (VPrim t)) = throwError $ "not sure what type to turn " <> show t <> " into"
 rtFromVal _ (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
-rtFromVal _ (Fix VAttr {}) = throwError "can't handle attribute set values yet"
+rtFromVal _ (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
+rtFromVal (Just typ) v@(Fix VAttr {}) = lift $ fromPrimitive typ v
+rtFromVal Nothing (Fix VAttr {}) = throwError "Encountered attr set, but not sure what struct type to turn it into"
 rtFromVal _ (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal _ (Fix VType {}) = throwError "can't handle type"
 rtFromVal _ (Fix VFunc {}) = throwError "Function values don't make sense here"
