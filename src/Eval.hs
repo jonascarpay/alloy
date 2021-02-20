@@ -14,6 +14,7 @@ import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
+import Data.Void
 import Expr
 import Lens.Micro.Platform
 import Program
@@ -27,6 +28,7 @@ type ThunkID = Int
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr Env
+  | VRTBuilder (Expr -> RTEval (RTExpr Type)) -- TODO 1. what is this even 2. Can the types be weaker 3. Can it be combined with VClosure to contain arbitrary computations
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv Type (Block Type (RTExpr Type)) -- TODO Move Type into Block?
@@ -82,19 +84,23 @@ eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 runEval :: Eval a -> Either String a
 runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
 
-mkType :: Type -> Eval ThunkID
-mkType typ = do
-  tid <- deferVal $ VPrim $ PType typ
-  deferVal $ VAttr $ M.fromList [("id", tid)]
+deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
+deferAttrs attrs = do
+  attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
+  deferVal $ VAttr $ M.fromList attrs'
 
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
   tNine <- deferVal . VPrim $ PInt 9
   tFix <- deferExpr yCombinator
-  tDouble <- mkType TDouble
-  tInt <- mkType TInt
-  tVoid <- mkType TVoid
+  tDouble <- deferAttrs [("id", VPrim $ PType TDouble)]
+  tInt <-
+    deferAttrs
+      [ ("id", VPrim $ PType TInt),
+        ("fromInt", VRTBuilder (lift . (step >=> fromPrimitive TInt)))
+      ]
+  tVoid <- deferAttrs [("id", VPrim $ PType TVoid)]
   tBuiltins <-
     deferVal . VAttr $
       M.fromList
@@ -106,6 +112,10 @@ withBuiltins m = do
           ("void", tVoid)
         ]
   local (bindThunk "builtins" tBuiltins) m
+
+fromPrimitive :: Type -> ValueF a -> (Eval (RTExpr Type))
+fromPrimitive TInt (VPrim (PInt n)) = pure $ RTPrim (PInt n) TInt
+fromPrimitive TInt (VPrim (PDouble n)) = throwError ""
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
@@ -231,6 +241,7 @@ rtFromExpr (Var n) = lookupVar n (lift . deepEval >=> rtFromVal) (pure . RTVar n
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
+    (VRTBuilder m) -> m x
     (VClosure arg body env) -> do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
@@ -264,6 +275,7 @@ rtFromVal :: Value -> RTEval (RTExpr Type)
 -- rtFromVal (Fix (VPrim n)) = pure $ RTPrim n
 rtFromVal (Fix (VPrim _)) = throwError "Cannot handle naked primitives anymore"
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
+rtFromVal (Fix VRTBuilder {}) = throwError "partially applied rtbuilder in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"

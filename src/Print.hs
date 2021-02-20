@@ -100,3 +100,4 @@ ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock env _ b)) = ppWithRuntimeEnv env (ppBlock ppType ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc env func)) = ppWithRuntimeEnv env $ ppFunction func
+ppVal (Fix (VRTBuilder _)) = "<runtime builder>"
