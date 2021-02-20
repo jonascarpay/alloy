@@ -20,7 +20,6 @@ ppPrim :: Prim -> Doc ann
 ppPrim (PInt x) = pretty x
 ppPrim (PDouble x) = pretty x
 ppPrim (PBool x) = ppBool x
-ppPrim (PType x) = ppType x
 
 ppBool :: Bool -> Doc ann
 ppBool True = "true"
@@ -100,4 +99,4 @@ ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock env _ b)) = ppWithRuntimeEnv env (ppBlock ppType ppRTExpr b)
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc env func)) = ppWithRuntimeEnv env $ ppFunction func
-ppVal (Fix (VRTBuilder _)) = "<runtime builder>"
+ppVal (Fix (VType t)) = ppType t

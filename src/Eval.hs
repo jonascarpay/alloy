@@ -28,7 +28,7 @@ type ThunkID = Int
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr Env
-  | VRTBuilder (Expr -> RTEval (RTExpr Type)) -- TODO 1. what is this even 2. Can the types be weaker 3. Can it be combined with VClosure to contain arbitrary computations
+  | VType Type
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv Type (Block Type (RTExpr Type)) -- TODO Move Type into Block?
@@ -94,13 +94,9 @@ withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
   tNine <- deferVal . VPrim $ PInt 9
   tFix <- deferExpr yCombinator
-  tDouble <- deferAttrs [("id", VPrim $ PType TDouble)]
-  tInt <-
-    deferAttrs
-      [ ("id", VPrim $ PType TInt),
-        ("fromInt", VRTBuilder (lift . (step >=> fromPrimitive TInt)))
-      ]
-  tVoid <- deferAttrs [("id", VPrim $ PType TVoid)]
+  tDouble <- deferVal (VType TDouble)
+  tInt <- deferVal (VType TInt)
+  tVoid <- deferVal (VType TVoid)
   tBuiltins <-
     deferVal . VAttr $
       M.fromList
@@ -172,7 +168,7 @@ forgetRT = M.filter isLeft
 evalType :: Expr -> Eval Type
 evalType expr =
   step expr >>= \case
-    VPrim (PType tp) -> pure tp
+    VType tp -> pure tp
     _ -> throwError "Expected type, got not-a-type"
 
 genBlock :: Block Expr Expr -> Eval (RuntimeEnv, Type, Block Type (RTExpr Type))
@@ -241,7 +237,6 @@ rtFromExpr (Var n) = lookupVar n (lift . deepEval >=> rtFromVal) (pure . RTVar n
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
-    (VRTBuilder m) -> m x
     (VClosure arg body env) -> do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
@@ -275,7 +270,6 @@ rtFromVal :: Value -> RTEval (RTExpr Type)
 -- rtFromVal (Fix (VPrim n)) = pure $ RTPrim n
 rtFromVal (Fix (VPrim _)) = throwError "Cannot handle naked primitives anymore"
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
-rtFromVal (Fix VRTBuilder {}) = throwError "partially applied rtbuilder in runtime expression"
 rtFromVal (Fix VAttr {}) = throwError "can't handle attribute set values yet"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"

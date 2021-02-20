@@ -11,7 +11,6 @@ data Prim
   = PInt Int
   | PDouble Double
   | PBool Bool
-  | PType Type
   deriving (Eq, Show)
 
 data Type
