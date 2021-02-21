@@ -14,10 +14,10 @@ import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
-import Data.Void
 import Expr
 import Lens.Micro.Platform
 import Program
+import Typecheck
 
 type ThunkID = Int
 
@@ -31,9 +31,9 @@ data ValueF val
   | VClosure' (ThunkID -> Eval (ValueF ThunkID))
   | VType Type
   | VAttr (Map Name val)
-  | VRTVar (Type, Name)
-  | VBlock RuntimeEnv Type (Block Type (RTExpr Type)) -- TODO Move Type into Block?
-  | VFunc RuntimeEnv (Function Type (RTExpr Type)) -- TODO Type here could be a val?
+  | VRTVar Name
+  | VBlock RuntimeEnv (RTBlock (Maybe Type)) -- TODO Move Type into Block?
+  | VFunc RuntimeEnv (Function Type (RTExpr Type Type)) -- TODO Type here could be a val?
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -58,9 +58,14 @@ newtype EvalT m a = EvalT {_unLazyT :: RWST Env RuntimeEnv (Int, Map ThunkID Thu
 
 type Eval = EvalT Identity
 
-type Env = Map Name (Either ThunkID Type)
+type Env = Map Name (Either ThunkID ())
 
-lookupVar :: (MonadReader Env m, MonadError String m) => Name -> (ThunkID -> m r) -> (Type -> m r) -> m r
+lookupVar ::
+  (MonadReader Env m, MonadError String m) =>
+  Name ->
+  (ThunkID -> m r) ->
+  (() -> m r) ->
+  m r
 lookupVar name kct krt = do
   asks (M.lookup name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
@@ -70,8 +75,8 @@ lookupVar name kct krt = do
 bindThunk :: Name -> ThunkID -> Env -> Env
 bindThunk n tid = M.insert n (Left tid)
 
-bindRtvar :: Name -> Type -> Env -> Env
-bindRtvar n typ = M.insert n (Right typ)
+bindRtvar :: Name -> Env -> Env
+bindRtvar n = M.insert n (Right ())
 
 yCombinator :: Expr
 yCombinator = Lam "f" (App (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))) (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))))
@@ -85,10 +90,10 @@ eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 runEval :: Eval a -> Either String a
 runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m mempty (0, mempty)
 
-deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
-deferAttrs attrs = do
-  attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
-  deferVal $ VAttr $ M.fromList attrs'
+-- deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
+-- deferAttrs attrs = do
+--   attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
+--   deferVal $ VAttr $ M.fromList attrs'
 
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
@@ -111,19 +116,6 @@ withBuiltins m = do
           ("struct", tStruct)
         ]
   local (bindThunk "builtins" tBuiltins) m
-
-fromPrimitive :: Type -> Value -> Eval (RTExpr Type)
-fromPrimitive TInt (Fix (VPrim (PInt n))) = pure $ RTPrim (PInt n) TInt
-fromPrimitive TDouble (Fix (VPrim (PInt n))) = pure $ RTPrim (PDouble $ fromIntegral n) TDouble
-fromPrimitive TDouble (Fix (VPrim (PDouble n))) = pure $ RTPrim (PDouble n) TDouble
-fromPrimitive styp@(TStruct t) (Fix (VAttr m)) = do
-  let field n typ = case M.lookup n m of
-        Just val -> fromPrimitive typ val
-        Nothing -> throwError $ "Missing field in struct literal: " <> n
-  m' <- M.traverseWithKey field t
-  pure $ RTStruct m' styp
-fromPrimitive trg (Fix (VPrim src)) = throwError $ "Cannot convert a " <> show src <> " primitive into type " <> show trg
-fromPrimitive trg _ = throwError $ "Cannot construct a " <> show trg <> " from whatever it is your passing "
 
 struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 struct (VAttr m) = do
@@ -152,7 +144,7 @@ step (App f x) = do
       local (const $ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
     _ -> throwError "Calling a non-function"
-step (Var x) = lookupVar x force (\t -> pure $ VRTVar (t, x))
+step (Var x) = lookupVar x force (const $ pure $ VRTVar x)
 step (Lam arg body) = VClosure arg body <$> ask
 step (Let binds body) = do
   n0 <- gets fst
@@ -173,14 +165,16 @@ step (Acc f em) =
       tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
       force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) = (\(env, typ, b') -> VBlock env typ b') <$> genBlock Nothing b
+step (BlockExpr b) =
+  uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (Func args ret body) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
-  local (flip (foldr (uncurry bindRtvar)) typedArgs . forgetRT) $ do
-    (env, btyp, blk) <- genBlock (Just retType) body
-    pure $ VFunc env (Function typedArgs btyp blk)
+  local (flip (foldr bindRtvar) (fst <$> typedArgs) . forgetRT) $ do
+    (env, blk) <- genBlock body
+    either throwError (pure . VFunc env) $
+      typecheckFunction env typedArgs retType blk
 
 forgetRT :: Env -> Env
 forgetRT = M.filter isLeft
@@ -191,125 +185,122 @@ evalType expr =
     VType tp -> pure tp
     _ -> throwError "Expected type, got not-a-type"
 
-genBlock :: Maybe Type -> Block Expr Expr -> Eval (RuntimeEnv, Type, Block Type (RTExpr Type))
--- genBlock (Block stmts) = (\(rtStmts, env) -> (env, Block rtStmts)) <$> runWriterT (genStmt stmts)
-genBlock mtyp (Block stmts) = do
-  ((typ, stmts'), env) <- runWriterT $ genStmt mtyp stmts
-  pure (env, typ, Block stmts')
-
--- pure (env, typ, Block blk)
+genBlock ::
+  Block Expr Expr ->
+  Eval (RuntimeEnv, Block (Maybe Type) (RTExpr (Maybe Type) (Maybe Type)))
+genBlock (Block stmts) = do
+  (stmts', env) <- runWriterT $ genStmt stmts
+  pure (env, Block stmts')
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction :: Name -> [(Name, Type)] -> Type -> Block Type (RTExpr Type) -> RTEval ()
-tellFunction name args ret body = tell (RuntimeEnv $ M.singleton name (Function args ret body))
+tellFunction ::
+  Name ->
+  [(Name, Type)] ->
+  Type ->
+  RTBlock Type ->
+  RTEval ()
+tellFunction name args ret (Block body) = tell (RuntimeEnv $ M.singleton name (Function args ret (Block body)))
 
--- TODO this whole thing is probably better off being a State
-genStmt :: Maybe Type -> [Stmt Expr Expr] -> RTEval (Type, [Stmt Type (RTExpr Type)])
-genStmt btyp [Return expr] = do
-  rtExpr <- rtFromExpr btyp expr
-  pure (rtType rtExpr, [Return rtExpr])
-genStmt _ (Return _ : _) = throwError "Return is not final expression in block"
-genStmt btyp (Decl name typ expr : r) = do
+-- TODO This processes statements as a list because a declaration is relevant in the tail of the list
+-- but that's kinda hacky and might overlap with type checking
+genStmt ::
+  [Stmt Expr Expr] ->
+  RTEval [Stmt (Maybe Type) (RTExpr (Maybe Type) (Maybe Type))]
+genStmt [Return expr] = do
+  rtExpr <- rtFromExpr expr
+  pure [Return rtExpr]
+genStmt (Return _ : _) = throwError "Return is not final expression in block"
+genStmt (Decl name typ expr : r) = do
   typ' <- lift $ evalType typ
-  expr' <- rtFromExpr (Just typ') expr
-  (ret, r') <- local (bindRtvar name typ') (genStmt btyp r)
-  pure (ret, Decl name typ' expr' : r')
-genStmt btyp (Assign name expr : r) = do
-  (vtyp, name') <- do
+  expr' <- rtFromExpr expr
+  r' <- local (bindRtvar name) (genStmt r)
+  pure (Decl name (Just typ') expr' : r')
+genStmt (Assign name expr : r) = do
+  name' <- do
     let ct tid =
           force tid >>= \case
             VRTVar v -> pure v
             _ -> throwError $ "Assigning to non-runtime-variable " <> show name
-        rt vtyp = pure (vtyp, name)
+        rt _ = pure name
      in lift $ lookupVar name ct rt
-  expr' <- rtFromExpr (Just vtyp) expr
-  (ret, r') <- genStmt btyp r
-  pure (ret, Assign name' expr' : r')
-genStmt btyp (ExprStmt expr : r) = do
-  expr' <- rtFromExpr Nothing expr
-  (ret, r') <- genStmt btyp r
-  pure (ret, ExprStmt expr' : r')
-genStmt _ [] = pure (TVoid, [])
-
-unify :: MonadError String m => Maybe Type -> Maybe Type -> m Type
-unify Nothing Nothing = throwError "ambiguous"
-unify (Just t) Nothing = pure t
-unify Nothing (Just t) = pure t
-unify (Just ta) (Just tb) =
-  if ta == tb
-    then pure ta
-    else throwError $ "Couldnt match " <> show ta <> " with " <> show tb
-
-unifyExpr :: RTExpr Type -> RTExpr Type -> RTEval Type
-unifyExpr rta rtb =
-  let ta = rtType rta
-      tb = rtType rtb
-   in unify (Just ta) (Just tb)
+  expr' <- rtFromExpr expr
+  r' <- genStmt r
+  pure (Assign name' expr' : r')
+genStmt (ExprStmt expr : r) = do
+  expr' <- rtFromExpr expr
+  r' <- genStmt r
+  pure (ExprStmt expr' : r')
+genStmt [] = pure []
 
 -- TODO document why this is split into rtFromExpr and rtFromVal
 -- TODO see if there is potential unification
 -- TODO really this is just for reusing arithmetic ops (and vars?) I think which may be unnecessary
-rtFromExpr :: Maybe Type -> Expr -> RTEval (RTExpr Type)
-rtFromExpr typ (Arith op a b) = do
-  rta <- rtFromExpr typ a
-  rtb <- rtFromExpr typ b
-  typ' <- unifyExpr rta rtb
-  pure $ RTArith op rta rtb typ'
-rtFromExpr typ (Var n) = lookupVar n (lift . deepEval >=> rtFromVal typ) (fmap (RTVar n) . unify typ . Just)
-rtFromExpr typ (App f x) = do
+rtFromExpr ::
+  Expr ->
+  RTEval (RTExpr (Maybe Type) (Maybe Type))
+rtFromExpr (Arith op a b) = do
+  rta <- rtFromExpr a
+  rtb <- rtFromExpr b
+  pure $ RTArith op rta rtb Nothing
+rtFromExpr (Var n) =
+  lookupVar
+    n
+    (lift . deepEval >=> rtFromVal)
+    (const $ pure (RTVar n Nothing))
+rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
     (VClosure arg body env) -> do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
-        lift (deepEvalExpr body) >>= rtFromVal typ
+        lift (deepEvalExpr body) >>= rtFromVal
     (VFunc env (Function argDecls ret body)) ->
       case x of
         List argExprs -> do
-          typ' <- unify typ (Just ret)
-          rtArgs <- zipWithM rtFromExpr (fmap (Just . snd) argDecls) (toList argExprs)
+          rtArgs <- traverse rtFromExpr (toList argExprs)
           let name = "function_" <> show tf
           tell env
           tellFunction name (toList argDecls) ret body -- TODO warning this is tricky
-          pure $ RTCall name rtArgs typ'
+          pure $ RTCall name rtArgs (Just ret)
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
--- rtFromExpr typ (Acc name expr) = do
---   lift (step expr) >>= \case
---     VAttr m -> do
---       case M.lookup name m of
---         Nothing -> throwError ("Accessing unknown field " <> name)
---         Just tid -> lift (deepEval tid) >>= rtFromVal typ
---     sub -> lift (traverse deepEval sub) >>= rtFromVal typ . Fix
-rtFromExpr typ expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal typ
-rtFromExpr typ expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal typ
+rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
+
+rtLitFromPrim :: Prim -> RTEval RTLiteral
+rtLitFromPrim (PInt n) = pure $ RTInt n
+rtLitFromPrim (PDouble n) = pure $ RTDouble n
+rtLitFromPrim (PBool _) = throwError "runtime bools aren't a thing"
 
 -- (VFunc arg body) ->
 --   let name = "function_" <> show tf
 --    in pure
 -- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
 -- TODO handle(tell) the closure form VBlock
-rtFromVal :: Maybe Type -> Value -> RTEval (RTExpr Type)
-rtFromVal (Just typ) v@(Fix (VPrim _)) = lift $ fromPrimitive typ v
-rtFromVal Nothing (Fix (VPrim t)) = throwError $ "not sure what type to turn " <> show t <> " into"
-rtFromVal _ (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
-rtFromVal _ (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
-rtFromVal (Just typ) v@(Fix VAttr {}) = lift $ fromPrimitive typ v
-rtFromVal Nothing (Fix VAttr {}) = throwError "Encountered attr set, but not sure what struct type to turn it into"
-rtFromVal _ (Fix VList {}) = throwError "can't handle list values yet"
-rtFromVal _ (Fix VType {}) = throwError "can't handle type"
-rtFromVal _ (Fix VFunc {}) = throwError "Function values don't make sense here"
-rtFromVal typ (Fix (VBlock env typblock b)) = do
-  t' <- unify typ (Just typblock)
-  RTBlock b t' <$ tell env
-rtFromVal typ (Fix (VRTVar (t, n))) = RTVar n <$> unify typ (Just t)
+rtFromVal :: Value -> RTEval (RTExpr (Maybe Type) (Maybe Type))
+rtFromVal (Fix (VPrim p)) = fmap (`RTLiteral` Nothing) (rtLitFromPrim p)
+rtFromVal (Fix (VAttr m)) = do
+  m' <- flip M.traverseWithKey m $ \key field ->
+    rtFromVal field >>= \case
+      RTLiteral l _ -> pure l
+      _ -> throwError $ "Field " <> key <> " did not evaluate to a literal"
+  pure $ RTLiteral (RTStruct m') Nothing
+rtFromVal (Fix (VRTVar n)) = pure $ RTVar n Nothing
+rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
+rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
+rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
+rtFromVal (Fix VType {}) = throwError "can't handle type"
+rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
+rtFromVal (Fix (VBlock env b)) = RTBlock b Nothing <$ tell env
+
+-- rtFromVal typ (Fix (VRTVar (t, n))) = RTVar n <$> unify typ (Just t)
 
 -- rtFromVal (Fix (VBlock _)) = throwError "can't handle attribute set values yet"
 

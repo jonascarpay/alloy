@@ -30,6 +30,7 @@ common common-options
     , mtl
     , parser-combinators
     , prettyprinter
+    , union-find
 
   default-language:   Haskell2010
   default-extensions: ImportQualifiedPost
@@ -48,6 +49,7 @@ library
     Parse
     Print
     Program
+    Typecheck
 
   build-depends:
 

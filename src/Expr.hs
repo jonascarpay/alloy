@@ -19,7 +19,7 @@ data Type
   | TBool
   | TVoid
   | TStruct (Map Name Type)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 data Expr
   = Var Name
@@ -38,7 +38,8 @@ data Expr
 data ArithOp = Add | Sub | Mul
   deriving (Eq, Show)
 
-newtype Block typ expr = Block {unBlock :: [Stmt typ expr]}
+newtype Block typ expr = Block
+  {blkStatements :: [Stmt typ expr]}
   deriving (Eq, Show)
 
 data Stmt typ expr

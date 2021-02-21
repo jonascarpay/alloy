@@ -66,13 +66,17 @@ ppStatement ft fe (Decl name typ expr) = ppTyped pretty ft name typ <+> "=" <+> 
 ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
 
-ppRTExpr :: RTExpr Type -> Doc ann
-ppRTExpr (RTVar x _) = pretty x
-ppRTExpr (RTPrim n _) = ppPrim n
-ppRTExpr (RTArith op a b _) = ppRTExpr a <+> opSymbol op <+> ppRTExpr b
-ppRTExpr (RTBlock b _) = ppBlock ppType ppRTExpr b
-ppRTExpr (RTCall name args _) = pretty name <> list (ppRTExpr <$> args)
-ppRTExpr (RTStruct m _) = ppAttrs pretty ppRTExpr m
+ppRTExpr :: (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr typ info -> Doc ann
+ppRTExpr _ _ (RTVar x _) = pretty x
+ppRTExpr _ _ (RTLiteral n _) = ppRTLit n
+ppRTExpr pptyp ppinfo (RTArith op a b _) = ppRTExpr pptyp ppinfo a <+> opSymbol op <+> ppRTExpr pptyp ppinfo b
+ppRTExpr pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr pptyp ppinfo) b
+ppRTExpr pptyp ppinfo (RTCall name args _) = pretty name <> list (ppRTExpr pptyp ppinfo <$> args)
+
+ppRTLit :: RTLiteral -> Doc ann
+ppRTLit (RTInt n) = pretty n
+ppRTLit (RTDouble n) = pretty n
+ppRTLit (RTStruct m) = ppAttrs pretty ppRTLit m
 
 opSymbol :: ArithOp -> Doc ann
 opSymbol Add = "+"
@@ -91,18 +95,29 @@ ppWithRuntimeEnv (RuntimeEnv fns) doc
           indent 2 doc
         ]
 
-ppFunction :: Function Type (RTExpr Type) -> Doc ann
-ppFunction (Function args ret body) = list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType ppRTExpr body
+ppFunction :: Function Type (RTExpr Type Type) -> Doc ann
+ppFunction (Function args ret body) = list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType (ppRTExpr ppType ppType) body
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
+
+ppMaybeType :: Maybe Type -> Doc ann
+ppMaybeType = maybe mempty ppType
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
 ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
+ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
-ppVal (Fix (VBlock env _ b)) = ppWithRuntimeEnv env (ppBlock ppType ppRTExpr b)
+ppVal (Fix (VBlock env b)) =
+  ppWithRuntimeEnv
+    env
+    ( ppBlock
+        ppMaybeType
+        (ppRTExpr ppMaybeType ppMaybeType)
+        b
+    )
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc env func)) = ppWithRuntimeEnv env $ ppFunction func
 ppVal (Fix (VType t)) = ppType t

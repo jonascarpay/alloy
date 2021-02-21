@@ -25,6 +25,7 @@
   - [x] recursion but properly
     - implementation should be pretty easy, but it would require turning `let` into more than syntactic sugar
   - [x] types
+  - [x] type checking
   - [x] structs
 - [ ] eventually
   - [ ] RTExpr values/syntax?
@@ -47,6 +48,8 @@
   - [ ] `builtins.trace`
     - could just use Haskell's `trace` for now
     - requires strings
+  - [ ] literal conversions
+  - [ ] type holes
   - [ ] function naming and deduplication
     - ideally `let someFn = [..]: {..}` would actually get the `someFn` symbol, but that might become tricky if it's behind a ct argument
     - Zig has memoization, but our functions can come from weirder places, and can be anonymous
