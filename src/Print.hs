@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Print (ppExpr, ppVal) where
+module Print (ppExpr, ppVal, ppTypedBlock) where
 
 import Data.Foldable
 import Data.Map (Map)
@@ -94,6 +94,9 @@ ppWithRuntimeEnv (RuntimeEnv fns) doc
           "Body:",
           indent 2 doc
         ]
+
+ppTypedBlock :: Type -> Block Type (RTExpr Type Type) -> Doc ann
+ppTypedBlock typ block = ppType typ <> ppBlock ppType (ppRTExpr ppType ppType) block
 
 ppFunction :: Function Type (RTExpr Type Type) -> Doc ann
 ppFunction (Function args ret body) = list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType (ppRTExpr ppType ppType) body

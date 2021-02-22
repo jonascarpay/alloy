@@ -207,10 +207,10 @@ tellFunction name args ret (Block body) = tell (RuntimeEnv $ M.singleton name (F
 genStmt ::
   [Stmt Expr Expr] ->
   RTEval [Stmt (Maybe Type) (RTExpr (Maybe Type) (Maybe Type))]
-genStmt [Return expr] = do
-  rtExpr <- rtFromExpr expr
-  pure [Return rtExpr]
-genStmt (Return _ : _) = throwError "Return is not final expression in block"
+genStmt (Return expr : r) = do
+  expr' <- rtFromExpr expr
+  r' <- genStmt r
+  pure (Return expr' : r')
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ evalType typ
   expr' <- rtFromExpr expr

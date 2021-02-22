@@ -11,10 +11,20 @@ import Prettyprinter
 import Print
 import System.Console.Haskeline
 import Text.Megaparsec as MP
+import Typecheck
 
-evalInfo :: Expr -> Either (Doc ann) Value
-evalInfo expr = first f (eval expr)
+-- | Block values aren't typechecked, only functions.
+-- This makes sense because they occur during evaluation, and it doesn't make sense to typecheck them every time you encounter one.
+-- When we present a block as the result of an evaluation to the user however, we do actually want to report when it contains
+-- type errors.
+-- So, this function special-cases block values to typecheck them before printing.
+-- TODO: maybe not allow printing untypechecked blocks
+evalInfo :: Expr -> Either (Doc ann) (Doc ann)
+evalInfo expr = first f (eval expr >>= checkAndPrint)
   where
+    checkAndPrint :: Value -> Either String (Doc ann)
+    checkAndPrint (Fix (VBlock env b)) = uncurry ppTypedBlock <$> typecheckBlock env Nothing b
+    checkAndPrint v = pure $ ppVal v
     f err =
       vcat
         [ "Encountered error during evaluation:",
@@ -34,5 +44,5 @@ repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
             Left err -> outputStrLn (errorBundlePretty err) >> loop
             Right expr ->
               outputStrLn
-                (either show (show . ppVal) (evalInfo expr))
+                (either show show (evalInfo expr))
                 >> loop
