@@ -194,13 +194,8 @@ genBlock (Block stmts) = do
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction ::
-  Name ->
-  [(Name, Type)] ->
-  Type ->
-  RTBlock Type ->
-  RTEval ()
-tellFunction name args ret (Block body) = tell (RuntimeEnv $ M.singleton name (Function args ret (Block body)))
+tellFunction :: Function -> RTEval ()
+tellFunction func = tell (RuntimeEnv $ M.singleton (fnGuid func) func)
 
 -- TODO This processes statements as a list because a declaration is relevant in the tail of the list
 -- but that's kinda hacky and might overlap with type checking
@@ -255,14 +250,13 @@ rtFromExpr (App f x) = do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    VFunc env (Function argDecls ret body) ->
+    VFunc childEnv func ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
-          let name = "function_" <> show tf
-          tell env
-          tellFunction name (toList argDecls) ret body -- TODO warning this is tricky
-          pure $ RTCall name rtArgs (Just ret)
+          tell childEnv
+          tellFunction func
+          pure $ RTCall (fnGuid func) rtArgs (Just $ fnRet func)
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal

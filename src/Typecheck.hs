@@ -26,7 +26,7 @@ typecheckFunction ::
   RTBlock (Maybe Type) ->
   Either String Function
 typecheckFunction env args ret (Block stmts) =
-  (\(_, stmts') -> Function args ret (Block stmts')) <$> typecheckStmts env (Just ret) args stmts
+  (\(_, stmts') -> mkFunction args ret (Block stmts')) <$> typecheckStmts env (Just ret) args stmts
 
 typecheckBlock ::
   RuntimeEnv ->
@@ -109,9 +109,9 @@ checkRTExpr env (RTBlock (Block stmts) mtyp) = do
   var <- freshMaybe mtyp ()
   stmts' <- checkStmts env var stmts
   pure (RTBlock (Block stmts') var)
-checkRTExpr (RuntimeEnv env) (RTCall name args mtyp) =
-  case M.lookup name env of
-    Just (Function fargs fret _) -> do
+checkRTExpr (RuntimeEnv env) (RTCall fguid args mtyp) =
+  case M.lookup fguid env of
+    Just (Function fargs fret _ guid) -> do
       var <- freshMaybe mtyp ()
       setType var fret ()
       let f expr typ = do
@@ -119,7 +119,7 @@ checkRTExpr (RuntimeEnv env) (RTCall name args mtyp) =
             setType (rtInfo expr') typ ()
             pure expr'
       args' <- zipWithM f args (snd <$> fargs)
-      pure $ RTCall name args' var
+      pure $ RTCall guid args' var
     Nothing -> error "report this immediately"
 
 freshMaybe :: Maybe Type -> info -> Typecheck ctx info (TypeVar ctx info)

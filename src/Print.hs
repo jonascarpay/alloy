@@ -7,6 +7,7 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Eval
 import Expr
+import Numeric
 import Prettyprinter
 import Program
 
@@ -71,7 +72,10 @@ ppRTExpr _ _ (RTVar x _) = pretty x
 ppRTExpr _ _ (RTLiteral n _) = ppRTLit n
 ppRTExpr pptyp ppinfo (RTArith op a b _) = ppRTExpr pptyp ppinfo a <+> opSymbol op <+> ppRTExpr pptyp ppinfo b
 ppRTExpr pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr pptyp ppinfo) b
-ppRTExpr pptyp ppinfo (RTCall name args _) = pretty name <> list (ppRTExpr pptyp ppinfo <$> args)
+ppRTExpr pptyp ppinfo (RTCall guid args _) = ppGuid guid <> list (ppRTExpr pptyp ppinfo <$> args)
+
+ppGuid :: GUID -> Doc ann
+ppGuid (GUID n) = pretty $ mappend "function_" $ take 5 $ showHex (fromIntegral n :: Word) ""
 
 ppRTLit :: RTLiteral -> Doc ann
 ppRTLit (RTInt n) = pretty n
@@ -90,7 +94,7 @@ ppWithRuntimeEnv (RuntimeEnv fns) doc
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ (\(name, func) -> pretty name <> ppFunction func) <$> M.toList fns,
+          indent 2 . vcat $ ppFunction <$> M.elems fns,
           "Body:",
           indent 2 doc
         ]
@@ -99,7 +103,7 @@ ppTypedBlock :: Type -> Block Type (RTExpr Type Type) -> Doc ann
 ppTypedBlock typ block = ppType typ <> ppBlock ppType (ppRTExpr ppType ppType) block
 
 ppFunction :: Function -> Doc ann
-ppFunction (Function args ret body) = list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType (ppRTExpr ppType ppType) body
+ppFunction (Function args ret body guid) = ppGuid guid <+> list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType (ppRTExpr ppType ppType) body
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
