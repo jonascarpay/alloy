@@ -33,7 +33,7 @@ data ValueF val
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv (RTBlock (Maybe Type)) -- TODO Move Type into Block?
-  | VFunc RuntimeEnv (Function Type (RTExpr Type Type)) -- TODO Type here could be a val?
+  | VFunc RuntimeEnv Function -- TODO Type here could be a val?
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -251,11 +251,11 @@ rtFromExpr (Var n) =
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
-    (VClosure arg body env) -> do
+    VClosure arg body env -> do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    (VFunc env (Function argDecls ret body)) ->
+    VFunc env (Function argDecls ret body) ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)

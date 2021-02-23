@@ -2,6 +2,7 @@ import Data.Foldable
 import Lib
 import Options.Applicative
 import Parse
+import Print
 import Text.Megaparsec qualified as MP
 
 newtype Command = Evaluate FilePath
@@ -14,7 +15,7 @@ runCommand (Evaluate fp) = do
   input <- readFile fp
   case MP.parse pToplevel fp input of
     Left err -> putStrLn $ MP.errorBundlePretty err
-    Right expr -> either print print (evalInfo expr)
+    Right expr -> either print (print . ppVal) (evalInfo expr)
 
 main :: IO ()
 main = execParser opts >>= runCommand

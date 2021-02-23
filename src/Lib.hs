@@ -19,12 +19,23 @@ import Typecheck
 -- type errors.
 -- So, this function special-cases block values to typecheck them before printing.
 -- TODO: maybe not allow printing untypechecked blocks
-evalInfo :: Expr -> Either (Doc ann) (Doc ann)
-evalInfo expr = first f (eval expr >>= checkAndPrint)
+evalCheckInfo :: Expr -> Either (Doc ann) (Doc ann)
+evalCheckInfo expr = first f (eval expr >>= checkAndPrint)
   where
     checkAndPrint :: Value -> Either String (Doc ann)
     checkAndPrint (Fix (VBlock env b)) = uncurry ppTypedBlock <$> typecheckBlock env Nothing b
     checkAndPrint v = pure $ ppVal v
+    f err =
+      vcat
+        [ "Encountered error during type checking:",
+          indent 2 $ pretty err,
+          "AST:",
+          indent 2 $ ppExpr expr
+        ]
+
+evalInfo :: Expr -> Either (Doc ann) Value
+evalInfo expr = first f (eval expr)
+  where
     f err =
       vcat
         [ "Encountered error during evaluation:",
@@ -44,5 +55,5 @@ repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
             Left err -> outputStrLn (errorBundlePretty err) >> loop
             Right expr ->
               outputStrLn
-                (either show show (evalInfo expr))
+                (either show (show . ppVal) (evalInfo expr))
                 >> loop

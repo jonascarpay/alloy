@@ -28,17 +28,15 @@ rtInfo (RTBlock _ a) = a
 rtInfo (RTCall _ _ a) = a
 rtInfo (RTLiteral _ a) = a
 
--- rtType (RTStructAcc _ _ a) = a
-
-data Function typ expr = Function
-  { _args :: [(Name, typ)],
-    _ret :: typ,
-    _body :: Block typ expr
+data Function = Function
+  { _args :: [(Name, Type)],
+    _ret :: Type,
+    _body :: Block Type (RTExpr Type Type)
   }
   deriving (Eq, Show)
 
 newtype RuntimeEnv = RuntimeEnv
-  {rtFunctions :: Map Name (Function Type (RTExpr Type Type))}
+  {rtFunctions :: Map Name Function}
   deriving (Eq, Show)
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')

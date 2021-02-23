@@ -24,7 +24,7 @@ typecheckFunction ::
   [(Name, Type)] ->
   Type ->
   RTBlock (Maybe Type) ->
-  Either String (Function Type (RTExpr Type Type))
+  Either String Function
 typecheckFunction env args ret (Block stmts) =
   (\(_, stmts') -> Function args ret (Block stmts')) <$> typecheckStmts env (Just ret) args stmts
 
