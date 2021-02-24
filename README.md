@@ -20,13 +20,18 @@
   - [x] builtins
   - [x] runtime functions POC
   - [x] fix precedence issue (`builtins.fix (self: 0)` fails)
-- [ ] step 3
-  - [ ] figure out step 3
+- [x] step 3
+  - [x] figure out step 3
   - [x] recursion but properly
     - implementation should be pretty easy, but it would require turning `let` into more than syntactic sugar
   - [x] types
   - [x] type checking
   - [x] structs
+- [ ] step 4
+  - [ ] hashing/GUIDs
+    - [ ] functions
+    - [ ] types
+  - [ ] Fix the infinite recursion in recursive RT functions
 - [ ] eventually
   - [ ] RTExpr values/syntax?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
