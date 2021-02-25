@@ -215,8 +215,8 @@ evalType expr =
     _ -> throwError "Expected type, got not-a-type"
 
 genBlock ::
-  Block Expr Expr ->
-  Eval (RuntimeEnv, Block (Maybe Type) (RTExpr (Maybe Type) (Maybe Type)))
+  Block (Maybe Expr) Expr ->
+  Eval (RuntimeEnv, RTBlock (Maybe Type))
 genBlock (Block stmts) = do
   (stmts', env) <- runWriterT $ genStmt stmts
   pure (env, Block stmts')
@@ -229,17 +229,17 @@ tellFunction func info = tell (RuntimeEnv $ M.singleton (fnGuid func) (func, inf
 -- TODO This processes statements as a list because a declaration is relevant in the tail of the list
 -- but that's kinda hacky and might overlap with type checking
 genStmt ::
-  [Stmt Expr Expr] ->
+  [Stmt (Maybe Expr) Expr] ->
   RTEval [Stmt (Maybe Type) (RTExpr (Maybe Type) (Maybe Type))]
 genStmt (Return expr : r) = do
   expr' <- rtFromExpr expr
   r' <- genStmt r
   pure (Return expr' : r')
 genStmt (Decl name typ expr : r) = do
-  typ' <- lift $ evalType typ
+  typ' <- lift $ mapM evalType typ
   expr' <- rtFromExpr expr
   r' <- localEnv (bindRtvar name) (genStmt r)
-  pure (Decl name (Just typ') expr' : r')
+  pure (Decl name typ' expr' : r')
 genStmt (Assign name expr : r) = do
   name' <- do
     let ct tid =

@@ -27,6 +27,7 @@ data Type
   | TStruct (Map Name Type)
   deriving (Eq, Show, Ord, Generic)
 
+-- TODO move to orphan module
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
   hashWithSalt salt m = hashWithSalt salt (M.toList m)
 
@@ -38,12 +39,12 @@ data Expr
   | Lam Name Expr
   | Let [(Name, Expr)] Expr
   | Prim Prim
-  | Func [(Name, Expr)] Expr (Block Expr Expr)
+  | Func [(Name, Expr)] Expr (Block (Maybe Expr) Expr)
   | List (Seq Expr)
   | Arith ArithOp Expr Expr
   | Attr (Map Name Expr)
   | Acc Name Expr
-  | BlockExpr (Block Expr Expr)
+  | BlockExpr (Block (Maybe Expr) Expr)
   deriving (Eq, Show)
 
 data ArithOp = Add | Sub | Mul

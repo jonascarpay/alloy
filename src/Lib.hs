@@ -55,5 +55,5 @@ repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
             Left err -> outputStrLn (errorBundlePretty err) >> loop
             Right expr ->
               outputStrLn
-                (either show (show . ppVal) (evalInfo expr))
+                (either show show (evalCheckInfo expr))
                 >> loop

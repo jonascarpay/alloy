@@ -68,7 +68,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "true", "false", "let", "in", "inherit"]
+keywords = S.fromList ["return", "true", "false", "let", "in", "var", "inherit"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> pAttrList
@@ -179,25 +179,29 @@ semicolon = symbol ";"
 comma :: Parser ()
 comma = symbol ","
 
-pBlock :: Parser (Block Expr Expr)
+pBlock :: Parser (Block (Maybe Expr) Expr)
 pBlock = braces $ Block <$> many pStatement
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?
-    pStatement :: Parser (Stmt Expr Expr)
+    pStatement :: Parser (Stmt (Maybe Expr) Expr)
     pStatement = choice [pReturn, try pDecl, try pAssign, pExprStmt]
     pReturn = Return <$> (keyword "return" *> pExpr <* semicolon)
     pExprStmt = ExprStmt <$> pExpr <* semicolon
 
-pDecl :: Parser (Stmt Expr Expr)
+pDecl :: Parser (Stmt (Maybe Expr) Expr)
 pDecl = do
-  (name, tp) <- pTypedName
+  symbol "var"
+  name <- pName
+  typ <- optional $ do
+    symbol ":"
+    pExpr
   symbol "="
   body <- pExpr
   semicolon
-  pure $ Decl name tp body
+  pure $ Decl name typ body
 
-pAssign :: Parser (Stmt Expr Expr)
+pAssign :: Parser (Stmt a Expr)
 pAssign = do
   name <- pName
   symbol "="

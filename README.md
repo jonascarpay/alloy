@@ -30,7 +30,11 @@
 - [ ] step 4
   - [ ] hashing/GUIDs
     - [x] functions
-    - [ ] types
+    - [ ] types?
+  - [x] simple function naming
+  - [x] var type inference
+  - [ ] `with` syntax
+  - [ ] function body expression
   - [ ] Fix the infinite recursion in recursive RT functions
 - [ ] eventually
   - [ ] RTExpr values/syntax?

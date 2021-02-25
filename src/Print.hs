@@ -48,13 +48,13 @@ ppExpr (Prim n) = ppPrim n
 ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockExpr b) = ppBlock ppExpr ppExpr b
+ppExpr (BlockExpr b) = ppBlock (maybe mempty ppExpr) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (Func args ret body) =
   list (uncurry (ppTyped pretty ppExpr) <$> args)
     <+> "->"
     <+> ppExpr ret
-    <+> ppBlock ppExpr ppExpr body
+    <+> ppBlock (maybe mempty ppExpr) ppExpr body
 
 ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
 ppBlock _ _ (Block []) = "{}"
@@ -103,7 +103,9 @@ ppWithRuntimeEnv env@(RuntimeEnv fns) doc
         ]
 
 ppTypedBlock :: RuntimeEnv -> Type -> Block Type (RTExpr Type Type) -> Doc ann
-ppTypedBlock env typ block = ppType typ <> ppBlock ppType (ppRTExpr env ppType ppType) block
+ppTypedBlock env typ block =
+  ppWithRuntimeEnv env $
+    ppType typ <> ppBlock ppType (ppRTExpr env ppType ppType) block
 
 ppFunctionName :: GUID -> FunctionInfo -> Doc ann
 ppFunctionName guid name =
