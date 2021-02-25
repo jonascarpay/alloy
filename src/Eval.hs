@@ -195,6 +195,10 @@ step (Acc f em) =
 step (BlockExpr b) =
   uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
+step (With bind body) = do
+  step bind >>= \case
+    VAttr m -> local (bindThunks $ M.toList m) (step body)
+    _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 step (Func args ret body) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret

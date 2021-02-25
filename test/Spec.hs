@@ -132,7 +132,10 @@ evalTests =
         "line comments"
         [r| let a = 9; # comment"
                in a
-        |]
+        |],
+      is9
+        "with-expression"
+        "with builtins; nine"
     ]
 
 is9 :: String -> String -> TestTree

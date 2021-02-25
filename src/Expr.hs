@@ -44,6 +44,7 @@ data Expr
   | Arith ArithOp Expr Expr
   | Attr (Map Name Expr)
   | Acc Name Expr
+  | With Expr Expr
   | BlockExpr (Block (Maybe Expr) Expr)
   deriving (Eq, Show)
 

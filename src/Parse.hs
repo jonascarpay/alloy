@@ -68,7 +68,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "true", "false", "let", "in", "var", "inherit"]
+keywords = S.fromList ["return", "true", "false", "let", "in", "var", "with", "inherit"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> pAttrList
@@ -96,18 +96,20 @@ pInherit = do
   names <- some pName
   pure $ (\name -> (name, Var name)) <$> names
 
--- first try to parse expr as lambda
--- first try to parse term as app
--- TODO is this a hack?
 pExpr :: Parser Expr
-pExpr = choice [pLet, pLam, pFunc, makeExprParser pTerm operatorTable]
+pExpr =
+  choice
+    [ pLet,
+      pLam,
+      pFunc,
+      uncurry With <$> pWith,
+      makeExprParser pTerm operatorTable
+    ]
   where
-    -- TODO the try before pAttrs here is so allow it to parse the block expression if it fails
-
     operatorTable :: [[Operator Parser Expr]]
     operatorTable =
       [ [repeatedPostfix pFieldAcc],
-        [InfixL (pure App)], -- function call
+        [InfixL (pure App)],
         [arith "*" Mul],
         [arith "+" Add, arith "-" Sub]
       ]
@@ -122,7 +124,7 @@ pTerm =
   choice
     [ parens pExpr,
       pList,
-      try pAttrs,
+      try pAttrs, -- TODO hopefully unnecessary
       BlockExpr <$> pBlock,
       Prim <$> pPrim,
       Var <$> pName
@@ -188,6 +190,14 @@ pBlock = braces $ Block <$> many pStatement
     pStatement = choice [pReturn, try pDecl, try pAssign, pExprStmt]
     pReturn = Return <$> (keyword "return" *> pExpr <* semicolon)
     pExprStmt = ExprStmt <$> pExpr <* semicolon
+
+pWith :: Parser (Expr, Expr)
+pWith = do
+  keyword "with"
+  bind <- pExpr
+  semicolon
+  body <- pExpr
+  pure (bind, body)
 
 pDecl :: Parser (Stmt (Maybe Expr) Expr)
 pDecl = do

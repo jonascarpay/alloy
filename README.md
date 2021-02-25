@@ -33,8 +33,9 @@
     - [ ] types?
   - [x] simple function naming
   - [x] var type inference
-  - [ ] `with` syntax
-  - [ ] function body expression
+    - [ ] fix printing
+  - [x] `with` syntax
+  - [ ] function body is an expression
   - [ ] Fix the infinite recursion in recursive RT functions
 - [ ] eventually
   - [ ] RTExpr values/syntax?

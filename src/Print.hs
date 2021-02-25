@@ -50,6 +50,7 @@ ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock (maybe mempty ppExpr) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
+ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
 ppExpr (Func args ret body) =
   list (uncurry (ppTyped pretty ppExpr) <$> args)
     <+> "->"
