@@ -15,6 +15,7 @@ import Data.Functor.Identity
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
+import Data.Void
 import Expr
 import Lens.Micro.Platform
 import Program
@@ -107,9 +108,6 @@ bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 bindRtvar :: Name -> Env -> Env
 bindRtvar n = M.insert n (Right ())
 
-yCombinator :: Expr
-yCombinator = Lam "f" (App (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))) (Lam "x" (App (Var "f") (App (Var "x") (Var "x")))))
-
 (<?>) :: MonadError e m => Maybe a -> e -> m a
 (<?>) m e = maybe (throwError e) pure m
 
@@ -119,29 +117,28 @@ eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 runEval :: Eval a -> Either String a
 runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty) (0, mempty)
 
--- deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
--- deferAttrs attrs = do
---   attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
---   deferVal $ VAttr $ M.fromList attrs'
+deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
+deferAttrs attrs = do
+  attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
+  deferVal $ VAttr $ M.fromList attrs'
 
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
   tNine <- deferVal . VPrim $ PInt 9
-  tFix <- deferExpr yCombinator
-  tDouble <- deferVal (VType TDouble)
-  tInt <- deferVal (VType TInt)
-  tVoid <- deferVal (VType TVoid)
   tStruct <- deferVal $ VClosure' (force >=> struct)
+  tTypes <-
+    deferAttrs
+      [ ("int", VType TInt),
+        ("double", VType TDouble),
+        ("void", VType TVoid)
+      ]
   tBuiltins <-
     deferVal . VAttr $
       M.fromList
         [ ("undefined", tUndefined),
           ("nine", tNine),
-          ("fix", tFix),
-          ("double", tDouble),
-          ("int", tInt),
-          ("void", tVoid),
+          ("types", tTypes),
           ("struct", tStruct)
         ]
   local (bindThunk "builtins" tBuiltins) m

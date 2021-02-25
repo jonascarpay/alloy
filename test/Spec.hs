@@ -30,7 +30,7 @@ assertParse :: String -> IO (Either String Value)
 assertParse str = do
   case MP.parse pToplevel "" str of
     Left err -> assertFailure $ MP.errorBundlePretty err
-    Right r -> pure $ first show (evalInfo r)
+    Right res -> pure $ first show (evalInfo res)
 
 testSyntax :: TestTree
 testSyntax = testCase "syntax.ayy" $ do
@@ -103,8 +103,9 @@ evalTests =
                in y
         |],
       is9
-        "fix"
-        [r| let attr = builtins.fix (self: {
+        "y combinator"
+        [r| let y = f: (x: f (x x)) (x: (f (x x)));
+                attr = y (self: {
                   three: 3,
                   nine: self.three * self.three});
                in attr.nine
