@@ -76,7 +76,7 @@ ppRTExpr env pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr env pptyp ppin
 ppRTExpr env pptyp ppinfo (RTCall guid args _) =
   case M.lookup guid (rtFunctions env) of
     Just (_, info) -> ppFunctionName guid info <> list (ppRTExpr env pptyp ppinfo <$> args)
-    Nothing -> undefined
+    Nothing -> error "you're referincing a function that doesn't exit in the environment, this should be impossible"
 
 ppGuid :: GUID -> Doc ann
 ppGuid (GUID n) = pretty $ take 5 $ showHex (fromIntegral n :: Word) ""

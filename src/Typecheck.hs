@@ -3,11 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Typecheck
-  ( typecheckBlock,
-    typecheckFunction,
-  )
-where
+module Typecheck (typecheckBlock, typecheckFunction) where
 
 import Control.Applicative
 import Control.Monad.Except
@@ -79,7 +75,7 @@ checkStmts env ret (Decl name mtyp expr : r) = do
 checkStmts env ret (Assign name expr : r) = do
   expr' <- checkRTExpr env expr
   asks (M.lookup name) >>= \case
-    Nothing -> undefined
+    Nothing -> error "you're referincing a function that doesn't exit in the environment, this should be impossible"
     Just var -> unify var (rtInfo expr')
   r' <- checkStmts env ret r
   pure (Assign name expr' : r')

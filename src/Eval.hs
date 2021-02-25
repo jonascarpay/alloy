@@ -108,9 +108,6 @@ bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 bindRtvar :: Name -> Env -> Env
 bindRtvar n = M.insert n (Right ())
 
-(<?>) :: MonadError e m => Maybe a -> e -> m a
-(<?>) m e = maybe (throwError e) pure m
-
 eval :: Expr -> Either String Value
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
@@ -188,9 +185,10 @@ step (Arith op a b) = do
 step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
 step (Acc f em) =
   step em >>= \case
-    VAttr m -> do
-      tid <- M.lookup f m <?> ("Accessing unknown field " <> f)
-      force tid
+    VAttr m ->
+      case M.lookup f m of
+        Nothing -> throwError $ "field " <> f <> " not present"
+        Just tid -> force tid
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) =
   uncurry VBlock <$> genBlock b
@@ -293,6 +291,7 @@ rtFromExpr (App f x) = do
           pure $ RTCall (fnGuid func) rtArgs (Just $ fnRet func)
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
+rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal
