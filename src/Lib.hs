@@ -20,7 +20,7 @@ import Typecheck
 -- So, this function special-cases block values to typecheck them before printing.
 -- TODO: maybe not allow printing untypechecked blocks
 evalCheckInfo :: Expr -> Either (Doc ann) (Doc ann)
-evalCheckInfo expr = first f (eval expr >>= checkAndPrint)
+evalCheckInfo expr = evalInfo expr >>= first f . checkAndPrint
   where
     checkAndPrint :: Value -> Either String (Doc ann)
     checkAndPrint (Fix (VBlock env b)) = uncurry (ppTypedBlock env) <$> typecheckBlock env Nothing b

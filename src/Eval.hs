@@ -34,8 +34,8 @@ data ValueF val
   | VType Type
   | VAttr (Map Name val)
   | VRTVar Name
-  | VBlock RuntimeEnv (RTBlock (Maybe Type)) -- TODO Move Type into Block?
-  | VFunc RuntimeEnv (Maybe Name) Function -- TODO Type here could be a val?
+  | VBlock RuntimeEnv (RTBlock (Maybe Type))
+  | VFunc RuntimeEnv (Maybe Name) Function
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -45,11 +45,6 @@ arith Sub = (-)
 arith Mul = (*)
 
 type Value = Fix ValueF
-
--- Thoughts on thunks:
--- it's scary how few problems not having the Env here actually caused.
--- not sure to what degree that's solved by the above
--- this seems memory intensive though?
 
 data ThunkF m v = Deferred (m v) | Computed v
 
@@ -260,9 +255,6 @@ genStmt (ExprStmt expr : r) = do
   pure (ExprStmt expr' : r')
 genStmt [] = pure []
 
--- TODO document why this is split into rtFromExpr and rtFromVal
--- TODO see if there is potential unification
--- TODO really this is just for reusing arithmetic ops (and vars?) I think which may be unnecessary
 rtFromExpr ::
   Expr ->
   RTEval (RTExpr (Maybe Type) (Maybe Type))
@@ -306,11 +298,6 @@ rtLitFromPrim (PInt n) = pure $ RTInt n
 rtLitFromPrim (PDouble n) = pure $ RTDouble n
 rtLitFromPrim (PBool _) = throwError "runtime bools aren't a thing"
 
--- (VFunc arg body) ->
---   let name = "function_" <> show tf
---    in pure
--- TODO move to rtFromExpr where clause to emphasize that it is not used elsewhere
--- TODO handle(tell) the closure form VBlock
 rtFromVal :: Value -> RTEval (RTExpr (Maybe Type) (Maybe Type))
 rtFromVal (Fix (VPrim p)) = fmap (`RTLiteral` Nothing) (rtLitFromPrim p)
 rtFromVal (Fix (VAttr m)) = do
@@ -326,10 +313,6 @@ rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VType {}) = throwError "can't handle type"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
 rtFromVal (Fix (VBlock env b)) = RTBlock b Nothing <$ tell env
-
--- rtFromVal typ (Fix (VRTVar (t, n))) = RTVar n <$> unify typ (Just t)
-
--- rtFromVal (Fix (VBlock _)) = throwError "can't handle attribute set values yet"
 
 mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(n, m) -> (n, (n + 1, M.insert n thunk m))
@@ -347,6 +330,7 @@ force :: ThunkID -> Eval (ValueF ThunkID)
 force tid =
   gets (M.lookup tid . snd) >>= \case
     Just (Deferred m) -> do
+      _2 . at tid .= Just (Deferred $ throwError "Infinite recursion")
       v <- m
       _2 . at tid .= Just (Computed v)
       pure v
