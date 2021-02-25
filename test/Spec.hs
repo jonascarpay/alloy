@@ -26,18 +26,19 @@ main =
         testSyntax
       ]
 
-assertParse :: String -> IO (Either String Value)
+assertParse :: String -> IO Expr
 assertParse str = do
   case MP.parse pToplevel "" str of
     Left err -> assertFailure $ MP.errorBundlePretty err
-    Right res -> pure $ first show (evalInfo res)
+    Right res -> pure res
 
 testSyntax :: TestTree
 testSyntax = testCase "syntax.ayy" $ do
   f <- readFile "syntax.ayy"
-  assertParse f >>= \case
-    Left err -> assertFailure err
-    Right val -> assertFailure . show $ ppVal val
+  assertParse f >>= \expr ->
+    case evalCheckInfo expr of
+      Left doc -> assertFailure (show doc)
+      Right doc -> assertFailure (show doc)
 
 evalTests :: TestTree
 evalTests =
@@ -149,6 +150,7 @@ valueCompare a b = Left $ hsep ["mismatch between", ppVal a, "and", ppVal b]
 assertEval :: String -> String -> Value -> TestTree
 assertEval name program expect =
   testCase name $
-    assertParse program >>= \case
-      Left err -> assertFailure err
-      Right got -> either (assertFailure . show) (const $ pure ()) $ valueCompare expect got
+    assertParse program >>= \expr ->
+      case evalInfo expr of
+        Left err -> assertFailure $ show err
+        Right got -> either (assertFailure . show) pure $ valueCompare expect got
