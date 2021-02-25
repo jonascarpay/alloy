@@ -48,7 +48,7 @@ ppExpr (Prim n) = ppPrim n
 ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockExpr b) = ppBlock (ppMaybeAnn ppExpr) ppExpr b
+ppExpr (BlockExpr b) = ppBlock (maybe mempty (ppAnn ppExpr)) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
 ppExpr (Func args ret body) =
@@ -106,12 +106,15 @@ ppWithRuntimeEnv env@(RuntimeEnv fns) doc
 ppTypedBlock :: RuntimeEnv -> Type -> Block Type (RTExpr Type Type) -> Doc ann
 ppTypedBlock env typ block =
   ppWithRuntimeEnv env $
-    ppType typ <> ppBlock ppType (ppRTExpr env (ppAnn ppType) ppType) block
+    ppType typ <> ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) block
 
 ppFunctionName :: GUID -> FunctionInfo -> Doc ann
 ppFunctionName guid name =
   mconcat
     [maybe "anon_fn" pretty name, "_", ppGuid guid]
+
+ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
+ppAnn f t = ":" <+> f t
 
 ppFunction :: RuntimeEnv -> Function -> FunctionInfo -> Doc ann
 ppFunction env (Function args ret body guid) info =
@@ -120,20 +123,15 @@ ppFunction env (Function args ret body guid) info =
       list (uncurry (ppTyped pretty ppType) <$> args),
       "->",
       ppType ret,
-      ppBlock ppType (ppRTExpr env ppType ppType) body
+      ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) body
     ]
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
 
-ppMaybeAnn :: (typ -> Doc ann) -> (Maybe typ -> Doc ann)
-ppMaybeAnn f = maybe mempty (ppAnn f)
-
-ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
-ppAnn f t = ": " <> f t
-
 ppMaybeType :: Maybe Type -> Doc ann
-ppMaybeType = ppMaybeAnn ppType
+ppMaybeType Nothing = "_"
+ppMaybeType (Just typ) = ppType typ
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
