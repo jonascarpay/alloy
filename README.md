@@ -33,10 +33,10 @@
     - [ ] types?
   - [x] simple function naming
   - [x] var type inference
-    - [ ] fix printing
+    - [x] fix printing
   - [x] `with` syntax
   - [ ] function body is an expression
-  - [ ] Fix the infinite recursion in recursive RT functions
+    - [ ] Fix the infinite recursion in recursive RT functions
 - [ ] eventually
   - [ ] RTExpr values/syntax?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function

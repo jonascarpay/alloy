@@ -48,14 +48,14 @@ ppExpr (Prim n) = ppPrim n
 ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockExpr b) = ppBlock (maybe mempty ppExpr) ppExpr b
+ppExpr (BlockExpr b) = ppBlock (ppMaybeAnn ppExpr) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
 ppExpr (Func args ret body) =
   list (uncurry (ppTyped pretty ppExpr) <$> args)
     <+> "->"
     <+> ppExpr ret
-    <+> ppBlock (maybe mempty ppExpr) ppExpr body
+    <+> ppBlock (ppMaybeAnn ppExpr) ppExpr body
 
 ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
 ppBlock _ _ (Block []) = "{}"
@@ -64,7 +64,7 @@ ppBlock ft fe (Block stmts) = braces' $ align $ vcat (ppStatement ft fe <$> stmt
 
 ppStatement :: (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt typ expr -> Doc ann
 ppStatement _ fe (Return expr) = "return" <+> fe expr <> ";"
-ppStatement ft fe (Decl name typ expr) = ppTyped pretty ft name typ <+> "=" <+> fe expr <> ";"
+ppStatement ft fe (Decl name typ expr) = pretty name <> ft typ <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
 
@@ -126,8 +126,12 @@ ppFunction env (Function args ret body guid) info =
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
 
+ppMaybeAnn :: (typ -> Doc ann) -> (Maybe typ -> Doc ann)
+ppMaybeAnn _ Nothing = mempty
+ppMaybeAnn f (Just typ) = ": " <> f typ
+
 ppMaybeType :: Maybe Type -> Doc ann
-ppMaybeType = maybe mempty ppType
+ppMaybeType = ppMaybeAnn ppType
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
