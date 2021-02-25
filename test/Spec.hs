@@ -88,8 +88,15 @@ evalTests =
         "laziness test"
         "let diverge = (x: x x) (x: x x); in 9",
       is9
-        "lazy inheritance test"
-        [r| let diverge = (x: x x) (x: x x);
+        "inherit from"
+        [r|
+          let attr = { a: builtins.undefined, b: 9 };
+              inherit (attr) b;
+           in b
+        |],
+      is9
+        "lazy attr inheritance test"
+        [r| let diverge = builtins.undefined;
                   x = 9;
                in { inherit diverge,
                     inherit x
@@ -99,8 +106,8 @@ evalTests =
       is9
         "laziness ignores undefined"
         [r| let x = builtins.undefined;
-                  y = builtins.nine;
-               in y
+                y = builtins.nine;
+             in y
         |],
       is9
         "y combinator"
@@ -114,7 +121,7 @@ evalTests =
         "forward let reference"
         [r| let a = b;
                 b = 9;
-               in a
+             in a
           |],
       is9
         "recursive let reference"

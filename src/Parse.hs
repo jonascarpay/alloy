@@ -71,19 +71,30 @@ keywords :: Set Name
 keywords = S.fromList ["return", "true", "false", "let", "in", "inherit"]
 
 pAttrs :: Parser Expr
-pAttrs = braces $ Attr . M.fromList <$> sepEndBy (pInherit <|> pAttrField) comma
+pAttrs = braces $ Attr . M.fromList <$> pAttrList
   where
+    -- inherit statements can have multiple import, but field declarations can
+    -- only have one, so we need to do some marshalling
+    pAttrList :: Parser [(Name, Expr)]
+    pAttrList = concat <$> sepEndBy (pInherit <|> pInheritFrom <|> (pure <$> pAttrField)) comma
     pAttrField = do
       name <- pName
       symbol ":"
       expr <- pExpr
       pure (name, expr)
 
-pInherit :: Parser (Name, Expr)
+pInheritFrom :: Parser [(Name, Expr)]
+pInheritFrom = do
+  keyword "inherit"
+  attr <- parens pExpr
+  names <- some pName
+  pure $ (\name -> (name, Acc name attr)) <$> names
+
+pInherit :: Parser [(Name, Expr)]
 pInherit = do
   keyword "inherit"
-  name <- pName
-  pure (name, Var name)
+  names <- some pName
+  pure $ (\name -> (name, Var name)) <$> names
 
 -- first try to parse expr as lambda
 -- first try to parse term as app
@@ -123,10 +134,12 @@ pFieldAcc = symbol "." *> (Acc <$> pName)
 pLet :: Parser Expr
 pLet = do
   try $ keyword "let"
-  fields <- many $ notFollowedBy (keyword "in") *> (pInherit <|> pField) <* semicolon
+  fields <- many $ notFollowedBy (keyword "in") *> pFields <* semicolon
   keyword "in"
-  Let fields <$> pExpr
+  Let (concat fields) <$> pExpr
   where
+    pFields :: Parser [(Name, Expr)]
+    pFields = pInheritFrom <|> (pure <$> pField)
     pField = do
       n <- pName
       symbol "="
