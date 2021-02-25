@@ -199,15 +199,16 @@ step (With bind body) = do
   step bind >>= \case
     VAttr m -> local (bindThunks $ M.toList m) (step body)
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
-step (Func args ret body) = do
+step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
-  localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . forgetRT) $ do
-    (env, blk) <- genBlock body
-    name <- askName
-    -- name <- view (envBinds . at "snarf" . to ("garf" <$))
-    either throwError (pure . VFunc env name) $
-      typecheckFunction env typedArgs retType blk
+  localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . forgetRT) $
+    step bodyExpr >>= \case
+      VBlock env body -> do
+        name <- askName
+        either throwError (pure . VFunc env name) $
+          typecheckFunction env typedArgs retType body
+      _ -> throwError "Function body did not evaluate to a block expression"
 
 forgetRT :: Env -> Env
 forgetRT = M.filter isLeft

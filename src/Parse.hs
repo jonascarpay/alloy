@@ -161,7 +161,7 @@ pFunc = do
   args <- list pTypedName
   symbol "->"
   ret <- pTerm
-  Func args ret <$> pBlock
+  Func args ret <$> pExpr
 
 pTypedName :: Parser (Name, Expr)
 pTypedName = do

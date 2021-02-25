@@ -55,7 +55,7 @@ ppExpr (Func args ret body) =
   list (uncurry (ppTyped pretty ppExpr) <$> args)
     <+> "->"
     <+> ppExpr ret
-    <+> ppBlock (ppMaybeAnn ppExpr) ppExpr body
+    <+> ppExpr body
 
 ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
 ppBlock _ _ (Block []) = "{}"
@@ -106,7 +106,7 @@ ppWithRuntimeEnv env@(RuntimeEnv fns) doc
 ppTypedBlock :: RuntimeEnv -> Type -> Block Type (RTExpr Type Type) -> Doc ann
 ppTypedBlock env typ block =
   ppWithRuntimeEnv env $
-    ppType typ <> ppBlock ppType (ppRTExpr env ppType ppType) block
+    ppType typ <> ppBlock ppType (ppRTExpr env (ppAnn ppType) ppType) block
 
 ppFunctionName :: GUID -> FunctionInfo -> Doc ann
 ppFunctionName guid name =
@@ -127,8 +127,10 @@ ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
 
 ppMaybeAnn :: (typ -> Doc ann) -> (Maybe typ -> Doc ann)
-ppMaybeAnn _ Nothing = mempty
-ppMaybeAnn f (Just typ) = ": " <> f typ
+ppMaybeAnn f = maybe mempty (ppAnn f)
+
+ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
+ppAnn f t = ": " <> f t
 
 ppMaybeType :: Maybe Type -> Doc ann
 ppMaybeType = ppMaybeAnn ppType
