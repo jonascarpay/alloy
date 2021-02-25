@@ -29,7 +29,7 @@
   - [x] structs
 - [ ] step 4
   - [ ] hashing/GUIDs
-    - [ ] functions
+    - [x] functions
     - [ ] types
   - [ ] Fix the infinite recursion in recursive RT functions
 - [ ] eventually

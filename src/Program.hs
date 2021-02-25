@@ -51,8 +51,10 @@ mkFunction :: [(Name, Type)] -> Type -> RTBlock Type -> Function
 mkFunction args ret body = Function args ret body (GUID $ hash (args, ret, body))
 
 newtype RuntimeEnv = RuntimeEnv
-  {rtFunctions :: Map GUID Function}
+  {rtFunctions :: Map GUID (Function, FunctionInfo)}
   deriving (Eq, Show)
+
+type FunctionInfo = Maybe Name
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
 

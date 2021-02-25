@@ -111,7 +111,7 @@ checkRTExpr env (RTBlock (Block stmts) mtyp) = do
   pure (RTBlock (Block stmts') var)
 checkRTExpr (RuntimeEnv env) (RTCall fguid args mtyp) =
   case M.lookup fguid env of
-    Just (Function fargs fret _ guid) -> do
+    Just (Function fargs fret _ guid, _) -> do
       var <- freshMaybe mtyp ()
       setType var fret ()
       let f expr typ = do

@@ -28,13 +28,13 @@ type ThunkID = Int
 -- maybe just tag them from fresh to make sure
 data ValueF val
   = VPrim Prim
-  | VClosure Name Expr Env -- TODO benchmark if we can safely remove this
+  | VClosure Name Expr EvalEnv -- TODO benchmark if we can safely remove this
   | VClosure' (ThunkID -> Eval (ValueF ThunkID))
   | VType Type
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv (RTBlock (Maybe Type)) -- TODO Move Type into Block?
-  | VFunc RuntimeEnv Function -- TODO Type here could be a val?
+  | VFunc RuntimeEnv (Maybe Name) Function -- TODO Type here could be a val?
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -69,26 +69,19 @@ type Eval = EvalT Identity
 
 type Env = Map Name (Either ThunkID ())
 
-type StackFrame = Name
-
-type CallStack = [StackFrame]
-
 data EvalEnv = EvalEnv
   { _envBinds :: Env,
-    _envCallStack :: CallStack
+    _envName :: Maybe Name
   }
   deriving (Eq, Show)
 
 makeLenses ''EvalEnv
 
--- pushFrame :: StackFrame -> EvalT m a -> EvalT m a
--- pushFrame frame = local (fmap (frame :))
+withName :: Monad m => Name -> EvalT m a -> EvalT m a
+withName name = local (envName ?~ name)
 
-askStack :: Monad m => EvalT m CallStack
-askStack = view envCallStack
-
-askEnv :: Monad m => EvalT m Env
-askEnv = view envBinds
+askName :: Monad m => EvalT m (Maybe Name)
+askName = view envName
 
 localEnv :: MonadReader EvalEnv m => (Env -> Env) -> (m a -> m a)
 localEnv f = local (over envBinds f)
@@ -105,8 +98,11 @@ lookupVar name kct krt = do
     Just (Left tid) -> kct tid
     Just (Right typ) -> krt typ
 
-bindThunk :: Name -> ThunkID -> Env -> Env
-bindThunk n tid = M.insert n (Left tid)
+bindThunk :: Name -> ThunkID -> EvalEnv -> EvalEnv
+bindThunk name tid = envBinds . at name ?~ Left tid
+
+bindThunks :: [(Name, ThunkID)] -> EvalEnv -> EvalEnv
+bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
 bindRtvar :: Name -> Env -> Env
 bindRtvar n = M.insert n (Right ())
@@ -148,7 +144,7 @@ withBuiltins m = do
           ("void", tVoid),
           ("struct", tStruct)
         ]
-  localEnv (bindThunk "builtins" tBuiltins) m
+  local (bindThunk "builtins" tBuiltins) m
 
 struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 struct (VAttr m) = do
@@ -174,16 +170,17 @@ step (App f x) = do
   step f >>= \case
     (VClosure arg body env) -> do
       tx <- deferExpr x
-      localEnv (const $ bindThunk arg tx env) (step body)
+      local (const $ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
     _ -> throwError "Calling a non-function"
 step (Var x) = lookupVar x force (const $ pure $ VRTVar x)
-step (Lam arg body) = VClosure arg body <$> view envBinds
+step (Lam arg body) = VClosure arg body <$> ask
 step (Let binds body) = do
   n0 <- gets fst
-  let (names, exprs) = unzip binds
-      env env0 = foldr (\(name, tid) m -> M.insert name (Left tid) m) env0 $ zip names [n0 ..]
-  localEnv env $ mapM_ deferExpr exprs >> step body
+  let predictedThunks = zip (fst <$> binds) [n0 ..]
+  local (bindThunks predictedThunks) $ do
+    forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
+    step body
 step (Arith op a b) = do
   va <- step a
   vb <- step b
@@ -191,7 +188,7 @@ step (Arith op a b) = do
     (VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arith op pa pb
     (VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arith op pa pb
     _ -> throwError "Arithmetic on a non-integer"
-step (Attr m) = VAttr <$> traverse deferExpr m
+step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
 step (Acc f em) =
   step em >>= \case
     VAttr m -> do
@@ -206,7 +203,9 @@ step (Func args ret body) = do
   retType <- evalType ret
   localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . forgetRT) $ do
     (env, blk) <- genBlock body
-    either throwError (pure . VFunc env) $
+    name <- askName
+    -- name <- view (envBinds . at "snarf" . to ("garf" <$))
+    either throwError (pure . VFunc env name) $
       typecheckFunction env typedArgs retType blk
 
 forgetRT :: Env -> Env
@@ -227,8 +226,8 @@ genBlock (Block stmts) = do
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
 
-tellFunction :: Function -> RTEval ()
-tellFunction func = tell (RuntimeEnv $ M.singleton (fnGuid func) func)
+tellFunction :: Function -> FunctionInfo -> RTEval ()
+tellFunction func info = tell (RuntimeEnv $ M.singleton (fnGuid func) (func, info))
 
 -- TODO This processes statements as a list because a declaration is relevant in the tail of the list
 -- but that's kinda hacky and might overlap with type checking
@@ -281,14 +280,14 @@ rtFromExpr (App f x) = do
   lift (force tf) >>= \case
     VClosure arg body env -> do
       tx <- lift $ deferExpr x
-      localEnv (const $ bindThunk arg tx env) $
+      local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    VFunc childEnv func ->
+    VFunc childEnv name func ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           tell childEnv
-          tellFunction func
+          tellFunction func name
           pure $ RTCall (fnGuid func) rtArgs (Just $ fnRet func)
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
@@ -341,7 +340,7 @@ deferVal :: ValueF ThunkID -> Eval ThunkID
 deferVal = mkThunk . Computed
 
 deferExpr :: Expr -> Eval ThunkID
-deferExpr expr = askEnv >>= \env -> mkThunk . Deferred $ localEnv (const env) (step expr)
+deferExpr expr = ask >>= \env -> deferM $ local (const env) (step expr)
 
 force :: ThunkID -> Eval (ValueF ThunkID)
 force tid =

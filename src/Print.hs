@@ -67,15 +67,18 @@ ppStatement ft fe (Decl name typ expr) = ppTyped pretty ft name typ <+> "=" <+> 
 ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
 
-ppRTExpr :: (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr typ info -> Doc ann
-ppRTExpr _ _ (RTVar x _) = pretty x
-ppRTExpr _ _ (RTLiteral n _) = ppRTLit n
-ppRTExpr pptyp ppinfo (RTArith op a b _) = ppRTExpr pptyp ppinfo a <+> opSymbol op <+> ppRTExpr pptyp ppinfo b
-ppRTExpr pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr pptyp ppinfo) b
-ppRTExpr pptyp ppinfo (RTCall guid args _) = ppGuid guid <> list (ppRTExpr pptyp ppinfo <$> args)
+ppRTExpr :: RuntimeEnv -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr typ info -> Doc ann
+ppRTExpr _ _ _ (RTVar x _) = pretty x
+ppRTExpr _ _ _ (RTLiteral n _) = ppRTLit n
+ppRTExpr env pptyp ppinfo (RTArith op a b _) = ppRTExpr env pptyp ppinfo a <+> opSymbol op <+> ppRTExpr env pptyp ppinfo b
+ppRTExpr env pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr env pptyp ppinfo) b
+ppRTExpr env pptyp ppinfo (RTCall guid args _) =
+  case M.lookup guid (rtFunctions env) of
+    Just (_, info) -> ppFunctionName guid info <> list (ppRTExpr env pptyp ppinfo <$> args)
+    Nothing -> undefined
 
 ppGuid :: GUID -> Doc ann
-ppGuid (GUID n) = pretty $ mappend "function_" $ take 5 $ showHex (fromIntegral n :: Word) ""
+ppGuid (GUID n) = pretty $ take 5 $ showHex (fromIntegral n :: Word) ""
 
 ppRTLit :: RTLiteral -> Doc ann
 ppRTLit (RTInt n) = pretty n
@@ -88,22 +91,34 @@ opSymbol Mul = "*"
 opSymbol Sub = "-"
 
 ppWithRuntimeEnv :: RuntimeEnv -> Doc ann -> Doc ann
-ppWithRuntimeEnv (RuntimeEnv fns) doc
-  | null fns = doc
+ppWithRuntimeEnv env@(RuntimeEnv fns) doc
+  | null (rtFunctions env) = doc
   | otherwise =
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ ppFunction <$> M.elems fns,
+          indent 2 . vcat $ uncurry (ppFunction env) <$> M.elems fns,
           "Body:",
           indent 2 doc
         ]
 
-ppTypedBlock :: Type -> Block Type (RTExpr Type Type) -> Doc ann
-ppTypedBlock typ block = ppType typ <> ppBlock ppType (ppRTExpr ppType ppType) block
+ppTypedBlock :: RuntimeEnv -> Type -> Block Type (RTExpr Type Type) -> Doc ann
+ppTypedBlock env typ block = ppType typ <> ppBlock ppType (ppRTExpr env ppType ppType) block
 
-ppFunction :: Function -> Doc ann
-ppFunction (Function args ret body guid) = ppGuid guid <+> list (uncurry (ppTyped pretty ppType) <$> args) <+> "->" <+> ppType ret <+> ppBlock ppType (ppRTExpr ppType ppType) body
+ppFunctionName :: GUID -> FunctionInfo -> Doc ann
+ppFunctionName guid name =
+  mconcat
+    [maybe "anon_fn" pretty name, "_", ppGuid guid]
+
+ppFunction :: RuntimeEnv -> Function -> FunctionInfo -> Doc ann
+ppFunction env (Function args ret body guid) info =
+  hsep
+    [ ppFunctionName guid info,
+      list (uncurry (ppTyped pretty ppType) <$> args),
+      "->",
+      ppType ret,
+      ppBlock ppType (ppRTExpr env ppType ppType) body
+    ]
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
@@ -122,9 +137,9 @@ ppVal (Fix (VBlock env b)) =
     env
     ( ppBlock
         ppMaybeType
-        (ppRTExpr ppMaybeType ppMaybeType)
+        (ppRTExpr env ppMaybeType ppMaybeType)
         b
     )
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
-ppVal (Fix (VFunc env func)) = ppWithRuntimeEnv env $ ppFunction func
+ppVal (Fix (VFunc env info func)) = ppWithRuntimeEnv env $ ppFunction env func info
 ppVal (Fix (VType t)) = ppType t
