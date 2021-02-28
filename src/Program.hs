@@ -19,12 +19,17 @@ data RTLiteral
 
 instance Hashable RTLiteral
 
+data Self = Self
+  deriving (Eq, Show, Generic)
+
+instance Hashable Self
+
 data RTExpr typ a
   = RTVar Name a
   | RTLiteral RTLiteral a
   | RTArith ArithOp (RTExpr typ a) (RTExpr typ a) a
   | RTBlock (Block typ (RTExpr typ a)) a
-  | RTCall GUID [RTExpr typ a] a
+  | RTCall (Either Self GUID) [RTExpr typ a] a
   deriving (Eq, Show, Generic)
 
 instance (Hashable typ, Hashable info) => Hashable (RTExpr typ info)
@@ -43,6 +48,7 @@ newtype RuntimeEnv = RuntimeEnv
   {rtFunctions :: Map GUID FunDef}
   deriving (Eq, Show)
 
+-- TODO make FunType datatype
 data FunDef = FunDef
   { fnArgs :: [(Name, Type)],
     fnRet :: Type,

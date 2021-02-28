@@ -23,7 +23,7 @@ evalCheckInfo :: Expr -> Either (Doc ann) (Doc ann)
 evalCheckInfo expr = evalInfo expr >>= first f . checkAndPrint
   where
     checkAndPrint :: Value -> Either String (Doc ann)
-    checkAndPrint (Fix (VBlock env b)) = uncurry (ppTypedBlock env) <$> typecheckBlock env Nothing b
+    checkAndPrint (Fix (VBlock env b)) = uncurry (ppTypedBlock env) <$> typecheckBlock env b
     checkAndPrint v = pure $ ppVal v
     f err =
       vcat

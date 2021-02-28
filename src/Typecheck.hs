@@ -2,6 +2,8 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 
 module Typecheck (typecheckBlock, typecheckFunction) where
 
@@ -9,123 +11,162 @@ import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.ST
+import Data.Bifunctor
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.UnionFind.ST qualified as UF
 import Expr
+import Lens.Micro.Platform
 import Program
 
-typecheckFunction ::
-  RuntimeEnv ->
-  [(Name, Type)] ->
-  Name ->
-  Type ->
-  RTBlock (Maybe Type) ->
-  Either String FunDef
-typecheckFunction env args name ret (Block stmts) =
-  (\(_, stmts') -> FunDef args ret name (Block stmts')) <$> typecheckStmts env (Just ret) args stmts
+newtype TypeVar s info = TypeVar (UF.Point s (Map Type info))
+
+data TypecheckContext s info = TypecheckContext
+  { _tcBinds :: Map Name (TypeVar s info),
+    _tcBlock :: TypeVar s info,
+    _tcSelf :: Maybe ([TypeVar s info], TypeVar s info),
+    _tcEnv :: RuntimeEnv
+  }
+
+makeLenses ''TypecheckContext
+
+type Typecheck s info = ReaderT (TypecheckContext s info) (ST s)
 
 typecheckBlock ::
   RuntimeEnv ->
-  Maybe Type ->
   RTBlock (Maybe Type) ->
   Either String (Type, RTBlock Type)
-typecheckBlock env ret (Block blk) = fmap Block <$> typecheckStmts env ret [] blk
+typecheckBlock env (Block stmts) = runTypecheckT env setup run
+  where
+    setup = (,Nothing) <$> fresh'
+    run = (fmap . fmap . fmap) Block (typecheck stmts)
 
-typecheckStmts ::
+typecheckFunction ::
   RuntimeEnv ->
-  Maybe Type ->
+  Name ->
   [(Name, Type)] ->
+  Type ->
+  RTBlock (Maybe Type) ->
+  Either String FunDef
+typecheckFunction env name args ret (Block stmts) = runTypecheckT env setup run
+  where
+    setup = do
+      vRet <- fresh'
+      setType' vRet ret ()
+      args' <- (traverse . traverse) (flip freshFrom' ()) args
+      pure (vRet, Just (args', vRet))
+    run =
+      (fmap . fmap)
+        (\(_, stmts') -> FunDef args ret name (Block stmts'))
+        (typecheck stmts)
+
+typecheck ::
   [Stmt (Maybe Type) (RTExpr (Maybe Type) (Maybe Type))] ->
-  Either String (Type, [Stmt Type (RTExpr Type Type)])
-typecheckStmts env ret args stmts = runTypecheckT $ do
-  vRet <- fresh
-  forM_ ret (\t -> setType vRet t ())
-  let f :: (Name, Type) -> Typecheck ctx () a -> Typecheck ctx () a
-      f (name, typ) cont = do
-        var <- fresh
-        setType var typ ()
-        bind name var cont
-  stmts' <- flip (foldr f) args $ checkStmts env vRet stmts
+  Typecheck s () (Either String (Type, [Stmt Type (RTExpr Type Type)]))
+typecheck stmts = do
+  stmts' <- checkStmts stmts
   runExceptT $ do
-    tRet <- getTypeInExceptT vRet
+    tRet <- view tcBlock >>= getTypeInExceptT
     tStmts <- (traverse . traverseStmtTypes) getTypeInExceptT stmts'
     pure (tRet, tStmts)
 
 checkStmts ::
-  RuntimeEnv ->
-  TypeVar ctx () ->
   [Stmt (Maybe Type) (RTExpr (Maybe Type) (Maybe Type))] ->
-  Typecheck ctx () [Stmt (TypeVar ctx ()) (RTExpr (TypeVar ctx ()) (TypeVar ctx ()))]
-checkStmts _ ret [] = [] <$ setType ret TVoid ()
-checkStmts env ret [Return expr] = do
-  expr' <- checkRTExpr env expr
+  Typecheck s () [Stmt (TypeVar s ()) (RTExpr (TypeVar s ()) (TypeVar s ()))]
+checkStmts [] = do
+  ret <- view tcBlock
+  [] <$ setType ret TVoid ()
+checkStmts [Return expr] = do
+  ret <- view tcBlock
+  expr' <- checkRTExpr expr
   unify ret (rtInfo expr')
   pure [Return expr']
-checkStmts env ret (Return expr : r) = do
-  expr' <- checkRTExpr env expr
+checkStmts (Return expr : r) = do
+  ret <- view tcBlock
+  expr' <- checkRTExpr expr
   unify ret (rtInfo expr')
-  r' <- checkStmts env ret r
+  r' <- checkStmts r
   pure (Return expr' : r')
-checkStmts env ret (Decl name mtyp expr : r) = do
+checkStmts (Decl name mtyp expr : r) = do
   var <- freshMaybe mtyp ()
-  expr' <- checkRTExpr env expr
+  expr' <- checkRTExpr expr
   unify var (rtInfo expr')
-  r' <- bind name var $ checkStmts env ret r
+  r' <- bind name var $ checkStmts r
   pure (Decl name var expr' : r')
-checkStmts env ret (Assign name expr : r) = do
-  expr' <- checkRTExpr env expr
-  asks (M.lookup name) >>= \case
+checkStmts (Assign name expr : r) = do
+  expr' <- checkRTExpr expr
+  view (tcBinds . at name) >>= \case
     Nothing -> error "you're referincing a function that doesn't exit in the environment, this should be impossible"
     Just var -> unify var (rtInfo expr')
-  r' <- checkStmts env ret r
+  r' <- checkStmts r
   pure (Assign name expr' : r')
-checkStmts env ret (ExprStmt expr : r) = do
-  expr' <- checkRTExpr env expr
-  r' <- checkStmts env ret r
+checkStmts (ExprStmt expr : r) = do
+  expr' <- checkRTExpr expr
+  r' <- checkStmts r
   pure (ExprStmt expr' : r')
 
 checkRTExpr ::
-  RuntimeEnv ->
   RTExpr (Maybe Type) (Maybe Type) ->
-  Typecheck ctx () (RTExpr (TypeVar ctx ()) (TypeVar ctx ()))
-checkRTExpr _ (RTVar name mtyp) = do
+  Typecheck s () (RTExpr (TypeVar s ()) (TypeVar s ()))
+checkRTExpr (RTVar name mtyp) = do
   var <- freshMaybe mtyp ()
-  asks (M.lookup name) >>= \case
+  view (tcBinds . at name) >>= \case
     Nothing -> pure (RTVar name var)
     Just var' -> RTVar name var <$ unify var var'
-checkRTExpr _ (RTLiteral lit mtyp) = RTLiteral lit <$> freshMaybe mtyp ()
-checkRTExpr env (RTArith op a b mtyp) = do
+checkRTExpr (RTLiteral lit mtyp) = RTLiteral lit <$> freshMaybe mtyp ()
+checkRTExpr (RTArith op a b mtyp) = do
   var <- freshMaybe mtyp ()
-  a' <- checkRTExpr env a
-  b' <- checkRTExpr env b
+  a' <- checkRTExpr a
+  b' <- checkRTExpr b
   unify var (rtInfo a')
   unify (rtInfo a') (rtInfo b')
   pure $ RTArith op a' b' var
-checkRTExpr env (RTBlock (Block stmts) mtyp) = do
+checkRTExpr (RTBlock (Block stmts) mtyp) = do
   var <- freshMaybe mtyp ()
-  stmts' <- checkStmts env var stmts
+  stmts' <- local (tcBlock .~ var) $ checkStmts stmts
   pure (RTBlock (Block stmts') var)
-checkRTExpr (RuntimeEnv env) (RTCall guid args mtyp) =
-  case M.lookup guid env of
-    Just (FunDef fargs fret _ body) -> do
-      var <- freshMaybe mtyp ()
-      setType var fret ()
-      let f expr typ = do
-            expr' <- checkRTExpr (RuntimeEnv env) expr
-            setType (rtInfo expr') typ ()
-            pure expr'
-      args' <- zipWithM f args (snd <$> fargs)
-      pure $ RTCall guid args' var
-    Nothing -> error "report this immediately"
+checkRTExpr (RTCall fn args mtyp) = do
+  (vargs, vret) <- callSig fn
+  var <- freshMaybe mtyp ()
+  unify var vret
+  let f expr typ = do
+        expr' <- checkRTExpr expr
+        unify (rtInfo expr') typ
+        pure expr'
+  args' <- zipWithM f args vargs
+  pure $ RTCall (Left Self) args' var
 
-freshMaybe :: Maybe Type -> info -> Typecheck ctx info (TypeVar ctx info)
+callSig :: Either Self GUID -> Typecheck s () ([TypeVar s ()], TypeVar s ())
+callSig efn = do
+  RuntimeEnv env <- view tcEnv
+  case efn of
+    Left Self ->
+      view tcSelf >>= \case
+        Nothing -> error "calling self in a non-function"
+        Just r -> pure r
+    Right guid -> case M.lookup guid env of
+      Nothing -> error "calling nonexisting guid"
+      Just (FunDef args ret _ _) -> do
+        vret <- freshFrom ret ()
+        vargs <- forM args $ \(_, arg) -> freshFrom arg ()
+        pure (vargs, vret)
+
+freshFrom' :: Type -> info -> ST s (TypeVar s info)
+freshFrom' typ info = do
+  var <- fresh'
+  setType' var typ info
+  pure var
+
+freshFrom :: Type -> info -> Typecheck s info (TypeVar s info)
+freshFrom typ info = lift $ freshFrom' typ info
+
+freshMaybe :: Maybe Type -> info -> Typecheck s info (TypeVar s info)
 freshMaybe mtyp info = do
   var <- fresh
   forM_ mtyp $ \typ -> setType var typ info
   pure var
 
-getTypeInExceptT :: TypeVar ctx info -> ExceptT String (Typecheck ctx info) Type
+getTypeInExceptT :: TypeVar s info -> ExceptT String (Typecheck s info) Type
 getTypeInExceptT var = do
   lift (checkType var) >>= \case
     [(a, _)] -> pure a
@@ -151,33 +192,40 @@ traverseRTExprTypes f = go
         (f typ)
     go (RTCall name args typ) = liftA2 (RTCall name) (traverse go args) (f typ)
 
-newtype TypeVar ctx info = TypeVar (UF.Point ctx (Map Type info))
+bind :: Name -> TypeVar s info -> Typecheck s info a -> Typecheck s info a
+bind n t = local (over tcBinds $ M.insert n t)
 
-type Typecheck ctx info = ReaderT (Context ctx info) (ST ctx)
+fresh :: Typecheck s info (TypeVar s info)
+fresh = lift fresh'
 
-type Context ctx info = Map Name (TypeVar ctx info)
+unify :: Monoid info => TypeVar s info -> TypeVar s info -> Typecheck s info ()
+unify ta tb = lift $ unify' ta tb
 
-bind :: Name -> TypeVar ctx info -> Typecheck ctx info a -> Typecheck ctx info a
-bind n t = local (M.insert n t)
+setType :: TypeVar s info -> Type -> info -> Typecheck s info ()
+setType var typ info = lift $ setType' var typ info
 
-fresh :: Typecheck ctx info (TypeVar ctx info)
-fresh = lift $ TypeVar <$> UF.fresh mempty
+fresh' :: ST s (TypeVar s info)
+fresh' = TypeVar <$> UF.fresh mempty
 
-unify :: Monoid info => TypeVar ctx info -> TypeVar ctx info -> Typecheck ctx info ()
-unify (TypeVar ta) (TypeVar tb) =
-  lift $
-    UF.union' ta tb (\sa sb -> pure (M.unionWith mappend sa sb))
+unify' :: Monoid info => TypeVar s info -> TypeVar s info -> ST s ()
+unify' (TypeVar ta) (TypeVar tb) = UF.union' ta tb (\sa sb -> pure (M.unionWith mappend sa sb))
 
-setType :: TypeVar ctx info -> Type -> info -> Typecheck ctx info ()
-setType (TypeVar t) typ info =
-  lift $
-    UF.modifyDescriptor t (M.insert typ info)
+setType' :: TypeVar s info -> Type -> info -> ST s ()
+setType' (TypeVar t) typ info = UF.modifyDescriptor t (M.insert typ info)
 
-tlookup :: TypeVar ctx info -> Typecheck ctx info (Map Type info)
-tlookup (TypeVar p) = lift $ UF.repr p >>= UF.descriptor
+runTypecheckT ::
+  RuntimeEnv ->
+  (forall s. ST s (TypeVar s info, Maybe ([(Name, TypeVar s info)], TypeVar s info))) ->
+  (forall s. Typecheck s info a) ->
+  a
+runTypecheckT env setup run = runST $ do
+  (blk, mfun) <- setup
+  let args = maybe [] fst mfun
+  let ctx = TypecheckContext mempty blk (fmap (first (fmap snd)) mfun) env
+  flip runReaderT ctx $ foldr (uncurry bind) run args
 
-runTypecheckT :: (forall ctx. Typecheck ctx info a) -> a
-runTypecheckT m = runST (runReaderT m mempty)
-
-checkType :: TypeVar ctx info -> Typecheck ctx info [(Type, info)]
+checkType :: TypeVar s info -> Typecheck s info [(Type, info)]
 checkType var = M.toList <$> tlookup var
+  where
+    tlookup :: TypeVar s info -> Typecheck s info (Map Type info)
+    tlookup (TypeVar p) = lift $ UF.repr p >>= UF.descriptor

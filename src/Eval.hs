@@ -201,7 +201,7 @@ step (Func args ret bodyExpr) = do
     step bodyExpr >>= \case
       VBlock env body -> do
         name <- fromMaybe "fn" <$> askName
-        funDef <- liftEither $ typecheckFunction env typedArgs name retType body
+        funDef <- liftEither $ typecheckFunction env name typedArgs retType body
         let guid = GUID $ hash funDef
         let env' = env <> RuntimeEnv (M.singleton guid funDef)
         pure $ VFunc env' guid
@@ -280,7 +280,7 @@ rtFromExpr (App f x) = do
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           tell env
-          pure $ RTCall guid rtArgs Nothing
+          pure $ RTCall (Right guid) rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
