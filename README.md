@@ -100,6 +100,7 @@
     - [ ] check for unbound variables to avoid capture issues
   - [ ] warnings
   - [ ] have subcommands in the executable for the building and the repl
+  - [ ] have inherit from-expressions evaluate the attr set only once
   - [ ] benchmarks
     - [ ] use Text instead of String
   - [ ] inherit from set, inherit multiple

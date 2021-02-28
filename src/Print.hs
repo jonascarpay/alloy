@@ -5,6 +5,7 @@ module Print (ppExpr, ppVal, ppTypedBlock) where
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Maybe
 import Eval
 import Expr
 import Numeric
@@ -73,10 +74,12 @@ ppRTExpr _ _ _ (RTVar x _) = pretty x
 ppRTExpr _ _ _ (RTLiteral n _) = ppRTLit n
 ppRTExpr env pptyp ppinfo (RTArith op a b _) = ppRTExpr env pptyp ppinfo a <+> opSymbol op <+> ppRTExpr env pptyp ppinfo b
 ppRTExpr env pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr env pptyp ppinfo) b
-ppRTExpr env pptyp ppinfo (RTCall guid args _) =
-  case M.lookup guid (rtFunctions env) of
-    Just (_, info) -> ppFunctionName guid info <> list (ppRTExpr env pptyp ppinfo <$> args)
-    Nothing -> error "you're referincing a function that doesn't exit in the environment, this should be impossible"
+ppRTExpr env pptyp ppinfo (RTCall guid args _) = ppFunctionName (fnName $ lookupFun env guid) guid <> list (ppRTExpr env pptyp ppinfo <$> args)
+
+lookupFun :: RuntimeEnv -> GUID -> FunDef
+lookupFun env guid = fromMaybe err $ M.lookup guid (rtFunctions env)
+  where
+    err = error "Referencing non-existing GUID, should be impossible"
 
 ppGuid :: GUID -> Doc ann
 ppGuid (GUID n) = pretty $ take 5 $ showHex (fromIntegral n :: Word) ""
@@ -91,6 +94,9 @@ opSymbol Add = "+"
 opSymbol Mul = "*"
 opSymbol Sub = "-"
 
+ppFunctionName :: Name -> GUID -> Doc ann
+ppFunctionName name guid = pretty name <> "_" <> ppGuid guid
+
 ppWithRuntimeEnv :: RuntimeEnv -> Doc ann -> Doc ann
 ppWithRuntimeEnv env@(RuntimeEnv fns) doc
   | null (rtFunctions env) = doc
@@ -98,7 +104,7 @@ ppWithRuntimeEnv env@(RuntimeEnv fns) doc
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ uncurry (ppFunction env) <$> M.elems fns,
+          indent 2 . vcat $ ppFunDef env <$> M.keys fns,
           "Body:",
           indent 2 doc
         ]
@@ -108,23 +114,21 @@ ppTypedBlock env typ block =
   ppWithRuntimeEnv env $
     ppType typ <> ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) block
 
-ppFunctionName :: GUID -> FunctionInfo -> Doc ann
-ppFunctionName guid name =
-  mconcat
-    [maybe "anon_fn" pretty name, "_", ppGuid guid]
-
 ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
 ppAnn f t = ":" <+> f t
 
-ppFunction :: RuntimeEnv -> Function -> FunctionInfo -> Doc ann
-ppFunction env (Function args ret body guid) info =
-  hsep
-    [ ppFunctionName guid info,
-      list (uncurry (ppTyped pretty ppType) <$> args),
-      "->",
-      ppType ret,
-      ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) body
-    ]
+ppFunDef :: RuntimeEnv -> GUID -> Doc ann
+ppFunDef env guid =
+  case M.lookup guid (rtFunctions env) of
+    Nothing -> error "referencing non-existing GUID, should be impossible"
+    Just (FunDef args ret name body) ->
+      hsep
+        [ ppFunctionName name guid,
+          list (uncurry (ppTyped pretty ppType) <$> args),
+          "->",
+          ppType ret,
+          ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) body
+        ]
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
@@ -148,5 +152,7 @@ ppVal (Fix (VBlock env b)) =
         b
     )
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
-ppVal (Fix (VFunc env info func)) = ppWithRuntimeEnv env $ ppFunction env func info
+ppVal (Fix (VFunc env guid)) =
+  let censor = RuntimeEnv . M.delete guid . rtFunctions
+   in ppWithRuntimeEnv (censor env) $ ppFunDef env guid
 ppVal (Fix (VType t)) = ppType t

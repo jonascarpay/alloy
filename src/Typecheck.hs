@@ -18,11 +18,12 @@ import Program
 typecheckFunction ::
   RuntimeEnv ->
   [(Name, Type)] ->
+  Name ->
   Type ->
   RTBlock (Maybe Type) ->
-  Either String Function
-typecheckFunction env args ret (Block stmts) =
-  (\(_, stmts') -> mkFunction args ret (Block stmts')) <$> typecheckStmts env (Just ret) args stmts
+  Either String FunDef
+typecheckFunction env args name ret (Block stmts) =
+  (\(_, stmts') -> FunDef args ret name (Block stmts')) <$> typecheckStmts env (Just ret) args stmts
 
 typecheckBlock ::
   RuntimeEnv ->
@@ -105,9 +106,9 @@ checkRTExpr env (RTBlock (Block stmts) mtyp) = do
   var <- freshMaybe mtyp ()
   stmts' <- checkStmts env var stmts
   pure (RTBlock (Block stmts') var)
-checkRTExpr (RuntimeEnv env) (RTCall fguid args mtyp) =
-  case M.lookup fguid env of
-    Just (Function fargs fret _ guid, _) -> do
+checkRTExpr (RuntimeEnv env) (RTCall guid args mtyp) =
+  case M.lookup guid env of
+    Just (FunDef fargs fret _ body) -> do
       var <- freshMaybe mtyp ()
       setType var fret ()
       let f expr typ = do

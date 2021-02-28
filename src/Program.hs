@@ -39,22 +39,19 @@ rtInfo (RTLiteral _ a) = a
 newtype GUID = GUID {unGUID :: Int}
   deriving (Eq, Show, Ord, Hashable)
 
-data Function = Function
-  { _args :: [(Name, Type)],
-    fnRet :: Type,
-    _body :: Block Type (RTExpr Type Type),
-    fnGuid :: GUID
-  }
-  deriving (Eq, Show)
-
-mkFunction :: [(Name, Type)] -> Type -> RTBlock Type -> Function
-mkFunction args ret body = Function args ret body (GUID $ hash (args, ret, body))
-
 newtype RuntimeEnv = RuntimeEnv
-  {rtFunctions :: Map GUID (Function, FunctionInfo)}
+  {rtFunctions :: Map GUID FunDef}
   deriving (Eq, Show)
 
-type FunctionInfo = Maybe Name
+data FunDef = FunDef
+  { fnArgs :: [(Name, Type)],
+    fnRet :: Type,
+    fnName :: Name,
+    fnBody :: RTBlock Type
+  }
+  deriving (Eq, Show, Generic)
+
+instance Hashable FunDef
 
 instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
 

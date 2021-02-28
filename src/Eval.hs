@@ -12,8 +12,10 @@ import Control.Monad.Writer
 import Data.Either (isLeft)
 import Data.Foldable
 import Data.Functor.Identity
+import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Maybe
 import Data.Sequence (Seq)
 import Data.Void
 import Expr
@@ -35,7 +37,7 @@ data ValueF val
   | VAttr (Map Name val)
   | VRTVar Name
   | VBlock RuntimeEnv (RTBlock (Maybe Type))
-  | VFunc RuntimeEnv (Maybe Name) Function
+  | VFunc RuntimeEnv GUID
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -198,9 +200,11 @@ step (Func args ret bodyExpr) = do
   localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . forgetRT) $
     step bodyExpr >>= \case
       VBlock env body -> do
-        name <- askName
-        either throwError (pure . VFunc env name) $
-          typecheckFunction env typedArgs retType body
+        name <- fromMaybe "fn" <$> askName
+        funDef <- liftEither $ typecheckFunction env typedArgs name retType body
+        let guid = GUID $ hash funDef
+        let env' = env <> RuntimeEnv (M.singleton guid funDef)
+        pure $ VFunc env' guid
       _ -> throwError "Function body did not evaluate to a block expression"
 
 forgetRT :: Env -> Env
@@ -220,9 +224,6 @@ genBlock (Block stmts) = do
   pure (env, Block stmts')
 
 type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
-
-tellFunction :: Function -> FunctionInfo -> RTEval ()
-tellFunction func info = tell (RuntimeEnv $ M.singleton (fnGuid func) (func, info))
 
 -- TODO This processes statements as a list because a declaration is relevant in the tail of the list
 -- but that's kinda hacky and might overlap with type checking
@@ -274,13 +275,12 @@ rtFromExpr (App f x) = do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    VFunc childEnv name func ->
+    VFunc env guid ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
-          tell childEnv
-          tellFunction func name
-          pure $ RTCall (fnGuid func) rtArgs (Just $ fnRet func)
+          tell env
+          pure $ RTCall guid rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
