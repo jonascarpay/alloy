@@ -9,7 +9,6 @@ module Eval (ValueF (..), Value, eval, RuntimeEnv (..)) where
 import Control.Monad.Except
 import Control.Monad.RWS
 import Control.Monad.Writer
-import Data.Either (isLeft)
 import Data.Foldable
 import Data.Functor.Identity
 import Data.Hashable
@@ -36,6 +35,7 @@ data ValueF val
   | VType Type
   | VAttr (Map Name val)
   | VRTVar Name
+  | VSelf
   | VBlock RuntimeEnv (RTBlock (Maybe Type))
   | VFunc RuntimeEnv GUID
   | VList (Seq val)
@@ -63,9 +63,15 @@ newtype EvalT m a = EvalT
   }
   deriving (Functor, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState (Int, Map ThunkID Thunk), MonadWriter RuntimeEnv)
 
+data Binding
+  = BThunk ThunkID
+  | BRTVar
+  | BSelf
+  deriving (Eq, Show)
+
 type Eval = EvalT Identity
 
-type Env = Map Name (Either ThunkID ())
+type Env = Map Name Binding
 
 data EvalEnv = EvalEnv
   { _envBinds :: Env,
@@ -88,22 +94,24 @@ lookupVar ::
   (MonadReader EvalEnv m, MonadError String m) =>
   Name ->
   (ThunkID -> m r) ->
-  (() -> m r) ->
+  m r ->
+  m r ->
   m r
-lookupVar name kct krt = do
+lookupVar name kct krt kself = do
   view (envBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
-    Just (Left tid) -> kct tid
-    Just (Right typ) -> krt typ
+    Just (BThunk tid) -> kct tid
+    Just BRTVar -> krt
+    Just BSelf -> kself
 
 bindThunk :: Name -> ThunkID -> EvalEnv -> EvalEnv
-bindThunk name tid = envBinds . at name ?~ Left tid
+bindThunk name tid = envBinds . at name ?~ BThunk tid
 
 bindThunks :: [(Name, ThunkID)] -> EvalEnv -> EvalEnv
 bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
 bindRtvar :: Name -> Env -> Env
-bindRtvar n = M.insert n (Right ())
+bindRtvar n = M.insert n BRTVar
 
 eval :: Expr -> Either String Value
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
@@ -164,7 +172,7 @@ step (App f x) = do
       local (const $ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
     _ -> throwError "Calling a non-function"
-step (Var x) = lookupVar x force (const $ pure $ VRTVar x)
+step (Var x) = lookupVar x force (pure $ VRTVar x) (pure VSelf)
 step (Lam arg body) = VClosure arg body <$> ask
 step (Let binds body) = do
   n0 <- gets fst
@@ -197,7 +205,7 @@ step (With bind body) = do
 step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
-  localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . forgetRT) $
+  localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . functionSanitize) $
     step bodyExpr >>= \case
       VBlock env body -> do
         name <- fromMaybe "fn" <$> askName
@@ -207,8 +215,11 @@ step (Func args ret bodyExpr) = do
         pure $ VFunc env' guid
       _ -> throwError "Function body did not evaluate to a block expression"
 
-forgetRT :: Env -> Env
-forgetRT = M.filter isLeft
+functionSanitize :: Env -> Env
+functionSanitize = (at "self" ?~ BSelf) . M.filter isThunk
+  where
+    isThunk (BThunk _) = True
+    isThunk _ = False
 
 evalType :: Expr -> Eval Type
 evalType expr =
@@ -245,8 +256,8 @@ genStmt (Assign name expr : r) = do
           force tid >>= \case
             VRTVar v -> pure v
             _ -> throwError $ "Assigning to non-runtime-variable " <> show name
-        rt _ = pure name
-     in lift $ lookupVar name ct rt
+        rt = pure name
+     in lift $ lookupVar name ct rt (error "self")
   expr' <- rtFromExpr expr
   r' <- genStmt r
   pure (Assign name' expr' : r')
@@ -267,7 +278,8 @@ rtFromExpr (Var n) =
   lookupVar
     n
     (lift . deepEval >=> rtFromVal)
-    (const $ pure (RTVar n Nothing))
+    (pure (RTVar n Nothing))
+    (error "self")
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
@@ -281,6 +293,12 @@ rtFromExpr (App f x) = do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           tell env
           pure $ RTCall (Right guid) rtArgs Nothing
+        _ -> throwError "Trying to call a function with a non-list-like-thing"
+    VSelf ->
+      case x of
+        List argExprs -> do
+          rtArgs <- traverse rtFromExpr (toList argExprs)
+          pure $ RTCall (Left Self) rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -309,6 +327,7 @@ rtFromVal (Fix (VAttr m)) = do
 rtFromVal (Fix (VRTVar n)) = pure $ RTVar n Nothing
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
+rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VType {}) = throwError "can't handle type"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"

@@ -133,8 +133,9 @@ checkRTExpr (RTCall fn args mtyp) = do
         expr' <- checkRTExpr expr
         unify (rtInfo expr') typ
         pure expr'
+  when (length args /= length vargs) $ error "argument length mismatch" -- TODO throw an error
   args' <- zipWithM f args vargs
-  pure $ RTCall (Left Self) args' var
+  pure $ RTCall fn args' var
 
 callSig :: Either Self GUID -> Typecheck s () ([TypeVar s ()], TypeVar s ())
 callSig efn = do

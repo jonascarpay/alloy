@@ -75,7 +75,7 @@ ppRTExpr _ _ _ (RTLiteral n _) = ppRTLit n
 ppRTExpr env pptyp ppinfo (RTArith op a b _) = ppRTExpr env pptyp ppinfo a <+> opSymbol op <+> ppRTExpr env pptyp ppinfo b
 ppRTExpr env pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr env pptyp ppinfo) b
 ppRTExpr env pptyp ppinfo (RTCall (Right guid) args _) = ppFunctionName (fnName $ lookupFun env guid) guid <> list (ppRTExpr env pptyp ppinfo <$> args)
-ppRTExpr _ _ _ (RTCall (Left _) _ _) = error "self not supported yet"
+ppRTExpr env pptyp ppinfo (RTCall (Left _) args _) = "self" <> list (ppRTExpr env pptyp ppinfo <$> args)
 
 lookupFun :: RuntimeEnv -> GUID -> FunDef
 lookupFun env guid = fromMaybe err $ M.lookup guid (rtFunctions env)
