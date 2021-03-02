@@ -57,11 +57,16 @@ newtype EvalT m a = EvalT
       RWST
         EvalEnv
         RuntimeEnv
-        (Int, Map ThunkID Thunk)
+        EvalState
         (ExceptT String m)
         a
   }
-  deriving (Functor, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState (Int, Map ThunkID Thunk), MonadWriter RuntimeEnv)
+  deriving (Functor, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadWriter RuntimeEnv)
+
+data EvalState = EvalState
+  { _thunkCount :: Int,
+    _thunks :: Map ThunkID Thunk
+  }
 
 data Binding
   = BThunk ThunkID
@@ -80,6 +85,7 @@ data EvalEnv = EvalEnv
   deriving (Eq, Show)
 
 makeLenses ''EvalEnv
+makeLenses ''EvalState
 
 withName :: Monad m => Name -> EvalT m a -> EvalT m a
 withName name = local (envName ?~ name)
@@ -117,7 +123,7 @@ eval :: Expr -> Either String Value
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
 runEval :: Eval a -> Either String a
-runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty) (0, mempty)
+runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty) (EvalState 0 mempty)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -175,7 +181,7 @@ step (App f x) = do
 step (Var x) = lookupVar x force (pure $ VRTVar x) (pure VSelf)
 step (Lam arg body) = VClosure arg body <$> ask
 step (Let binds body) = do
-  n0 <- gets fst
+  n0 <- use thunkCount
   let predictedThunks = zip (fst <$> binds) [n0 ..]
   local (bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
@@ -334,7 +340,7 @@ rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
 rtFromVal (Fix (VBlock env b)) = RTBlock b Nothing <$ tell env
 
 mkThunk :: Thunk -> Eval ThunkID
-mkThunk thunk = state $ \(n, m) -> (n, (n + 1, M.insert n thunk m))
+mkThunk thunk = state $ \(EvalState n m) -> (n, EvalState (n + 1) (M.insert n thunk m))
 
 deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
 deferM = mkThunk . Deferred
@@ -347,11 +353,11 @@ deferExpr expr = ask >>= \env -> deferM $ local (const env) (step expr)
 
 force :: ThunkID -> Eval (ValueF ThunkID)
 force tid =
-  gets (M.lookup tid . snd) >>= \case
+  use (thunks . at tid) >>= \case
     Just (Deferred m) -> do
-      _2 . at tid .= Just (Deferred $ throwError "Infinite recursion")
+      thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
       v <- m
-      _2 . at tid .= Just (Computed v)
+      thunks . at tid .= Just (Computed v)
       pure v
     Just (Computed x) -> pure x
     Nothing -> throwError "Looking up invalid thunk?"
