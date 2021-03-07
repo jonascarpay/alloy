@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Expr where
 
@@ -8,6 +9,7 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
 import GHC.Generics (Generic)
+import Lens.Micro.Platform
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
 
@@ -54,7 +56,7 @@ data ArithOp = Add | Sub | Mul
 instance Hashable ArithOp
 
 newtype Block typ expr = Block
-  {blkStatements :: [Stmt typ expr]}
+  {_blkStmts :: [Stmt typ expr]}
   deriving (Eq, Show, Hashable)
 
 data Stmt typ expr
@@ -65,3 +67,5 @@ data Stmt typ expr
   deriving (Eq, Show, Generic)
 
 instance (Hashable expr, Hashable typ) => Hashable (Stmt typ expr)
+
+makeLenses ''Block

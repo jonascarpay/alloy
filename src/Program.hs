@@ -1,15 +1,18 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Program where
 
 import Data.Hashable
 import Data.Map (Map)
+import Data.Set (Set)
 import Expr
 import GHC.Generics
+import Lens.Micro.Platform
 
-type RTBlock typ = Block typ (RTExpr typ typ)
+type RTBlock call typ = Block typ (RTExpr call typ typ)
 
 data RTLiteral
   = RTInt Int
@@ -19,22 +22,57 @@ data RTLiteral
 
 instance Hashable RTLiteral
 
-data Self = Self
-  deriving (Eq, Show, Generic)
-
-instance Hashable Self
-
-data RTExpr typ a
+data RTExpr call typ a
   = RTVar Name a
   | RTLiteral RTLiteral a
-  | RTArith ArithOp (RTExpr typ a) (RTExpr typ a) a
-  | RTBlock (Block typ (RTExpr typ a)) a
-  | RTCall (Either Self GUID) [RTExpr typ a] a
+  | RTArith ArithOp (RTExpr call typ a) (RTExpr call typ a) a
+  | RTBlock (Block typ (RTExpr call typ a)) a
+  | RTCall call [RTExpr call typ a] a
   deriving (Eq, Show, Generic)
 
-instance (Hashable typ, Hashable info) => Hashable (RTExpr typ info)
+rtExprCalls :: Traversal (RTExpr call typ a) (RTExpr call' typ a) call call'
+rtExprCalls f = rtExprMasterTraversal f pure pure pure pure
 
-rtInfo :: RTExpr typ a -> a
+rtExprTypes :: Traversal (RTExpr call typ a) (RTExpr call typ' a) typ typ'
+rtExprTypes f = rtExprMasterTraversal pure f pure pure pure
+
+stmtExpr :: Traversal (Stmt typ expr) (Stmt typ expr') expr expr'
+stmtExpr f = stmtMasterTraversal f pure pure
+
+{-# INLINE rtExprMasterTraversal #-}
+rtExprMasterTraversal ::
+  Applicative f =>
+  (call -> f call') ->
+  (typ -> f typ') ->
+  (info -> f info') ->
+  (Name -> f Name) ->
+  (RTLiteral -> f RTLiteral) ->
+  (RTExpr call typ info -> f (RTExpr call' typ' info'))
+rtExprMasterTraversal fCall fTyp fInfo fName fLit = go
+  where
+    go (RTVar nm i) = RTVar <$> fName nm <*> fInfo i
+    go (RTLiteral lit i) = RTLiteral <$> fLit lit <*> fInfo i
+    go (RTArith op l r i) = RTArith op <$> go l <*> go r <*> fInfo i
+    go (RTBlock (Block blk) i) = RTBlock <$> (Block <$> traverse (stmtMasterTraversal go fTyp fName) blk) <*> fInfo i
+    go (RTCall cl args i) = RTCall <$> fCall cl <*> traverse go args <*> fInfo i
+
+{-# INLINE stmtMasterTraversal #-}
+stmtMasterTraversal ::
+  Applicative f =>
+  (expr -> f expr') ->
+  (typ -> f typ') ->
+  (Name -> f Name) ->
+  (Stmt typ expr -> f (Stmt typ' expr'))
+stmtMasterTraversal fExpr fTyp fName = go
+  where
+    go (Return expr) = Return <$> fExpr expr
+    go (Decl nm typ expr) = Decl <$> fName nm <*> fTyp typ <*> fExpr expr
+    go (Assign nm expr) = Assign <$> fName nm <*> fExpr expr
+    go (ExprStmt expr) = ExprStmt <$> fExpr expr
+
+instance (Hashable typ, Hashable info, Hashable call) => Hashable (RTExpr call typ info)
+
+rtInfo :: RTExpr call typ a -> a
 rtInfo (RTVar _ a) = a
 rtInfo (RTArith _ _ _ a) = a
 rtInfo (RTBlock _ a) = a
@@ -44,21 +82,50 @@ rtInfo (RTLiteral _ a) = a
 newtype GUID = GUID {unGUID :: Int}
   deriving (Eq, Show, Ord, Hashable)
 
-newtype RuntimeEnv = RuntimeEnv
-  {rtFunctions :: Map GUID FunDef}
-  deriving (Eq, Show)
+type TempID = Int
 
--- TODO make FunType datatype
-data FunDef = FunDef
-  { fnArgs :: [(Name, Type)],
-    fnRet :: Type,
-    fnName :: Name,
-    fnBody :: RTBlock Type
+data Dependencies = Dependencies
+  { _depFuncs :: Map GUID (FunDef GUID),
+    _depTempFuncs :: Map TempID (FunDef PreCall)
   }
   deriving (Eq, Show, Generic)
 
-instance Hashable FunDef
+instance Hashable Dependencies
 
-instance Semigroup RuntimeEnv where RuntimeEnv fns <> RuntimeEnv fns' = RuntimeEnv (fns <> fns')
+type RecIndex = Int
 
-instance Monoid RuntimeEnv where mempty = RuntimeEnv mempty
+data PreCall
+  = CallRec RecIndex
+  | CallKnown GUID
+  | CallTemp TempID
+  deriving (Eq, Show, Generic)
+
+instance Hashable PreCall
+
+precallRec :: Traversal' PreCall RecIndex
+precallRec f (CallRec n) = CallRec <$> f n
+precallRec _ c = pure c
+
+precallTemp :: Traversal' PreCall TempID
+precallTemp f (CallTemp t) = CallTemp <$> f t
+precallTemp _ c = pure c
+
+-- TODO make FunType datatype
+data FunDef call = FunDef
+  { _fnArgs :: [(Name, Type)],
+    _fnRet :: Type,
+    _fnName :: Name,
+    _fnBody :: RTBlock call Type
+  }
+  deriving (Eq, Show, Generic)
+
+instance Hashable call => Hashable (FunDef call)
+
+instance Semigroup Dependencies where
+  Dependencies a b <> Dependencies a' b' = Dependencies (a <> a') (b <> b')
+
+instance Monoid Dependencies where
+  mempty = Dependencies mempty mempty
+
+makeLenses ''FunDef
+makeLenses ''Dependencies

@@ -4,7 +4,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Eval (ValueF (..), Value, eval, RuntimeEnv (..)) where
+module Eval (ValueF (..), Value, eval, Dependencies (..)) where
 
 import Control.Monad.Except
 import Control.Monad.RWS
@@ -16,6 +16,8 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
 import Data.Sequence (Seq)
+import Data.Set (Set)
+import Data.Set qualified as S
 import Data.Void
 import Expr
 import Lens.Micro.Platform
@@ -35,9 +37,9 @@ data ValueF val
   | VType Type
   | VAttr (Map Name val)
   | VRTVar Name
-  | VSelf
-  | VBlock RuntimeEnv (RTBlock (Maybe Type))
-  | VFunc RuntimeEnv GUID
+  | VSelf Int
+  | VBlock Dependencies (RTBlock PreCall (Maybe Type))
+  | VFunc Dependencies (Either TempID GUID)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -56,23 +58,28 @@ newtype EvalT m a = EvalT
   { _unLazyT ::
       RWST
         EvalEnv
-        RuntimeEnv
+        Dependencies
         EvalState
         (ExceptT String m)
         a
   }
-  deriving (Functor, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadWriter RuntimeEnv)
+  deriving (Functor, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadWriter Dependencies)
 
 data EvalState = EvalState
-  { _thunkCount :: Int,
-    _thunks :: Map ThunkID Thunk
+  { _thunkSource :: Int,
+    _thunks :: Map ThunkID Thunk,
+    _tempSource :: Int
   }
 
 data Binding
   = BThunk ThunkID
   | BRTVar
-  | BSelf
+  | BSelf Int
   deriving (Eq, Show)
+
+isThunk :: Binding -> Bool
+isThunk (BThunk _) = True
+isThunk _ = False
 
 type Eval = EvalT Identity
 
@@ -80,7 +87,8 @@ type Env = Map Name Binding
 
 data EvalEnv = EvalEnv
   { _envBinds :: Env,
-    _envName :: Maybe Name
+    _envName :: Maybe Name,
+    _envFnDepth :: Int
   }
   deriving (Eq, Show)
 
@@ -101,14 +109,14 @@ lookupVar ::
   Name ->
   (ThunkID -> m r) ->
   m r ->
-  m r ->
+  (Int -> m r) ->
   m r
 lookupVar name kct krt kself = do
   view (envBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just (BThunk tid) -> kct tid
     Just BRTVar -> krt
-    Just BSelf -> kself
+    Just (BSelf n) -> kself n
 
 bindThunk :: Name -> ThunkID -> EvalEnv -> EvalEnv
 bindThunk name tid = envBinds . at name ?~ BThunk tid
@@ -123,7 +131,7 @@ eval :: Expr -> Either String Value
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
 runEval :: Eval a -> Either String a
-runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty) (EvalState 0 mempty)
+runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty 0) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -178,10 +186,10 @@ step (App f x) = do
       local (const $ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
     _ -> throwError "Calling a non-function"
-step (Var x) = lookupVar x force (pure $ VRTVar x) (pure VSelf)
+step (Var x) = lookupVar x force (pure $ VRTVar x) (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> ask
 step (Let binds body) = do
-  n0 <- use thunkCount
+  n0 <- use thunkSource
   let predictedThunks = zip (fst <$> binds) [n0 ..]
   local (bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
@@ -210,22 +218,66 @@ step (With bind body) = do
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
-  retType <- evalType ret
-  localEnv (flip (foldr bindRtvar) (fst <$> typedArgs) . functionSanitize) $
-    step bodyExpr >>= \case
-      VBlock env body -> do
-        name <- fromMaybe "fn" <$> askName
-        funDef <- liftEither $ typecheckFunction env name typedArgs retType body
-        let guid = GUID $ hash funDef
-        let env' = env <> RuntimeEnv (M.singleton guid funDef)
-        pure $ VFunc env' guid
-      _ -> throwError "Function body did not evaluate to a block expression"
+  local (functionBodyEnv typedArgs) (step bodyExpr) >>= \case
+    VBlock deps body -> do
+      retType <- evalType ret
+      recDepth <- view envFnDepth
+      name <- fromMaybe "fn" <$> view envName
+      body' <- liftEither $ typecheckFunction deps name typedArgs retType body
+      -- let guid = GUID $ hash funDef
+      let funDef = FunDef typedArgs retType name body'
+      uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
+    _ -> throwError "Function body did not evaluate to a block expression"
 
-functionSanitize :: Env -> Env
-functionSanitize = (at "self" ?~ BSelf) . M.filter isThunk
+freshTempId :: Eval TempID
+freshTempId = state (\(EvalState us un ts) -> (ts, EvalState us un (ts + 1)))
+
+mkFunction ::
+  Monad m =>
+  m TempID ->
+  RecIndex ->
+  Dependencies ->
+  FunDef PreCall ->
+  m (Dependencies, Either TempID GUID)
+mkFunction fresh recDepth transDeps funDef = do
+  case calls of
+    [] -> pure mkClosedFunction
+    l | any (< recDepth) l -> mkTempFunction
+    _ -> pure closeTempFunction
   where
-    isThunk (BThunk _) = True
-    isThunk _ = False
+    mkClosedFunction =
+      let unPreCall (CallKnown guid) = guid
+          unPreCall _ = error "impossible"
+          funDef' = funDef & funCalls %~ unPreCall
+          guid = GUID $ hash funDef'
+          deps = transDeps & depFuncs . at guid ?~ funDef'
+       in (deps, Right guid)
+
+    mkTempFunction = do
+      temp <- fresh
+      let deps = transDeps & depTempFuncs . at temp ?~ funDef
+      pure (deps, Left temp)
+
+    closeTempFunction = undefined
+
+    calls = toListOf selfCalls funDef ++ toListOf (depTempFuncs . traverse . selfCalls) transDeps
+    selfCalls :: Traversal' (FunDef PreCall) RecIndex
+    selfCalls = funCalls . precallRec
+    funCalls :: Traversal (FunDef call) (FunDef call') call call'
+    funCalls = fnBody . blkStmts . traverse . stmtExpr . rtExprCalls
+
+functionBodyEnv :: [(Name, Type)] -> EvalEnv -> EvalEnv
+functionBodyEnv typedArgs (EvalEnv binds name depth) = EvalEnv binds' name depth'
+  where
+    argNames = fst <$> typedArgs
+    depth' = depth + 1
+    binds' =
+      flip (foldr bindRtvar) argNames
+        . (at "self" ?~ BSelf depth)
+        . M.filter isThunk
+        $ binds
+
+-- Dependencies -> Dependencies
 
 evalType :: Expr -> Eval Type
 evalType expr =
@@ -235,18 +287,18 @@ evalType expr =
 
 genBlock ::
   Block (Maybe Expr) Expr ->
-  Eval (RuntimeEnv, RTBlock (Maybe Type))
+  Eval (Dependencies, RTBlock PreCall (Maybe Type))
 genBlock (Block stmts) = do
-  (stmts', env) <- runWriterT $ genStmt stmts
-  pure (env, Block stmts')
+  (stmts', deps) <- runWriterT $ genStmt stmts
+  pure (deps, Block stmts')
 
-type RTEval = WriterT RuntimeEnv Eval -- TODO rename this
+type RTEval = WriterT Dependencies Eval -- TODO rename this
 
 -- TODO This processes statements as a list because a declaration is relevant in the tail of the list
 -- but that's kinda hacky and might overlap with type checking
 genStmt ::
   [Stmt (Maybe Expr) Expr] ->
-  RTEval [Stmt (Maybe Type) (RTExpr (Maybe Type) (Maybe Type))]
+  RTEval [Stmt (Maybe Type) (RTExpr PreCall (Maybe Type) (Maybe Type))]
 genStmt (Return expr : r) = do
   expr' <- rtFromExpr expr
   r' <- genStmt r
@@ -275,7 +327,7 @@ genStmt [] = pure []
 
 rtFromExpr ::
   Expr ->
-  RTEval (RTExpr (Maybe Type) (Maybe Type))
+  RTEval (RTExpr PreCall (Maybe Type) (Maybe Type))
 rtFromExpr (Arith op a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
@@ -293,18 +345,18 @@ rtFromExpr (App f x) = do
       tx <- lift $ deferExpr x
       local (const $ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
-    VFunc env guid ->
+    VFunc tdeps funId ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
-          tell env
-          pure $ RTCall (Right guid) rtArgs Nothing
+          tell tdeps
+          pure $ RTCall (either CallRec CallKnown funId) rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
-    VSelf ->
+    VSelf n ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
-          pure $ RTCall (Left Self) rtArgs Nothing
+          pure $ RTCall (CallRec n) rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -322,7 +374,7 @@ rtLitFromPrim (PInt n) = pure $ RTInt n
 rtLitFromPrim (PDouble n) = pure $ RTDouble n
 rtLitFromPrim (PBool _) = throwError "runtime bools aren't a thing"
 
-rtFromVal :: Value -> RTEval (RTExpr (Maybe Type) (Maybe Type))
+rtFromVal :: Value -> RTEval (RTExpr PreCall (Maybe Type) (Maybe Type))
 rtFromVal (Fix (VPrim p)) = fmap (`RTLiteral` Nothing) (rtLitFromPrim p)
 rtFromVal (Fix (VAttr m)) = do
   m' <- flip M.traverseWithKey m $ \key field ->
@@ -337,10 +389,10 @@ rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VType {}) = throwError "can't handle type"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
-rtFromVal (Fix (VBlock env b)) = RTBlock b Nothing <$ tell env
+rtFromVal (Fix (VBlock deps b)) = RTBlock b Nothing <$ tell deps
 
 mkThunk :: Thunk -> Eval ThunkID
-mkThunk thunk = state $ \(EvalState n m) -> (n, EvalState (n + 1) (M.insert n thunk m))
+mkThunk thunk = state $ \(EvalState n m t) -> (n, EvalState (n + 1) (M.insert n thunk m) t)
 
 deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
 deferM = mkThunk . Deferred
