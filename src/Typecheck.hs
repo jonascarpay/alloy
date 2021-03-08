@@ -22,33 +22,37 @@ newtype TypeVar s info = TypeVar (UF.Point s (Map Type info))
 data TypecheckContext s info = TypecheckContext
   { _tcBinds :: Map Name (TypeVar s info),
     _tcBlock :: TypeVar s info,
-    _tcSelf :: SelfCtx s info,
+    _tcSelf :: SelfCtx,
+    _tcDepth :: Int,
     _tcDeps :: Dependencies
   }
 
 type Typecheck s info = ReaderT (TypecheckContext s info) (ST s)
 
-type SelfCtx s info = [([TypeVar s info], TypeVar s info)]
+type SelfCtx = [([Type], Type)]
 
 makeLenses ''TypecheckContext
 
 typecheckBlock ::
   Dependencies ->
+  Int ->
+  [([Type], Type)] ->
   RTBlock PreCall (Maybe Type) ->
   Either String (Type, RTBlock PreCall Type)
-typecheckBlock env (Block stmts) = undefined --runTypecheckT env setup run
+typecheckBlock deps depth selfs (Block stmts) = runTypecheckT deps depth selfs setup run
   where
     setup = (,Nothing) <$> fresh'
     run = (fmap . fmap . fmap) Block (typecheck stmts)
 
 typecheckFunction ::
   Dependencies ->
-  Name ->
+  Int ->
+  [([Type], Type)] ->
   [(Name, Type)] ->
   Type ->
   RTBlock PreCall (Maybe Type) ->
   Either String (RTBlock PreCall Type)
-typecheckFunction env name args ret (Block stmts) = undefined -- runTypecheckT env setup run
+typecheckFunction deps depth self args ret (Block stmts) = runTypecheckT deps depth self setup run
   where
     setup = do
       vRet <- fresh'
@@ -57,7 +61,7 @@ typecheckFunction env name args ret (Block stmts) = undefined -- runTypecheckT e
       pure (vRet, Just (args', vRet))
     run =
       (fmap . fmap)
-        (\(_, stmts') -> FunDef args ret name (Block stmts'))
+        (\(_, stmts') -> (Block stmts'))
         (typecheck stmts)
 
 rtStmtTypes ::
@@ -133,32 +137,33 @@ checkRTExpr (RTBlock (Block stmts) mtyp) = do
   var <- freshMaybe mtyp ()
   stmts' <- local (tcBlock .~ var) $ checkStmts stmts
   pure (RTBlock (Block stmts') var)
-checkRTExpr (RTCall fn args mtyp) = do
-  (vargs, vret) <- callSig fn
+checkRTExpr (RTCall call args mtyp) = do
+  (cargs, cret) <- callSig call
   var <- freshMaybe mtyp ()
-  unify var vret
+  setType var cret ()
   let f expr typ = do
         expr' <- checkRTExpr expr
-        unify (rtInfo expr') typ
+        setType (rtInfo expr') typ ()
         pure expr'
-  when (length args /= length vargs) $ error "argument length mismatch" -- TODO throw an error
-  args' <- zipWithM f args vargs
-  pure $ RTCall fn args' var
+  when (length args /= length cargs) $ error "argument length mismatch" -- TODO throw an error
+  args' <- zipWithM f args cargs
+  pure $ RTCall call args' var
 
-callSig :: PreCall -> Typecheck s () ([TypeVar s ()], TypeVar s ())
-callSig efn = do
-  Dependencies env tenv <- view tcDeps
-  case efn of
-    CallRec n ->
-      view (tcSelf . to (safeLookup n)) >>= \case
-        Nothing -> error "PreCall to self escapes scope"
-        Just r -> pure r
-    CallKnown guid -> case M.lookup guid env of
-      Nothing -> error "calling nonexisting guid"
-      Just (FunDef args ret _ _) -> do
-        vret <- freshFrom ret ()
-        vargs <- forM args $ \(_, arg) -> freshFrom arg ()
-        pure (vargs, vret)
+callSig :: PreCall -> Typecheck s () ([Type], Type)
+callSig (CallKnown guid) = do
+  view (tcDeps . depKnownFuncs . at guid) >>= \case
+    Nothing -> error "impossible"
+    Just fn -> pure (fn ^.. fnArgs . traverse . _2, fn ^. fnRet)
+callSig (CallRec n) = do
+  depth <- view tcDepth
+  sel <- view tcSelf
+  view (tcSelf . to (safeLookup (depth - n))) >>= \case
+    Nothing -> error $ "impossible: " <> show (n, depth, depth - n, sel)
+    Just t -> pure t
+callSig (CallTemp tid) = do
+  view (tcDeps . depTempFuncs . at tid) >>= \case
+    Nothing -> error "impossible"
+    Just (TempFunc fn _) -> pure (fn ^.. fnArgs . traverse . _2, fn ^. fnRet)
 
 safeLookup :: Int -> [a] -> Maybe a
 safeLookup n l = case splitAt n l of
@@ -210,16 +215,16 @@ setType' (TypeVar t) typ info = UF.modifyDescriptor t (M.insert typ info)
 
 runTypecheckT ::
   Dependencies ->
-  (forall s. ST s (TypeVar s info, [([(Name, TypeVar s info)], TypeVar s info)])) ->
+  Int ->
+  [([Type], Type)] ->
+  (forall s. ST s (TypeVar s info, Maybe ([(Name, TypeVar s info)], TypeVar s info))) ->
   (forall s. Typecheck s info a) ->
   a
-runTypecheckT _ _ _ = undefined
-
--- runTypecheckT env setup run = runST $ do
---   (blk, mfun) <- setup
---   let args = maybe [] fst mfun
---   let ctx = TypecheckContext mempty blk (fmap (first (fmap snd)) undefined) env
---   flip runReaderT ctx $ foldr (uncurry bind) run args
+runTypecheckT deps depth selfs setup run = runST $ do
+  (blk, mfun) <- setup
+  let ctx = TypecheckContext mempty blk selfs depth deps
+  let args = maybe [] fst mfun
+  flip runReaderT ctx $ foldr (uncurry bind) run args
 
 checkType :: TypeVar s info -> Typecheck s info [(Type, info)]
 checkType var = M.toList <$> tlookup var

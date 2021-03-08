@@ -16,8 +16,6 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
 import Data.Sequence (Seq)
-import Data.Set (Set)
-import Data.Set qualified as S
 import Data.Void
 import Expr
 import Lens.Micro.Platform
@@ -88,7 +86,8 @@ type Env = Map Name Binding
 data EvalEnv = EvalEnv
   { _envBinds :: Env,
     _envName :: Maybe Name,
-    _envFnDepth :: Int
+    _envFnDepth :: Int,
+    _envFnTypes :: [([Type], Type)]
   }
   deriving (Eq, Show)
 
@@ -131,7 +130,7 @@ eval :: Expr -> Either String Value
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
 runEval :: Eval a -> Either String a
-runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty 0) (EvalState 0 mempty 0)
+runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty 0 mempty) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -183,7 +182,11 @@ step (App f x) = do
   step f >>= \case
     (VClosure arg body env) -> do
       tx <- deferExpr x
-      local (const $ bindThunk arg tx env) (step body)
+      -- local (const $ bindThunk arg tx env) (step body)
+      stack <- view envFnTypes
+      depth <- view envFnDepth
+      -- TODO clean up obviously
+      local (const $ bindThunk arg tx env & envFnDepth .~ depth & envFnTypes .~ stack) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
     _ -> throwError "Calling a non-function"
 step (Var x) = lookupVar x force (pure $ VRTVar x) (pure . VSelf)
@@ -218,20 +221,25 @@ step (With bind body) = do
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
-  local (functionBodyEnv typedArgs) (step bodyExpr) >>= \case
-    VBlock deps body -> do
-      retType <- evalType ret
-      recDepth <- view envFnDepth
-      name <- fromMaybe "fn" <$> view envName
-      body' <- liftEither $ typecheckFunction deps name typedArgs retType body
-      -- let guid = GUID $ hash funDef
-      let funDef = FunDef typedArgs retType name body'
-      uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
-    _ -> throwError "Function body did not evaluate to a block expression"
+  retType <- evalType ret
+  recDepth <- view envFnDepth
+  local (functionBodyEnv typedArgs retType) $
+    step bodyExpr >>= \case
+      VBlock deps body -> do
+        fnStack <- view envFnTypes
+        name <- fromMaybe "fn" <$> view envName
+        body' <- liftEither $ typecheckFunction deps recDepth fnStack typedArgs retType body
+        -- let guid = GUID $ hash funDef
+        let funDef = FunDef typedArgs retType name body'
+        uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
+      _ -> throwError "Function body did not evaluate to a block expression"
 
 freshTempId :: Eval TempID
 freshTempId = state (\(EvalState us un ts) -> (ts, EvalState us un (ts + 1)))
 
+-- TODO I don't think TempIDs are necessary at all, thunks already provide deduplication
+-- Maybe we need them for hashing?
+-- In that case, locally reset to properly deduplicate?
 mkFunction ::
   Monad m =>
   m TempID ->
@@ -240,7 +248,7 @@ mkFunction ::
   FunDef PreCall ->
   m (Dependencies, Either TempID GUID)
 mkFunction fresh recDepth transDeps funDef = do
-  case calls of
+  case unresolvedCalls of
     [] -> pure mkClosedFunction
     l | any (< recDepth) l -> mkTempFunction
     _ -> pure closeTempFunction
@@ -250,29 +258,53 @@ mkFunction fresh recDepth transDeps funDef = do
           unPreCall _ = error "impossible"
           funDef' = funDef & funCalls %~ unPreCall
           guid = GUID $ hash funDef'
-          deps = transDeps & depFuncs . at guid ?~ funDef'
+          deps = transDeps & depKnownFuncs . at guid ?~ funDef'
        in (deps, Right guid)
 
     mkTempFunction = do
-      temp <- fresh
-      let deps = transDeps & depTempFuncs . at temp ?~ funDef
-      pure (deps, Left temp)
+      tempId <- fresh
+      let temp = TempFunc funDef (transDeps ^. depTempFuncs)
+          deps = transDeps & depTempFuncs .~ M.singleton tempId temp
+      pure (deps, Left tempId)
 
-    closeTempFunction = undefined
+    closeTempFunction =
+      let (guid, deps) = close recDepth (TempFunc funDef (transDeps ^. depTempFuncs))
+       in (Dependencies (deps <> view depKnownFuncs transDeps) mempty, Right guid)
 
-    calls = toListOf selfCalls funDef ++ toListOf (depTempFuncs . traverse . selfCalls) transDeps
+    close :: RecIndex -> TempFunc -> (GUID, Map GUID (FunDef GUID))
+    close depth (TempFunc funDef deps) =
+      let guid = GUID $ hash (deps, funDef)
+          replaceSelf (CallRec n) | n == depth = CallKnown guid
+          replaceSelf c = c
+
+          deps' = over (traverse . tempFuncs . funCalls) replaceSelf deps
+
+          children :: Map TempID (GUID, Map GUID (FunDef GUID))
+          children = fmap (close (depth + 1)) deps'
+
+          funDef' = funDef & funCalls %~ replaceAll
+
+          replaceAll (CallRec n) | n == depth = guid
+          replaceAll (CallTemp t) | Just (guid, _) <- M.lookup t children = guid
+          replaceAll (CallKnown guid) = guid
+          replaceAll _ = error "impossible"
+          transDeps = fold (toListOf (traverse . _2) children)
+       in (guid, transDeps & at guid ?~ funDef')
+
+    unresolvedCalls = toListOf selfCalls funDef ++ toListOf (depTempFuncs . traverse . tempFuncs . selfCalls) transDeps
     selfCalls :: Traversal' (FunDef PreCall) RecIndex
     selfCalls = funCalls . precallRec
     funCalls :: Traversal (FunDef call) (FunDef call') call call'
     funCalls = fnBody . blkStmts . traverse . stmtExpr . rtExprCalls
 
-functionBodyEnv :: [(Name, Type)] -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs (EvalEnv binds name depth) = EvalEnv binds' name depth'
+functionBodyEnv :: [(Name, Type)] -> Type -> EvalEnv -> EvalEnv
+functionBodyEnv typedArgs ret (EvalEnv binds name depth stack) = EvalEnv binds' name depth' stack'
   where
-    argNames = fst <$> typedArgs
+    (names, types) = unzip typedArgs
     depth' = depth + 1
+    stack' = (types, ret) : stack
     binds' =
-      flip (foldr bindRtvar) argNames
+      flip (foldr bindRtvar) names
         . (at "self" ?~ BSelf depth)
         . M.filter isThunk
         $ binds
@@ -350,7 +382,7 @@ rtFromExpr (App f x) = do
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           tell tdeps
-          pure $ RTCall (either CallRec CallKnown funId) rtArgs Nothing
+          pure $ RTCall (either CallTemp CallKnown funId) rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     VSelf n ->
       case x of

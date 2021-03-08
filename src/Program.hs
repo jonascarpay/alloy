@@ -85,12 +85,25 @@ newtype GUID = GUID {unGUID :: Int}
 type TempID = Int
 
 data Dependencies = Dependencies
-  { _depFuncs :: Map GUID (FunDef GUID),
-    _depTempFuncs :: Map TempID (FunDef PreCall)
+  { _depKnownFuncs :: Map GUID (FunDef GUID),
+    _depTempFuncs :: Map TempID TempFunc
   }
   deriving (Eq, Show, Generic)
 
 instance Hashable Dependencies
+
+data TempFunc = TempFunc
+  { _tempFunc :: FunDef PreCall,
+    _tempFuncDeps :: Map TempID TempFunc
+  }
+  deriving (Eq, Show, Generic)
+
+tempFuncs :: Traversal' TempFunc (FunDef PreCall)
+tempFuncs f = go
+  where
+    go (TempFunc fn deps) = TempFunc <$> f fn <*> traverse go deps
+
+instance Hashable TempFunc
 
 type RecIndex = Int
 
@@ -129,3 +142,4 @@ instance Monoid Dependencies where
 
 makeLenses ''FunDef
 makeLenses ''Dependencies
+makeLenses ''TempFunc

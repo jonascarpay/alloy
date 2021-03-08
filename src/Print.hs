@@ -8,6 +8,7 @@ import Data.Map qualified as M
 import Data.Maybe
 import Eval
 import Expr
+import Lens.Micro.Platform
 import Numeric
 import Prettyprinter
 import Program
@@ -58,6 +59,7 @@ ppExpr (Func args ret body) =
     <+> ppExpr ret
     <+> ppExpr body
 
+-- TODO just take ppStatement
 ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
 ppBlock _ _ (Block []) = "{}"
 ppBlock ft fe (Block [stmt]) = braces $ ppStatement ft fe stmt
@@ -69,16 +71,15 @@ ppStatement ft fe (Decl name typ expr) = pretty name <> ft typ <+> "=" <+> fe ex
 ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
 
-ppRTExpr :: RuntimeEnv -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr typ info -> Doc ann
-ppRTExpr _ _ _ (RTVar x _) = pretty x
-ppRTExpr _ _ _ (RTLiteral n _) = ppRTLit n
-ppRTExpr env pptyp ppinfo (RTArith op a b _) = ppRTExpr env pptyp ppinfo a <+> opSymbol op <+> ppRTExpr env pptyp ppinfo b
-ppRTExpr env pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr env pptyp ppinfo) b
-ppRTExpr env pptyp ppinfo (RTCall (Right guid) args _) = ppFunctionName (fnName $ lookupFun env guid) guid <> list (ppRTExpr env pptyp ppinfo <$> args)
-ppRTExpr env pptyp ppinfo (RTCall (Left _) args _) = "self" <> list (ppRTExpr env pptyp ppinfo <$> args)
+ppRTExpr :: Dependencies -> (call -> Doc ann) -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr call typ info -> Doc ann
+ppRTExpr _ _ _ _ (RTVar x _) = pretty x
+ppRTExpr _ _ _ _ (RTLiteral n _) = ppRTLit n
+ppRTExpr deps ppCall pptyp ppinfo (RTArith op a b _) = ppRTExpr deps ppCall pptyp ppinfo a <+> opSymbol op <+> ppRTExpr deps ppCall pptyp ppinfo b
+ppRTExpr deps ppCall pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr deps ppCall pptyp ppinfo) b
+ppRTExpr deps ppCall pptyp ppinfo (RTCall call args _) = ppCall call <> list (ppRTExpr deps ppCall pptyp ppinfo <$> args)
 
-lookupFun :: RuntimeEnv -> GUID -> FunDef
-lookupFun env guid = fromMaybe err $ M.lookup guid (rtFunctions env)
+lookupFun :: Dependencies -> GUID -> FunDef GUID
+lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
   where
     err = error "Referencing non-existing GUID, should be impossible"
 
@@ -98,29 +99,30 @@ opSymbol Sub = "-"
 ppFunctionName :: Name -> GUID -> Doc ann
 ppFunctionName name guid = pretty name <> "_" <> ppGuid guid
 
-ppWithRuntimeEnv :: RuntimeEnv -> Doc ann -> Doc ann
-ppWithRuntimeEnv env@(RuntimeEnv fns) doc
-  | null (rtFunctions env) = doc
+ppWithRuntimeEnv :: Dependencies -> Doc ann -> Doc ann
+ppWithRuntimeEnv deps@(Dependencies fns temp) doc
+  | null fns = doc
+  | not (null temp) = error "impossible"
   | otherwise =
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ ppFunDef env <$> M.keys fns,
+          indent 2 . vcat $ ppFunDef deps <$> M.keys fns,
           "Body:",
           indent 2 doc
         ]
 
-ppTypedBlock :: RuntimeEnv -> Type -> Block Type (RTExpr Type Type) -> Doc ann
-ppTypedBlock env typ block =
-  ppWithRuntimeEnv env $
-    ppType typ <> ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) block
+ppTypedBlock :: Dependencies -> Type -> Block Type (RTExpr GUID Type Type) -> Doc ann
+ppTypedBlock deps typ block =
+  ppWithRuntimeEnv deps $
+    ppType typ <> ppBlock (ppAnn ppType) (ppRTExpr deps ppGuid ppType ppType) block
 
 ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
 ppAnn f t = ":" <+> f t
 
-ppFunDef :: RuntimeEnv -> GUID -> Doc ann
-ppFunDef env guid =
-  case M.lookup guid (rtFunctions env) of
+ppFunDef :: Dependencies -> GUID -> Doc ann
+ppFunDef deps guid =
+  case deps ^. depKnownFuncs . at guid of
     Nothing -> error "referencing non-existing GUID, should be impossible"
     Just (FunDef args ret name body) ->
       hsep
@@ -128,7 +130,8 @@ ppFunDef env guid =
           list (uncurry (ppTyped pretty ppType) <$> args),
           "->",
           ppType ret,
-          ppBlock (ppAnn ppType) (ppRTExpr env ppType ppType) body
+          -- TODO combine with ppTypedBlock
+          ppBlock (ppAnn ppType) (ppRTExpr deps (ppKnownGuid deps . CallKnown) ppType ppType) body
         ]
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
@@ -138,22 +141,28 @@ ppMaybeType :: Maybe Type -> Doc ann
 ppMaybeType Nothing = "_"
 ppMaybeType (Just typ) = ppType typ
 
+ppKnownGuid :: Dependencies -> PreCall -> Doc ann
+ppKnownGuid deps (CallKnown guid) =
+  case deps ^. depKnownFuncs . at guid of
+    Nothing -> "impossible"
+    Just fd -> ppFunctionName (fd ^. fnName) guid
+
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
 ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
-ppVal (Fix (VBlock env b)) =
+ppVal (Fix (VBlock deps b)) =
   ppWithRuntimeEnv
-    env
+    deps
     ( ppBlock
         ppMaybeType
-        (ppRTExpr env ppMaybeType ppMaybeType)
+        (ppRTExpr deps (ppKnownGuid deps) ppMaybeType ppMaybeType)
         b
     )
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
-ppVal (Fix (VFunc env guid)) =
-  let censor = RuntimeEnv . M.delete guid . rtFunctions
-   in ppWithRuntimeEnv (censor env) $ ppFunDef env guid
+ppVal (Fix (VFunc deps (Right guid))) =
+  let censor = depKnownFuncs . at guid .~ Nothing
+   in ppWithRuntimeEnv (censor deps) $ ppFunDef deps guid
 ppVal (Fix (VType t)) = ppType t

@@ -3,7 +3,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 import Control.Monad
-import Data.Bifunctor
 import Data.Map qualified as M
 import Eval
 import Expr
