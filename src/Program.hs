@@ -132,7 +132,8 @@ data FunDef call = FunDef
   }
   deriving (Eq, Show, Generic)
 
-instance Hashable call => Hashable (FunDef call)
+instance Hashable call => Hashable (FunDef call) where
+  hashWithSalt s (FunDef args ret _ body) = hashWithSalt s (args, ret, body)
 
 instance Semigroup Dependencies where
   Dependencies a b <> Dependencies a' b' = Dependencies (a <> a') (b <> b')

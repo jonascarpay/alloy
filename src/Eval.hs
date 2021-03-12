@@ -7,7 +7,7 @@
 module Eval (ValueF (..), Value, eval, Dependencies (..)) where
 
 import Control.Monad.Except
-import Control.Monad.RWS
+import Control.Monad.RWS as RWS
 import Control.Monad.Writer
 import Data.Foldable
 import Data.Functor.Identity
@@ -30,7 +30,7 @@ type ThunkID = Int
 -- maybe just tag them from fresh to make sure
 data ValueF val
   = VPrim Prim
-  | VClosure Name Expr EvalEnv -- TODO benchmark if we can safely remove this
+  | VClosure Name Expr Context -- TODO benchmark if we can safely remove this
   | VClosure' (ThunkID -> Eval (ValueF ThunkID))
   | VType Type
   | VAttr (Map Name val)
@@ -83,25 +83,25 @@ type Eval = EvalT Identity
 
 type Env = Map Name Binding
 
-data EvalEnv = EvalEnv
-  { _envBinds :: Env,
-    _envName :: Maybe Name,
-    _envFnDepth :: Int,
-    _envFnTypes :: [([Type], Type)]
+data Context = Context
+  { _ctxBinds :: Map Name Binding,
+    _ctxName :: Maybe Name
   }
   deriving (Eq, Show)
 
+data EvalEnv = EvalEnv
+  { _ctx :: Context,
+    _envFnDepth :: Int,
+    _envFnStack :: [([Type], Type)]
+  }
+  deriving (Eq, Show)
+
+makeLenses ''Context
 makeLenses ''EvalEnv
 makeLenses ''EvalState
 
 withName :: Monad m => Name -> EvalT m a -> EvalT m a
-withName name = local (envName ?~ name)
-
-askName :: Monad m => EvalT m (Maybe Name)
-askName = view envName
-
-localEnv :: MonadReader EvalEnv m => (Env -> Env) -> (m a -> m a)
-localEnv f = local (over envBinds f)
+withName name = local (ctx . ctxName ?~ name)
 
 lookupVar ::
   (MonadReader EvalEnv m, MonadError String m) =>
@@ -111,16 +111,16 @@ lookupVar ::
   (Int -> m r) ->
   m r
 lookupVar name kct krt kself = do
-  view (envBinds . at name) >>= \case
+  view (ctx . ctxBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just (BThunk tid) -> kct tid
     Just BRTVar -> krt
     Just (BSelf n) -> kself n
 
-bindThunk :: Name -> ThunkID -> EvalEnv -> EvalEnv
-bindThunk name tid = envBinds . at name ?~ BThunk tid
+bindThunk :: Name -> ThunkID -> Context -> Context
+bindThunk name tid = ctxBinds . at name ?~ BThunk tid
 
-bindThunks :: [(Name, ThunkID)] -> EvalEnv -> EvalEnv
+bindThunks :: [(Name, ThunkID)] -> Context -> Context
 bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
 bindRtvar :: Name -> Env -> Env
@@ -130,7 +130,7 @@ eval :: Expr -> Either String Value
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
 runEval :: Eval a -> Either String a
-runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv mempty mempty 0 mempty) (EvalState 0 mempty 0)
+runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -156,7 +156,7 @@ withBuiltins m = do
           ("types", tTypes),
           ("struct", tStruct)
         ]
-  local (bindThunk "builtins" tBuiltins) m
+  local (ctx %~ bindThunk "builtins" tBuiltins) m
 
 struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 struct (VAttr m) = do
@@ -182,19 +182,15 @@ step (App f x) = do
   step f >>= \case
     (VClosure arg body env) -> do
       tx <- deferExpr x
-      -- local (const $ bindThunk arg tx env) (step body)
-      stack <- view envFnTypes
-      depth <- view envFnDepth
-      -- TODO clean up obviously
-      local (const $ bindThunk arg tx env & envFnDepth .~ depth & envFnTypes .~ stack) (step body)
-    (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break, cannot handle proper closures
+      local (ctx .~ bindThunk arg tx env) (step body)
+    (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break since it does not properly handle the environment
     _ -> throwError "Calling a non-function"
 step (Var x) = lookupVar x force (pure $ VRTVar x) (pure . VSelf)
-step (Lam arg body) = VClosure arg body <$> ask
+step (Lam arg body) = VClosure arg body <$> view ctx
 step (Let binds body) = do
   n0 <- use thunkSource
   let predictedThunks = zip (fst <$> binds) [n0 ..]
-  local (bindThunks predictedThunks) $ do
+  local (ctx %~ bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
     step body
 step (Arith op a b) = do
@@ -217,19 +213,18 @@ step (BlockExpr b) =
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
-    VAttr m -> local (bindThunks $ M.toList m) (step body)
+    VAttr m -> local (ctx %~ bindThunks (M.toList m)) (step body)
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
   recDepth <- view envFnDepth
-  local (functionBodyEnv typedArgs retType) $
+  local (functionBodyEnv typedArgs retType) $ do
     step bodyExpr >>= \case
       VBlock deps body -> do
-        fnStack <- view envFnTypes
-        name <- fromMaybe "fn" <$> view envName
+        fnStack <- view envFnStack
+        name <- view $ ctx . ctxName . to (fromMaybe "fn")
         body' <- liftEither $ typecheckFunction deps recDepth fnStack typedArgs retType body
-        -- let guid = GUID $ hash funDef
         let funDef = FunDef typedArgs retType name body'
         uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
       _ -> throwError "Function body did not evaluate to a block expression"
@@ -298,7 +293,8 @@ mkFunction fresh recDepth transDeps funDef = do
     funCalls = fnBody . blkStmts . traverse . stmtExpr . rtExprCalls
 
 functionBodyEnv :: [(Name, Type)] -> Type -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs ret (EvalEnv binds name depth stack) = EvalEnv binds' name depth' stack'
+functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =
+  EvalEnv (Context binds' name) depth' stack'
   where
     (names, types) = unzip typedArgs
     depth' = depth + 1
@@ -338,7 +334,7 @@ genStmt (Return expr : r) = do
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ mapM evalType typ
   expr' <- rtFromExpr expr
-  r' <- localEnv (bindRtvar name) (genStmt r)
+  r' <- local (ctx . ctxBinds %~ bindRtvar name) (genStmt r)
   pure (Decl name typ' expr' : r')
 genStmt (Assign name expr : r) = do
   name' <- do
@@ -375,7 +371,7 @@ rtFromExpr (App f x) = do
   lift (force tf) >>= \case
     VClosure arg body env -> do
       tx <- lift $ deferExpr x
-      local (const $ bindThunk arg tx env) $
+      local (ctx .~ bindThunk arg tx env) $
         lift (deepEvalExpr body) >>= rtFromVal
     VFunc tdeps funId ->
       case x of

@@ -99,22 +99,28 @@ opSymbol Sub = "-"
 ppFunctionName :: Name -> GUID -> Doc ann
 ppFunctionName name guid = pretty name <> "_" <> ppGuid guid
 
-ppWithRuntimeEnv :: Dependencies -> Doc ann -> Doc ann
-ppWithRuntimeEnv deps@(Dependencies fns temp) doc
-  | null fns = doc
+ppWithDeps :: Dependencies -> Doc ann -> Doc ann
+ppWithDeps deps@(Dependencies fns temp) doc
   | not (null temp) = error "impossible"
+  | null fns = doc
   | otherwise =
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ ppFunDef deps <$> M.keys fns,
+          indent 2 . vcat $ ppFunDef deps <$> guidsByNames fns,
           "Body:",
           indent 2 doc
         ]
 
+guidsByNames :: Map GUID (FunDef GUID) -> [GUID]
+guidsByNames m = snd <$> M.keys namedMap
+  where
+    namedMap =
+      M.foldMapWithKey (\guid fn -> M.singleton (fn ^. fnName, guid) fn) m
+
 ppTypedBlock :: Dependencies -> Type -> Block Type (RTExpr GUID Type Type) -> Doc ann
 ppTypedBlock deps typ block =
-  ppWithRuntimeEnv deps $
+  ppWithDeps deps $
     ppType typ <> ppBlock (ppAnn ppType) (ppRTExpr deps ppGuid ppType ppType) block
 
 ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
@@ -154,7 +160,7 @@ ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock deps b)) =
-  ppWithRuntimeEnv
+  ppWithDeps
     deps
     ( ppBlock
         ppMaybeType
@@ -164,5 +170,5 @@ ppVal (Fix (VBlock deps b)) =
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
   let censor = depKnownFuncs . at guid .~ Nothing
-   in ppWithRuntimeEnv (censor deps) $ ppFunDef deps guid
+   in ppWithDeps (censor deps) $ ppFunDef deps guid
 ppVal (Fix (VType t)) = ppType t

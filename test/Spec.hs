@@ -10,7 +10,9 @@ import Lib
 import Parse
 import Prettyprinter
 import Print
+import Program
 import Test.Tasty
+import Test.Tasty.ExpectedFailure (expectFail, expectFailBecause)
 import Test.Tasty.Focus
 import Test.Tasty.HUnit
 import Text.Megaparsec qualified as MP
@@ -19,11 +21,15 @@ import Text.RawString.QQ
 main :: IO ()
 main =
   defaultMain $
-    testGroup
-      "alloy-test"
-      [ evalTests,
-        testSyntax
-      ]
+    withFocus $
+      testGroup
+        "alloy-test"
+        [ evalTests,
+          rtTests
+        ]
+
+assertFile :: FilePath -> IO String
+assertFile = readFile
 
 assertParse :: String -> IO Expr
 assertParse str = do
@@ -31,17 +37,69 @@ assertParse str = do
     Left err -> assertFailure $ MP.errorBundlePretty err
     Right res -> pure res
 
-testSyntax :: TestTree
-testSyntax = testCase "syntax.ayy" $ do
-  f <- readFile "syntax.ayy"
-  assertParse f >>= \expr ->
-    case evalCheckInfo expr of
-      Left doc -> assertFailure (show doc)
-      Right doc -> assertFailure (show doc)
+assertEval :: Expr -> IO Value
+assertEval expr =
+  case evalInfo expr of
+    Left err -> assertFailure $ show err
+    Right val -> pure val
+
+assertValueEq :: Value -> Value -> Assertion
+assertValueEq exp got = either (assertFailure . show) pure $ go exp got
+  where
+    go :: Value -> Value -> Either (Doc ann) ()
+    go (Fix (VPrim pa)) (Fix (VPrim pb)) | pa == pb = pure ()
+    go (Fix (VAttr na)) (Fix (VAttr nb)) | M.keys na == M.keys nb = zipWithM_ go (M.elems na) (M.elems nb)
+    go a b = Left $ hsep ["mismatch between", ppVal a, "and", ppVal b]
+
+assertFunc :: Value -> IO (Dependencies, GUID)
+assertFunc (Fix (VFunc deps (Right guid))) = pure (deps, guid)
+assertFunc _ = assertFailure "Value was not a function"
+
+funcWithNDeps :: String -> Int -> String -> TestTree
+funcWithNDeps name n prog = testCase name $ do
+  (Dependencies fn temp, _) <- assertParse prog >>= assertEval >>= assertFunc
+  assertEqual "" (length temp) 0
+  assertEqual "" n (length fn - 1)
+
+rtTests :: TestTree
+rtTests =
+  testGroup
+    "rt"
+    [ expectFailBecause "Pending" $ funcWithNDeps "trivial" 0 "[] -> builtins.types.int { return 0; }",
+      funcWithNDeps "trivial with" 0 "with builtins.types; [] -> int { return 0; }",
+      expectFail $ funcWithNDeps "numerical void" 0 "with builtins.types; [] -> void { return 0; }",
+      funcWithNDeps "simple recursion" 0 "[] -> (builtins.types.int) { return self []; }",
+      funcWithNDeps "mutual recursion" 1 $
+        [r|
+           with builtins.types;
+           [] -> int
+             let top = self;
+                 sub = [] -> int { return top[]; };
+              in {return sub[];}
+        |],
+      funcWithNDeps "repeated recursion" 2 $
+        [r|
+           with builtins.types;
+             let f = rec: [] -> int { return rec[]; };
+              in [] -> int {
+                   return self [];
+                   return f self [];
+                   return f (f self) [];
+                 }
+        |]
+    ]
+
+is9 :: String -> String -> TestTree
+is9 name prog =
+  testCase name $
+    assertParse prog
+      >>= assertEval
+      >>= assertValueEq (Fix $ VPrim $ PInt 9)
 
 evalTests :: TestTree
 evalTests =
-  withFocus . testGroup "eval" $
+  testGroup
+    "eval"
     [ is9 "const" "9",
       is9 "add" "4+5",
       is9 "mul" "3*3",
@@ -137,19 +195,3 @@ evalTests =
         "with-expression"
         "with builtins; nine"
     ]
-
-is9 :: String -> String -> TestTree
-is9 name prog = assertEval name prog (Fix $ VPrim $ PInt 9)
-
-valueCompare :: Value -> Value -> Either (Doc ann) ()
-valueCompare (Fix (VPrim pa)) (Fix (VPrim pb)) | pa == pb = pure ()
-valueCompare (Fix (VAttr na)) (Fix (VAttr nb)) | M.keys na == M.keys nb = zipWithM_ valueCompare (M.elems na) (M.elems nb)
-valueCompare a b = Left $ hsep ["mismatch between", ppVal a, "and", ppVal b]
-
-assertEval :: String -> String -> Value -> TestTree
-assertEval name program expect =
-  testCase name $
-    assertParse program >>= \expr ->
-      case evalInfo expr of
-        Left err -> assertFailure $ show err
-        Right got -> either (assertFailure . show) pure $ valueCompare expect got
