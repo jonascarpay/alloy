@@ -65,10 +65,15 @@ executable alloy-exe
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
 
 test-suite alloy-test
-  import:         common-options
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test src
-  main-is:        Spec.hs
+  import:          common-options
+  type:            exitcode-stdio-1.0
+  hs-source-dirs:  test src
+  main-is:         Spec.hs
+  exposed-modules:
+    EvalTests
+    RTTests
+    TestLib
+
   build-depends:
     , alloy
     , raw-strings-qq
@@ -78,7 +83,7 @@ test-suite alloy-test
     , tasty-hunit
     , tasty-quickcheck
 
-  ghc-options:    -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N
 
 benchmark alloy-bench
   import:         common-options

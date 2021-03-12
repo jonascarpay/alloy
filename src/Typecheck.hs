@@ -39,10 +39,10 @@ typecheckBlock ::
   [([Type], Type)] ->
   RTBlock PreCall (Maybe Type) ->
   Either String (Type, RTBlock PreCall Type)
-typecheckBlock deps depth selfs (Block stmts) = runTypecheckT deps depth selfs setup run
+typecheckBlock deps depth selfs (Block lbl stmts) = runTypecheckT deps depth selfs setup run
   where
     setup = (,Nothing) <$> fresh'
-    run = (fmap . fmap . fmap) Block (typecheck stmts)
+    run = (fmap . fmap . fmap) (Block lbl) (typecheck stmts)
 
 typecheckFunction ::
   Dependencies ->
@@ -52,7 +52,7 @@ typecheckFunction ::
   Type ->
   RTBlock PreCall (Maybe Type) ->
   Either String (RTBlock PreCall Type)
-typecheckFunction deps depth self args ret (Block stmts) = runTypecheckT deps depth self setup run
+typecheckFunction deps depth self args ret (Block lbl stmts) = runTypecheckT deps depth self setup run
   where
     setup = do
       vRet <- fresh'
@@ -61,7 +61,7 @@ typecheckFunction deps depth self args ret (Block stmts) = runTypecheckT deps de
       pure (vRet, Just (args', vRet))
     run =
       (fmap . fmap)
-        (\(_, stmts') -> (Block stmts'))
+        (\(_, stmts') -> Block lbl stmts')
         (typecheck stmts)
 
 rtStmtTypes ::
@@ -133,10 +133,10 @@ checkRTExpr (RTArith op a b mtyp) = do
   unify var (rtInfo a')
   unify (rtInfo a') (rtInfo b')
   pure $ RTArith op a' b' var
-checkRTExpr (RTBlock (Block stmts) mtyp) = do
+checkRTExpr (RTBlock (Block lbl stmts) mtyp) = do
   var <- freshMaybe mtyp ()
   stmts' <- local (tcBlock .~ var) $ checkStmts stmts
-  pure (RTBlock (Block stmts') var)
+  pure (RTBlock (Block lbl stmts') var)
 checkRTExpr (RTCall call args mtyp) = do
   (cargs, cret) <- callSig call
   var <- freshMaybe mtyp ()

@@ -182,7 +182,9 @@ comma :: Parser ()
 comma = symbol ","
 
 pBlock :: Parser (Block (Maybe Expr) Expr)
-pBlock = braces $ Block <$> many pStatement
+pBlock = do
+  mname <- try $ optional $ pName <* symbol "@"
+  braces $ Block mname <$> many pStatement
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?

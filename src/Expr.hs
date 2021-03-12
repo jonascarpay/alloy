@@ -55,9 +55,13 @@ data ArithOp = Add | Sub | Mul
 
 instance Hashable ArithOp
 
-newtype Block typ expr = Block
-  {_blkStmts :: [Stmt typ expr]}
-  deriving (Eq, Show, Hashable)
+data Block typ expr = Block
+  { _blkLabel :: Maybe Name,
+    _blkStmts :: [Stmt typ expr]
+  }
+  deriving (Eq, Show, Generic)
+
+instance (Hashable typ, Hashable expr) => Hashable (Block typ expr)
 
 data Stmt typ expr
   = Return expr

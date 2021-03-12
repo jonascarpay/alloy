@@ -316,9 +316,9 @@ evalType expr =
 genBlock ::
   Block (Maybe Expr) Expr ->
   Eval (Dependencies, RTBlock PreCall (Maybe Type))
-genBlock (Block stmts) = do
+genBlock (Block lbl stmts) = do
   (stmts', deps) <- runWriterT $ genStmt stmts
-  pure (deps, Block stmts')
+  pure (deps, Block lbl stmts')
 
 type RTEval = WriterT Dependencies Eval -- TODO rename this
 
