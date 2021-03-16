@@ -71,9 +71,16 @@ ppBlock ft fe (Block lbl stmts) = ppLabel lbl <> braces' (align $ vcat (ppStatem
 
 ppStatement :: (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt typ expr -> Doc ann
 ppStatement _ fe (Return expr) = "return" <+> fe expr <> ";"
-ppStatement ft fe (Decl name typ expr) = pretty name <> ft typ <+> "=" <+> fe expr <> ";"
+ppStatement ft fe (Decl name typ expr) = pretty name <+> ":" <+> ft typ <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
+ppStatement _ fe (Break mlbl mexpr) = "break" <> mspace (("@" <>) . pretty) mlbl <> mspace fe mexpr <> ";"
+ppStatement _ _ (Continue mlbl) = "continue" <> mspace (("@" <>) . pretty) mlbl <> ";"
+
+-- insert a space if Just, otherwise empty
+mspace :: (a -> Doc ann) -> Maybe a -> Doc ann
+mspace f (Just a) = " " <> f a
+mspace _ Nothing = mempty
 
 ppRTExpr :: Dependencies -> (call -> Doc ann) -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr call typ info -> Doc ann
 ppRTExpr _ _ _ _ (RTVar x _) = pretty x

@@ -35,6 +35,7 @@ data ValueF val
   | VType Type
   | VAttr (Map Name val)
   | VRTVar Name
+  | VBlockLabel Name
   | VSelf Int
   | VBlock Dependencies (RTBlock PreCall (Maybe Type))
   | VFunc Dependencies (Either TempID GUID)
@@ -72,6 +73,7 @@ data EvalState = EvalState
 data Binding
   = BThunk ThunkID
   | BRTVar
+  | BBlockLabel
   | BSelf Int
   deriving (Eq, Show)
 
@@ -108,13 +110,15 @@ lookupVar ::
   Name ->
   (ThunkID -> m r) ->
   m r ->
+  m r ->
   (Int -> m r) ->
   m r
-lookupVar name kct krt kself = do
+lookupVar name kct krt klbl kself = do
   view (ctx . ctxBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just (BThunk tid) -> kct tid
     Just BRTVar -> krt
+    Just BBlockLabel -> klbl
     Just (BSelf n) -> kself n
 
 bindThunk :: Name -> ThunkID -> Context -> Context
@@ -185,7 +189,7 @@ step (App f x) = do
       local (ctx .~ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break since it does not properly handle the environment
     _ -> throwError "Calling a non-function"
-step (Var x) = lookupVar x force (pure $ VRTVar x) (pure . VSelf)
+step (Var x) = lookupVar x force (pure $ VRTVar x) (pure $ VBlockLabel x) (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view ctx
 step (Let binds body) = do
   n0 <- use thunkSource
@@ -208,8 +212,10 @@ step (Acc f em) =
         Nothing -> throwError $ "field " <> f <> " not present"
         Just tid -> force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) =
-  uncurry VBlock <$> genBlock b
+step (BlockExpr b) = fmap (uncurry VBlock) $
+  case b ^. blkLabel of
+    Nothing -> genBlock b
+    Just lbl -> local (ctx . ctxBinds . at lbl ?~ BBlockLabel) $ genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -331,19 +337,22 @@ genStmt (Return expr : r) = do
   expr' <- rtFromExpr expr
   r' <- genStmt r
   pure (Return expr' : r')
+genStmt (Break mname mexpr : r) = do
+  mexpr' <- traverse rtFromExpr mexpr
+  mname' <- traverse resolveToBlockLabel mname
+  r' <- genStmt r
+  pure (Break mname' mexpr' : r')
+genStmt (Continue mname : r) = do
+  r' <- genStmt r
+  mname' <- traverse resolveToBlockLabel mname
+  pure (Continue mname' : r')
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ mapM evalType typ
   expr' <- rtFromExpr expr
   r' <- local (ctx . ctxBinds %~ bindRtvar name) (genStmt r)
   pure (Decl name typ' expr' : r')
 genStmt (Assign name expr : r) = do
-  name' <- do
-    let ct tid =
-          force tid >>= \case
-            VRTVar v -> pure v
-            _ -> throwError $ "Assigning to non-runtime-variable " <> show name
-        rt = pure name
-     in lift $ lookupVar name ct rt (error "self")
+  name' <- resolveToRuntimeVar name
   expr' <- rtFromExpr expr
   r' <- genStmt r
   pure (Assign name' expr' : r')
@@ -352,6 +361,24 @@ genStmt (ExprStmt expr : r) = do
   r' <- genStmt r
   pure (ExprStmt expr' : r')
 genStmt [] = pure []
+
+resolveToRuntimeVar :: Name -> RTEval Name
+resolveToRuntimeVar name = lift $ lookupVar name kComp (pure name) err (const err)
+  where
+    err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
+    kComp tid =
+      force tid >>= \case
+        VRTVar v -> pure v
+        _ -> err
+
+resolveToBlockLabel :: Name -> RTEval Name
+resolveToBlockLabel name = lift $ lookupVar name kComp err (pure name) (const err)
+  where
+    err = throwError $ "Variable " <> show name <> " did not resolve to block label"
+    kComp tid =
+      force tid >>= \case
+        VBlockLabel v -> pure v
+        _ -> err
 
 rtFromExpr ::
   Expr ->
@@ -365,7 +392,8 @@ rtFromExpr (Var n) =
     n
     (lift . deepEval >=> rtFromVal)
     (pure (RTVar n Nothing))
-    (error "self")
+    (throwError "referencing block label as expressiong")
+    (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case

@@ -37,30 +37,77 @@ rtTests =
       funcWithNDeps
         "mutual recursion"
         1
-        [r|
-           with builtins.types;
-           [] -> int
-             let top = self;
-                 sub = [] -> int { return top[]; };
-              in {return sub[];}
+        [r| with builtins.types;
+            [] -> int
+              let top = self;
+                  sub = [] -> int { return top[]; };
+               in {return sub[];}
         |],
       funcWithNDeps
         "repeated recursion"
         2
-        [r|
-           with builtins.types;
-             let f = rec: [] -> int { return rec[]; };
-              in [] -> int {
-                   return self [];
-                   return f self [];
-                   return f (f self) [];
-                 }
+        [r| with builtins.types;
+            let f = rec: [] -> int { return rec[]; };
+             in [] -> int {
+                  return self [];
+                  return f self [];
+                  return f (f self) [];
+                }
         |],
-      expectFailBecause "Pending: cannot nest return yet" $ -- FIXME Pending
-        saFunc "nested return" "[] -> (builtins.types.int) { { return 4; }; }",
-      expectFailBecause "Pending: semicolon on block exprs" $ -- FIXME Pending
-        saFunc "nested return without semicolon" "[] -> (builtins.types.int) { { return 4; } }",
+      saFunc
+        "nested return"
+        [r| with builtins.types;
+            [] -> int { {
+              var x : int = 4;
+              return x;
+            };}
+        |],
+      expectFailBecause "nested return properly takes outermost block's return value" $
+        saFunc
+          "nested return preserves type"
+          [r| with builtins.types;
+              [] -> void { {
+                var x : int = 4;
+                return x;
+              };}
+          |],
+      expectFailBecause
+        "Pending: semicolon on block exprs"
+        $ saFunc "nested return without semicolon" "[] -> (builtins.types.int) { { return 4; } }", -- FIXME Pending
       saFunc "named blocks parse" "[] -> (builtins.types.void) { lbl@{ }; }",
-      expectFailBecause "Labeled function body" $
-        saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }"
+      saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }",
+      saFunc
+        "break as if return"
+        [r| with builtins.types;
+            [] -> int lbl@{
+              var x : int = 4;
+              break @lbl x;
+            }
+        |],
+      expectFailBecause "negative" $
+        saFunc
+          "break as if return (negative)"
+          [r| with builtins.types;
+              [] -> void lbl@{
+                var x : int = 4;
+                break @lbl x;
+              }
+          |],
+      saFunc
+        "nested break return"
+        [r| with builtins.types;
+            [] -> int lbl@{ {
+              var x : int = 4;
+              break @lbl x;
+            }; }
+        |],
+      expectFailBecause "negative" $
+        saFunc
+          "nested break return (negative)"
+          [r| with builtins.types;
+              [] -> void lbl@{ {
+                var x : int = 4;
+                break @lbl x;
+              }; }
+          |]
     ]

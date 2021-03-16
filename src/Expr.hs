@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Expr where
 
@@ -68,6 +69,8 @@ data Stmt typ expr
   | Decl Name typ expr -- TODO encode that this can only be a type for RTExpr
   | Assign Name expr
   | ExprStmt expr
+  | Continue (Maybe Name)
+  | Break (Maybe Name) (Maybe expr)
   deriving (Eq, Show, Generic)
 
 instance (Hashable expr, Hashable typ) => Hashable (Stmt typ expr)

@@ -27,7 +27,7 @@
   - [x] types
   - [x] type checking
   - [x] structs
-- [ ] step 4
+- [x] step 4
   - [ ] hashing/GUIDs
     - [x] functions
     - [ ] types?
@@ -35,9 +35,18 @@
   - [x] var type inference
     - [x] fix printing
   - [x] `with` syntax
-  - [ ] function body is an expression
-    - [ ] Fix the infinite recursion in recursive RT functions
+  - [x] function body is an expression
+    - [x] Fix the infinite recursion in recursive RT functions
+- [ ] step 5
+  - [ ] structured goto
+    - [ ] break
+    - [ ] continue
 - [ ] eventually
+  - [ ] Name refers to many things, like variables but also things that have already resolved to a known label or runtime variable
+  - [ ] no clear distinction between what checks happen at evaluation time, and what happen at compile time. Essentially shotgun validation.
+  - [ ] check if functions properly return
+    - removed/put on ice because break/return complicates things
+    - maybe every block has to end with a LLVM-style terminator
   - [ ] RTExpr values/syntax?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
     - maybe it's just a matter of making syntax slightly more explicit

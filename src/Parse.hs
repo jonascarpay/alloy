@@ -68,7 +68,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "true", "false", "let", "in", "var", "with", "inherit"]
+keywords = S.fromList ["return", "break", "continue", "true", "false", "let", "in", "var", "with", "inherit"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> pAttrList
@@ -189,8 +189,19 @@ pBlock = do
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?
     pStatement :: Parser (Stmt (Maybe Expr) Expr)
-    pStatement = choice [pReturn, try pDecl, try pAssign, pExprStmt]
+    pStatement = choice [pReturn, pBreak, pContinue, try pDecl, try pAssign, pExprStmt]
     pReturn = Return <$> (keyword "return" *> pExpr <* semicolon)
+    pBreak = do
+      keyword "break"
+      name <- optional $ symbol "@" *> pName
+      expr <- optional pExpr
+      semicolon
+      pure $ Break name expr
+    pContinue = do
+      keyword "continue"
+      name <- optional $ symbol "@" *> pName
+      semicolon
+      pure $ Continue name
     pExprStmt = ExprStmt <$> pExpr <* semicolon
 
 pWith :: Parser (Expr, Expr)

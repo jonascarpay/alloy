@@ -11,7 +11,6 @@ import Prettyprinter
 import Print
 import System.Console.Haskeline
 import Text.Megaparsec as MP
-import Typecheck
 
 -- | Block values aren't typechecked, only functions.
 -- This makes sense because they occur during evaluation, and it doesn't make sense to typecheck them every time you encounter one.

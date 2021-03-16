@@ -66,6 +66,8 @@ stmtMasterTraversal ::
 stmtMasterTraversal fExpr fTyp fName = go
   where
     go (Return expr) = Return <$> fExpr expr
+    go (Break mname mexpr) = Break <$> traverse fName mname <*> traverse fExpr mexpr
+    go (Continue mname) = Continue <$> traverse fName mname
     go (Decl nm typ expr) = Decl <$> fName nm <*> fTyp typ <*> fExpr expr
     go (Assign nm expr) = Assign <$> fName nm <*> fExpr expr
     go (ExprStmt expr) = ExprStmt <$> fExpr expr
