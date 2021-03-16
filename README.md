@@ -48,6 +48,10 @@
     - [ ] if-then-else
       - [ ] should also be ternary
 - [ ] eventually
+  - [ ] Revisit labeled blocks
+    - [ ] unbreakable blocks?
+      - [ ] censored blocks?
+    - [ ] regular continue/break behavior
   - [ ] Name refers to many things, like variables but also things that have already resolved to a known label or runtime variable
   - [ ] no clear distinction between what checks happen at evaluation time, and what happen at compile time. Essentially shotgun validation.
   - [ ] check if functions properly return

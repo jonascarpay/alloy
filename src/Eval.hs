@@ -445,6 +445,7 @@ rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"
 rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VType {}) = throwError "can't handle type"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
+rtFromVal (Fix VBlockLabel {}) = throwError "Block labels don't make sense here"
 rtFromVal (Fix (VBlock deps b)) = RTBlock b Nothing <$ tell deps
 
 mkThunk :: Thunk -> Eval ThunkID
