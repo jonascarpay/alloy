@@ -7,7 +7,6 @@ module Program where
 
 import Data.Hashable
 import Data.Map (Map)
-import Data.Set (Set)
 import Expr
 import GHC.Generics
 import Lens.Micro.Platform

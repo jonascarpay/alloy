@@ -71,7 +71,7 @@ ppBlock ft fe (Block lbl stmts) = ppLabel lbl <> braces' (align $ vcat (ppStatem
 
 ppStatement :: (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt typ expr -> Doc ann
 ppStatement _ fe (Return expr) = "return" <+> fe expr <> ";"
-ppStatement ft fe (Decl name typ expr) = pretty name <+> ":" <+> ft typ <+> "=" <+> fe expr <> ";"
+ppStatement ft fe (Decl name typ expr) = pretty name <+> ft typ <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
 ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
 ppStatement _ fe (Break mlbl mexpr) = "break" <> mspace (("@" <>) . pretty) mlbl <> mspace fe mexpr <> ";"
@@ -132,7 +132,11 @@ guidsByNames m = snd <$> M.keys namedMap
 ppTypedBlock :: Dependencies -> Type -> Block Type (RTExpr GUID Type Type) -> Doc ann
 ppTypedBlock deps typ block =
   ppWithDeps deps $
-    ppType typ <> ppBlock (ppAnn ppType) (ppRTExpr deps ppGuid ppType ppType) block
+    ppType typ
+      <> ppBlock
+        (ppAnn ppType)
+        (ppRTExpr deps ppGuid (ppAnn ppType) (ppAnn ppType))
+        block
 
 ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
 ppAnn f t = ":" <+> f t
@@ -148,7 +152,15 @@ ppFunDef deps guid =
           "->",
           ppType ret,
           -- TODO combine with ppTypedBlock
-          ppBlock (ppAnn ppType) (ppRTExpr deps (ppKnownGuid deps . CallKnown) ppType ppType) body
+          ppBlock
+            (ppAnn ppType)
+            ( ppRTExpr
+                deps
+                (ppKnownGuid deps . CallKnown)
+                (ppAnn ppType)
+                (ppAnn ppType)
+            )
+            body
         ]
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
