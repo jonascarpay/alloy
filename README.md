@@ -37,10 +37,16 @@
   - [x] `with` syntax
   - [x] function body is an expression
     - [x] Fix the infinite recursion in recursive RT functions
-- [ ] step 5
-  - [ ] structured goto
-    - [ ] break
-    - [ ] continue
+- [x] step 5
+  - [x] structured goto
+    - [x] break
+    - [x] continue
+- [ ] step 6
+  - [ ] conditionals
+    - [ ] comparators
+    - [ ] inversion
+    - [ ] if-then-else
+      - [ ] should also be ternary
 - [ ] eventually
   - [ ] Name refers to many things, like variables but also things that have already resolved to a known label or runtime variable
   - [ ] no clear distinction between what checks happen at evaluation time, and what happen at compile time. Essentially shotgun validation.
