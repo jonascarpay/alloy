@@ -114,8 +114,8 @@ pExpr =
         [arith "+" Add, arith "-" Sub]
       ]
       where
-        arith :: String -> ArithOp -> Operator Parser Expr
-        arith sym op = InfixL (Arith op <$ symbol sym)
+        arith :: String -> BinOp -> Operator Parser Expr
+        arith sym op = InfixL (BinExpr op <$ symbol sym)
         repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
         repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
 

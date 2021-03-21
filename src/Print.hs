@@ -47,7 +47,7 @@ ppExpr (Let args body) =
       indent 2 $ ppExpr body
     ]
 ppExpr (Prim n) = ppPrim n
-ppExpr (Arith op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
+ppExpr (BinExpr op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock (maybe mempty (ppAnn ppExpr)) ppExpr b
@@ -86,7 +86,7 @@ mspace _ Nothing = mempty
 ppRTExpr :: Dependencies -> (call -> Doc ann) -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr call typ info -> Doc ann
 ppRTExpr _ _ _ _ (RTVar x _) = pretty x
 ppRTExpr _ _ _ _ (RTLiteral n _) = ppRTLit n
-ppRTExpr deps ppCall pptyp ppinfo (RTArith op a b _) = ppRTExpr deps ppCall pptyp ppinfo a <+> opSymbol op <+> ppRTExpr deps ppCall pptyp ppinfo b
+ppRTExpr deps ppCall pptyp ppinfo (RTBin op a b _) = ppRTExpr deps ppCall pptyp ppinfo a <+> opSymbol op <+> ppRTExpr deps ppCall pptyp ppinfo b
 ppRTExpr deps ppCall pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr deps ppCall pptyp ppinfo) b
 ppRTExpr deps ppCall pptyp ppinfo (RTCall call args _) = ppCall call <> list (ppRTExpr deps ppCall pptyp ppinfo <$> args)
 
@@ -103,7 +103,7 @@ ppRTLit (RTInt n) = pretty n
 ppRTLit (RTDouble n) = pretty n
 ppRTLit (RTStruct m) = ppAttrs pretty ppRTLit m
 
-opSymbol :: ArithOp -> Doc ann
+opSymbol :: BinOp -> Doc ann
 opSymbol Add = "+"
 opSymbol Mul = "*"
 opSymbol Sub = "-"

@@ -26,7 +26,7 @@ instance Hashable RTLiteral
 data RTExpr call typ a
   = RTVar Name a
   | RTLiteral RTLiteral a
-  | RTArith ArithOp (RTExpr call typ a) (RTExpr call typ a) a
+  | RTBin BinOp (RTExpr call typ a) (RTExpr call typ a) a
   | RTBlock (Block typ (RTExpr call typ a)) a
   | RTCall call [RTExpr call typ a] a
   | RTCond (RTExpr call typ a) (RTExpr call typ a) (RTExpr call typ a) a
@@ -54,7 +54,7 @@ rtExprMasterTraversal fCall fTyp fInfo fName fLit = go
   where
     go (RTVar nm i) = RTVar <$> fName nm <*> fInfo i
     go (RTLiteral lit i) = RTLiteral <$> fLit lit <*> fInfo i
-    go (RTArith op l r i) = RTArith op <$> go l <*> go r <*> fInfo i
+    go (RTBin op l r i) = RTBin op <$> go l <*> go r <*> fInfo i
     go (RTBlock (Block lbl blk) i) = RTBlock <$> (Block <$> traverse fName lbl <*> traverse (stmtMasterTraversal go fTyp fName) blk) <*> fInfo i
     go (RTCall cl args i) = RTCall <$> fCall cl <*> traverse go args <*> fInfo i
     go (RTCond cond tr fl i) = RTCond <$> go cond <*> go tr <*> go fl <*> fInfo i
@@ -79,7 +79,7 @@ instance (Hashable typ, Hashable info, Hashable call) => Hashable (RTExpr call t
 
 rtInfo :: RTExpr call typ a -> a
 rtInfo (RTVar _ a) = a
-rtInfo (RTArith _ _ _ a) = a
+rtInfo (RTBin _ _ _ a) = a
 rtInfo (RTBlock _ a) = a
 rtInfo (RTCall _ _ a) = a
 rtInfo (RTLiteral _ a) = a

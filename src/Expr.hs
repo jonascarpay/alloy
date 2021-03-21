@@ -44,7 +44,7 @@ data Expr
   | Prim Prim
   | Func [(Name, Expr)] Expr Expr
   | List (Seq Expr)
-  | Arith ArithOp Expr Expr
+  | BinExpr BinOp Expr Expr
   | Attr (Map Name Expr)
   | Acc Name Expr
   | With Expr Expr
@@ -52,10 +52,10 @@ data Expr
   | Cond Expr Expr Expr
   deriving (Eq, Show)
 
-data ArithOp = Add | Sub | Mul
+data BinOp = Add | Sub | Mul
   deriving (Eq, Show, Generic)
 
-instance Hashable ArithOp
+instance Hashable BinOp
 
 data Block typ expr = Block
   { _blkLabel :: Maybe Name,

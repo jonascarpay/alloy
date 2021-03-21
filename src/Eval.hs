@@ -38,7 +38,7 @@ data ValueF val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
-arith :: Num n => ArithOp -> n -> n -> n
+arith :: Num n => BinOp -> n -> n -> n
 arith Add = (+)
 arith Sub = (-)
 arith Mul = (*)
@@ -201,7 +201,7 @@ step (Let binds body) = do
   local (ctx %~ bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
     step body
-step (Arith op a b) = do
+step (BinExpr op a b) = do
   va <- step a
   vb <- step b
   case (va, vb) of
@@ -388,10 +388,10 @@ resolveToBlockLabel name = lift $ lookupVar name kComp err (pure name) (const er
 rtFromExpr ::
   Expr ->
   RTEval (RTExpr PreCall (Maybe Type) (Maybe Type))
-rtFromExpr (Arith op a b) = do
+rtFromExpr (BinExpr op a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
-  pure $ RTArith op rta rtb Nothing
+  pure $ RTBin op rta rtb Nothing
 rtFromExpr (Var n) =
   lookupVar
     n
