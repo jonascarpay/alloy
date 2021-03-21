@@ -32,21 +32,33 @@
     - [x] functions
     - [ ] types?
   - [x] simple function naming
+  - [x] annotate functions with their stack trace/closest binding
   - [x] var type inference
     - [x] fix printing
   - [x] `with` syntax
   - [x] function body is an expression
     - [x] Fix the infinite recursion in recursive RT functions
+  - [x] black holes
 - [x] step 5
   - [x] structured goto
     - [x] break
     - [x] continue
+  - [x] function naming and deduplication
+    - ideally `let someFn = [..]: {..}` would actually get the `someFn` symbol, but that might become tricky if it's behind a ct argument
+    - Zig has memoization, but our functions can come from weirder places, and can be anonymous
+    - maybe we perform a pass before evaluation where we find every function expression and name it after it's place in the expression
+      - if it's behind arguments, include the applied arguments in the function name
+    - the easy way out would be hashing function definitions
 - [ ] step 6
   - [ ] conditionals
+    - [ ] host
+    - [ ] target
     - [ ] comparators
     - [ ] inversion
     - [ ] if-then-else
       - [ ] should also be ternary
+- [ ] step 7
+  - terminator expressions
 - [ ] eventually
   - [ ] Revisit labeled blocks
     - [ ] unbreakable blocks?
@@ -63,7 +75,6 @@
       - `fn @comptimeArg (rta + rtb)`?
     - blocks _are_ RTExpr values
       - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
-  - [ ] annotate functions with their stack trace/closest binding
   - [ ] booleans, enums, atoms
     - [ ] unscoped/global atoms?
       - would mean the compiler collects them and assigns unique int ids to them
@@ -79,16 +90,9 @@
     - requires strings
   - [ ] literal conversions
   - [ ] type holes
-  - [ ] function naming and deduplication
-    - ideally `let someFn = [..]: {..}` would actually get the `someFn` symbol, but that might become tricky if it's behind a ct argument
-    - Zig has memoization, but our functions can come from weirder places, and can be anonymous
-    - maybe we perform a pass before evaluation where we find every function expression and name it after it's place in the expression
-      - if it's behind arguments, include the applied arguments in the function name
-    - the easy way out would be hashing function definitions
   - [ ] comptime stack traces
   - [ ] `builtins.error`
     - strings
-  - [ ] black holes
   - [ ] negative lit
   - [ ] proper keyword parsing
     - [x] currently `truee` parses to `true e`
@@ -105,7 +109,6 @@
   - [ ] nix-style `{ foo.bar: 4 }`?
   - [ ] proper megaparsec errors for unexpected keywords
     - highlight the entire word, say what was expected, etc.
-  - [ ] Can type unification just be an equality check?
   - [ ] Does an attribute set of programs share RT stuff between itself?
     - may be just a question of naming them well
       - if functions are hashed this is free
@@ -122,6 +125,6 @@
   - [ ] have inherit from-expressions evaluate the attr set only once
   - [ ] benchmarks
     - [ ] use Text instead of String
-  - [ ] inherit from set, inherit multiple
+  - [x] inherit from set, inherit multiple
   - [ ] `where` expressions?
-  - [ ] remove microlens dependency?
+  - [x] ~remove microlens dependency?~ no
