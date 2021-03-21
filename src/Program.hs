@@ -17,6 +17,7 @@ type RTBlock call typ = Block typ (RTExpr call typ typ)
 data RTLiteral
   = RTInt Int
   | RTDouble Double
+  | RTBool Bool
   | RTStruct (Map Name RTLiteral)
   deriving (Eq, Show, Generic)
 
@@ -28,6 +29,7 @@ data RTExpr call typ a
   | RTArith ArithOp (RTExpr call typ a) (RTExpr call typ a) a
   | RTBlock (Block typ (RTExpr call typ a)) a
   | RTCall call [RTExpr call typ a] a
+  | RTCond (RTExpr call typ a) (RTExpr call typ a) (RTExpr call typ a) a
   deriving (Eq, Show, Generic)
 
 rtExprCalls :: Traversal (RTExpr call typ a) (RTExpr call' typ a) call call'
@@ -55,6 +57,7 @@ rtExprMasterTraversal fCall fTyp fInfo fName fLit = go
     go (RTArith op l r i) = RTArith op <$> go l <*> go r <*> fInfo i
     go (RTBlock (Block lbl blk) i) = RTBlock <$> (Block <$> traverse fName lbl <*> traverse (stmtMasterTraversal go fTyp fName) blk) <*> fInfo i
     go (RTCall cl args i) = RTCall <$> fCall cl <*> traverse go args <*> fInfo i
+    go (RTCond cond tr fl i) = RTCond <$> go cond <*> go tr <*> go fl <*> fInfo i
 
 {-# INLINE stmtMasterTraversal #-}
 stmtMasterTraversal ::
@@ -80,6 +83,7 @@ rtInfo (RTArith _ _ _ a) = a
 rtInfo (RTBlock _ a) = a
 rtInfo (RTCall _ _ a) = a
 rtInfo (RTLiteral _ a) = a
+rtInfo (RTCond _ _ _ a) = a
 
 newtype GUID = GUID {unGUID :: Int}
   deriving (Eq, Ord, Hashable)

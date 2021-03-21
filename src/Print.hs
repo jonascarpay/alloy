@@ -53,6 +53,7 @@ ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
 ppExpr (BlockExpr b) = ppBlock (maybe mempty (ppAnn ppExpr)) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
+ppExpr (Cond cond tr fl) = "if" <+> ppExpr cond <+> "then" <+> ppExpr tr <+> "else" <+> ppExpr fl
 ppExpr (Func args ret body) =
   list (uncurry (ppTyped pretty ppExpr) <$> args)
     <+> "->"

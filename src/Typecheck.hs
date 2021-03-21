@@ -166,6 +166,15 @@ checkRTExpr (RTCall call args mtyp) = do
   when (length args /= length cargs) $ error "argument length mismatch" -- TODO throw an error
   args' <- zipWithM f args cargs
   pure $ RTCall call args' var
+checkRTExpr (RTCond cond t f mtyp) = do
+  var <- freshMaybe mtyp ()
+  cond' <- checkRTExpr cond
+  setType (rtInfo cond') TBool ()
+  t' <- checkRTExpr t
+  f' <- checkRTExpr f
+  unify (rtInfo t') (rtInfo f')
+  unify (rtInfo t') var
+  pure $ RTCond cond' t' f' var
 
 callSig :: PreCall -> Typecheck s () ([Type], Type)
 callSig (CallKnown guid) = do

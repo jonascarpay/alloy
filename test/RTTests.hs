@@ -173,5 +173,17 @@ rtTests =
                      in [] -> int { return y; }
                   )[];
                 }
-          |]
+          |],
+      funcWithNDeps
+        "simple conditional"
+        2
+        [r| with builtins.types;
+            [] -> int {
+              if true then {
+                break ([] -> int { return 3; })[];
+              } else {
+                break ([] -> int { return 4; })[];
+              };
+            }
+        |]
     ]

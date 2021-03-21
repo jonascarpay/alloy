@@ -420,6 +420,11 @@ rtFromExpr (App f x) = do
           pure $ RTCall (CallRec n) rtArgs Nothing
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
+rtFromExpr (Cond cond t f) = do
+  rtc <- rtFromExpr cond
+  rtt <- rtFromExpr t
+  rtf <- rtFromExpr f
+  pure $ RTCond rtc rtt rtf Nothing
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -429,12 +434,11 @@ rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Cond {} = lift (deepEvalExpr expr) >>= rtFromVal
 
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n
 rtLitFromPrim (PDouble n) = pure $ RTDouble n
-rtLitFromPrim (PBool _) = throwError "runtime bools aren't a thing"
+rtLitFromPrim (PBool b) = pure $ RTBool b
 
 rtFromVal :: Value -> RTEval (RTExpr PreCall (Maybe Type) (Maybe Type))
 rtFromVal (Fix (VPrim p)) = fmap (`RTLiteral` Nothing) (rtLitFromPrim p)
