@@ -114,10 +114,9 @@ rtTests =
                 return x;
               };}
           |],
-      pending $
-        saFunc
-          "nested return without semicolon"
-          "[] -> (builtins.types.int) { { return 4; } }",
+      saFunc
+        "nested return without semicolon"
+        "[] -> (builtins.types.int) { { return 4; } }",
       saFunc "named blocks parse" "[] -> (builtins.types.void) { lbl@{ }; }",
       saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }",
       saFunc
@@ -185,5 +184,8 @@ rtTests =
                 break ([] -> int { return 4; })[];
               };
             }
-        |]
+        |],
+      saFunc
+        "terminator expression"
+        "[] -> (builtins.types.int) { 3 }"
     ]

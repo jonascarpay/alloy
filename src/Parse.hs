@@ -200,7 +200,10 @@ pCond = do
 pBlock :: Parser (Block (Maybe Expr) Expr)
 pBlock = do
   mname <- try $ optional $ pName <* symbol "@"
-  braces $ Block mname <$> many pStatement
+  braces $ do
+    stmts <- many (try pStatement)
+    retExpr <- optional pExpr
+    pure $ Block mname (stmts <> maybe [] (pure . Break Nothing . Just) retExpr)
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?

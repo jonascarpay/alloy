@@ -85,11 +85,14 @@ mspace f (Just a) = " " <> f a
 mspace _ Nothing = mempty
 
 ppRTExpr :: Dependencies -> (call -> Doc ann) -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr call typ info -> Doc ann
-ppRTExpr _ _ _ _ (RTVar x _) = pretty x
-ppRTExpr _ _ _ _ (RTLiteral n _) = ppRTLit n
-ppRTExpr deps ppCall pptyp ppinfo (RTBin op a b _) = ppRTExpr deps ppCall pptyp ppinfo a <+> opSymbol op <+> ppRTExpr deps ppCall pptyp ppinfo b
-ppRTExpr deps ppCall pptyp ppinfo (RTBlock b _) = ppBlock pptyp (ppRTExpr deps ppCall pptyp ppinfo) b
-ppRTExpr deps ppCall pptyp ppinfo (RTCall call args _) = ppCall call <> list (ppRTExpr deps ppCall pptyp ppinfo <$> args)
+ppRTExpr deps ppCall pptyp ppinfo = go
+  where
+    go (RTVar x _) = pretty x
+    go (RTLiteral n _) = ppRTLit n
+    go (RTBin op a b _) = go a <+> opSymbol op <+> go b
+    go (RTBlock b _) = ppBlock pptyp go b
+    go (RTCall call args _) = ppCall call <> list (go <$> args)
+    go (RTCond cond tr fl _) = "if" <+> go cond <+> "then" <+> go tr <+> "else" <+> go fl
 
 lookupFun :: Dependencies -> GUID -> FunDef GUID
 lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
