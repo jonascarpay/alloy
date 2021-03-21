@@ -7,11 +7,12 @@ module EvalTests where
 import Eval
 import Expr
 import Test.Tasty
+import Test.Tasty.Focus
 import Test.Tasty.HUnit
 import TestLib
 import Text.RawString.QQ
 
-is9 :: String -> String -> TestTree
+is9 :: HasCallStack => String -> String -> TestTree
 is9 name prog =
   testCase name $
     assertParse prog
@@ -119,5 +120,6 @@ evalTests =
       is9 "simple if true" "if true then 9 else 10",
       is9 "simple if false" "if false then 10 else 9",
       is9 "nested if true" "if true then if true then 9 else 10 else 10",
-      is9 "nested if false" "if false then 10 else if false then 10 else 9"
+      is9 "nested if false" "if false then 10 else if false then 10 else 9",
+      is9 "if comparison" "if 2 + 2 < 5 then 9 else 8"
     ]

@@ -19,7 +19,7 @@ import Text.Megaparsec qualified as MP
 assertFile :: FilePath -> IO String
 assertFile = readFile
 
-assertParse :: String -> IO Expr
+assertParse :: HasCallStack => String -> IO Expr
 assertParse str = do
   case MP.parse pToplevel "" str of
     Left err -> assertFailure $ MP.errorBundlePretty err

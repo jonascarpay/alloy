@@ -100,10 +100,13 @@ pExpr :: Parser Expr
 pExpr =
   choice
     [ pLet,
+      pCond,
       pLam,
       pFunc,
       uncurry With <$> pWith,
-      makeExprParser pTerm operatorTable
+      makeExprParser (try pTerm) operatorTable
+      -- TODO The `try` here is to make sure App doesn't try consuming too much, but it is super dangerous since it might lead to blow-up
+      -- ideally, we just move accessors and app into a higher-level thing
     ]
   where
     operatorTable :: [[Operator Parser Expr]]
@@ -111,11 +114,14 @@ pExpr =
       [ [repeatedPostfix pFieldAcc],
         [InfixL (pure App)],
         [arith "*" Mul],
-        [arith "+" Add, arith "-" Sub]
+        [arith "+" Add, arith "-" Sub],
+        [bool "==" Eq, bool "/=" Neq, bool "<" Lt, bool ">" Gt, bool "<=" Leq, bool ">=" Geq]
       ]
       where
-        arith :: String -> BinOp -> Operator Parser Expr
-        arith sym op = InfixL (BinExpr op <$ symbol sym)
+        arith :: String -> ArithOp -> Operator Parser Expr
+        arith sym op = InfixL (BinExpr (ArithOp op) <$ symbol sym)
+        bool :: String -> CompOp -> Operator Parser Expr
+        bool sym op = InfixN (BinExpr (CompOp op) <$ symbol sym)
         repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
         repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
 
@@ -127,16 +133,16 @@ pTerm =
       try pAttrs, -- TODO hopefully unnecessary
       BlockExpr <$> pBlock,
       Prim <$> pPrim,
-      pCond,
       Var <$> pName
     ]
+    <?> "term"
 
 pFieldAcc :: Parser (Expr -> Expr)
 pFieldAcc = symbol "." *> (Acc <$> pName)
 
 pLet :: Parser Expr
 pLet = do
-  try $ keyword "let"
+  keyword "let"
   fields <- many $ notFollowedBy (keyword "in") *> pFields <* semicolon
   keyword "in"
   Let (concat fields) <$> pExpr
@@ -150,7 +156,7 @@ pLet = do
       pure (n, x)
 
 pPrim :: Parser Prim
-pPrim = choice [PBool <$> try pBool, PInt <$> pInt]
+pPrim = choice [PBool <$> try pBool, PInt <$> pInt] <?> "primitive"
   where
     pBool :: Parser Bool
     pBool = True <$ keyword "true" <|> False <$ keyword "false"
@@ -185,11 +191,11 @@ comma = symbol ","
 pCond :: Parser Expr
 pCond = do
   keyword "if"
-  cond <- pTerm
+  cond <- pExpr
   keyword "then"
-  eTrue <- pTerm
+  eTrue <- pExpr
   keyword "else"
-  Cond cond eTrue <$> pTerm
+  Cond cond eTrue <$> pExpr
 
 pBlock :: Parser (Block (Maybe Expr) Expr)
 pBlock = do

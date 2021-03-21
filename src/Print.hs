@@ -2,6 +2,7 @@
 
 module Print (ppExpr, ppVal, ppTypedBlock) where
 
+import Data.Bool (bool)
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -102,11 +103,22 @@ ppRTLit :: RTLiteral -> Doc ann
 ppRTLit (RTInt n) = pretty n
 ppRTLit (RTDouble n) = pretty n
 ppRTLit (RTStruct m) = ppAttrs pretty ppRTLit m
+ppRTLit (RTBool b) = bool "false" "true" b
 
 opSymbol :: BinOp -> Doc ann
-opSymbol Add = "+"
-opSymbol Mul = "*"
-opSymbol Sub = "-"
+opSymbol (ArithOp op) = arit op
+  where
+    arit Add = "+"
+    arit Mul = "*"
+    arit Sub = "-"
+opSymbol (CompOp op) = comp op
+  where
+    comp Lt = "<"
+    comp Gt = ">"
+    comp Eq = "=="
+    comp Neq = "/="
+    comp Leq = "<="
+    comp Geq = ">="
 
 ppFunctionName :: Name -> GUID -> Doc ann
 ppFunctionName name guid = pretty name <> "_" <> ppGuid guid

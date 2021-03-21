@@ -52,10 +52,20 @@ data Expr
   | Cond Expr Expr Expr
   deriving (Eq, Show)
 
-data BinOp = Add | Sub | Mul
+data BinOp = ArithOp ArithOp | CompOp CompOp
+  deriving (Eq, Show, Generic)
+
+data ArithOp = Add | Sub | Mul
+  deriving (Eq, Show, Generic)
+
+data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
   deriving (Eq, Show, Generic)
 
 instance Hashable BinOp
+
+instance Hashable ArithOp
+
+instance Hashable CompOp
 
 data Block typ expr = Block
   { _blkLabel :: Maybe Name,

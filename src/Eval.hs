@@ -38,10 +38,18 @@ data ValueF val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
-arith :: Num n => BinOp -> n -> n -> n
+arith :: Num n => ArithOp -> n -> n -> n
 arith Add = (+)
 arith Sub = (-)
 arith Mul = (*)
+
+comp :: Ord n => CompOp -> n -> n -> Bool
+comp Eq = (==)
+comp Neq = (/=)
+comp Lt = (<)
+comp Gt = (>)
+comp Leq = (<=)
+comp Geq = (>=)
 
 type Value = Fix ValueF
 
@@ -201,13 +209,16 @@ step (Let binds body) = do
   local (ctx %~ bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
     step body
-step (BinExpr op a b) = do
+step (BinExpr bop a b) = do
   va <- step a
   vb <- step b
-  case (va, vb) of
-    (VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arith op pa pb
-    (VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arith op pa pb
-    _ -> throwError "Arithmetic on a non-integer"
+  case (bop, va, vb) of
+    (ArithOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arith op pa pb
+    (ArithOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arith op pa pb
+    (ArithOp _, _, _) -> throwError "Arithmetic on not a pair of numbers"
+    (CompOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp _, _, _) -> throwError "Cannot compare the thing you're trying to compare"
 step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
 step (Acc f em) =
   step em >>= \case
