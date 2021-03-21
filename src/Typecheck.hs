@@ -141,7 +141,14 @@ checkRTExpr (RTVar name mtyp) = do
     Nothing -> pure (RTVar name var)
     Just var' -> RTVar name var <$ unify var var'
 checkRTExpr (RTLiteral lit mtyp) = RTLiteral lit <$> freshMaybe mtyp ()
-checkRTExpr (RTBin op a b mtyp) = do
+checkRTExpr (RTBin op@(CompOp _) a b mtyp) = do
+  var <- freshMaybe mtyp ()
+  a' <- checkRTExpr a
+  b' <- checkRTExpr b
+  setType var TBool ()
+  unify (rtInfo a') (rtInfo b')
+  pure $ RTBin op a' b' var
+checkRTExpr (RTBin op@(ArithOp _) a b mtyp) = do
   var <- freshMaybe mtyp ()
   a' <- checkRTExpr a
   b' <- checkRTExpr b

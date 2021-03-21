@@ -154,7 +154,8 @@ withBuiltins m = do
     deferAttrs
       [ ("int", VType TInt),
         ("double", VType TDouble),
-        ("void", VType TVoid)
+        ("void", VType TVoid),
+        ("bool", VType TBool)
       ]
   tBuiltins <-
     deferVal . VAttr $
