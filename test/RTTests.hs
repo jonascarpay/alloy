@@ -66,14 +66,13 @@ rtTests =
                   sub = [] -> int { return top[]; };
                in {return sub[];}
         |],
-      pending $
-        funcWithNDeps
-          "recursive case as argument"
-          2
-          [r| with builtins.types;
-              let f = rec: [] -> int { return rec[]; };
-               in [] -> int { return f self []; }
-          |],
+      funcWithNDeps
+        "recursive case as argument"
+        1
+        [r| with builtins.types;
+            let f = rec: [] -> int { return rec[]; };
+             in [] -> int { return f self []; }
+        |],
       funcWithNDeps
         "temporary local functions"
         2
@@ -155,6 +154,13 @@ rtTests =
                 break @lbl x;
               }; }
           |],
+      -- currently, function scoping is handled by clearing all variables not
+      -- bound to thunks (i.e. variables, loop labels) before entering a
+      -- function body. The goal is to make sure we can't refer to any runtime things
+      -- not defined in the current function.
+      -- However, by adding a layer of indirection through a let-binding,
+      -- the variable is not actually cleared.
+      -- I can think of a number of ways to solve this, but I haven't decided on one yet.
       pending $
         expectFailBecause "runtime variables cannot escape their scope" $
           funcWithNDeps
