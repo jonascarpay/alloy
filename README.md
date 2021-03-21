@@ -49,31 +49,31 @@
     - maybe we perform a pass before evaluation where we find every function expression and name it after it's place in the expression
       - if it's behind arguments, include the applied arguments in the function name
     - the easy way out would be hashing function definitions
-- [ ] step 6
-  - [ ] conditionals
-    - [ ] host
-    - [ ] target
-    - [ ] comparators
+- [x] step 6
+  - [x] conditionals
+    - [x] host
+    - [x] target
+    - [x] comparators
     - [ ] inversion
-    - [ ] if-then-else
-      - [ ] should also be ternary
-- [ ] step 7
+    - [x] if-then-else
+      - [x] should also be ternary
+- [x] step 7
   - terminator expressions
 - [ ] eventually
   - [ ] Revisit labeled blocks
     - [ ] unbreakable blocks?
       - [ ] censored blocks?
-    - [ ] regular continue/break behavior
+    - [ ] regular continue/break behavior?
   - [ ] Name refers to many things, like variables but also things that have already resolved to a known label or runtime variable
-  - [ ] no clear distinction between what checks happen at evaluation time, and what happen at compile time. Essentially shotgun validation.
-  - [ ] check if functions properly return
+  - [ ] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
+  - [ ] check if functions properly return?
     - removed/put on ice because break/return complicates things
-    - maybe every block has to end with a LLVM-style terminator
+    - maybe _every_ block has to end with a LLVM-style terminator
   - [ ] RTExpr values/syntax?
     - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
     - maybe it's just a matter of making syntax slightly more explicit
       - `fn @comptimeArg (rta + rtb)`?
-    - blocks _are_ RTExpr values
+    - [x] blocks _are_ RTExpr values
       - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
   - [ ] booleans, enums, atoms
     - [ ] unscoped/global atoms?
@@ -90,6 +90,7 @@
     - requires strings
   - [ ] literal conversions
   - [ ] type holes
+  - [ ] `printf` in Zig knows the types of its arguments at compile time -- do we want/need that?
   - [ ] comptime stack traces
   - [ ] `builtins.error`
     - strings
@@ -98,6 +99,7 @@
     - [x] currently `truee` parses to `true e`
   - [ ] print `VClosure` using let-bindings?
   - [ ] (key)word parsing backtracks too much
+    - [ ] parsing in general kinda sucks
   - [ ] custom pretty-printing
     - [ ] own type class
       - multi-line, single line
