@@ -115,5 +115,9 @@ evalTests =
         |],
       is9
         "with-expression"
-        "with builtins; nine"
+        "with builtins; nine",
+      is9 "simple if true" "if true then 9 else 10",
+      is9 "simple if false" "if false then 10 else 9",
+      is9 "nested if true" "if true then if true then 9 else 10 else 10",
+      is9 "nested if false" "if false then 10 else if false then 10 else 9"
     ]

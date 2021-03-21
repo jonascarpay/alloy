@@ -68,7 +68,7 @@ pName = withPred hasError pWord
       | otherwise = Nothing
 
 keywords :: Set Name
-keywords = S.fromList ["return", "break", "continue", "true", "false", "let", "in", "var", "with", "inherit"]
+keywords = S.fromList ["return", "break", "continue", "true", "false", "let", "in", "var", "with", "inherit", "if", "then", "else"]
 
 pAttrs :: Parser Expr
 pAttrs = braces $ Attr . M.fromList <$> pAttrList
@@ -127,6 +127,7 @@ pTerm =
       try pAttrs, -- TODO hopefully unnecessary
       BlockExpr <$> pBlock,
       Prim <$> pPrim,
+      pCond,
       Var <$> pName
     ]
 
@@ -180,6 +181,15 @@ semicolon = symbol ";"
 
 comma :: Parser ()
 comma = symbol ","
+
+pCond :: Parser Expr
+pCond = do
+  keyword "if"
+  cond <- pTerm
+  keyword "then"
+  eTrue <- pTerm
+  keyword "else"
+  Cond cond eTrue <$> pTerm
 
 pBlock :: Parser (Block (Maybe Expr) Expr)
 pBlock = do

@@ -49,6 +49,7 @@ data Expr
   | Acc Name Expr
   | With Expr Expr
   | BlockExpr (Block (Maybe Expr) Expr)
+  | Cond Expr Expr Expr
   deriving (Eq, Show)
 
 data ArithOp = Add | Sub | Mul

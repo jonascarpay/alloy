@@ -24,10 +24,6 @@ import Typecheck
 
 type ThunkID = Int
 
---TODO Closure Args (p -> m r)
---TODO How to properly handle RT Vars
---TODO I think spliced variables can escape their scope?
--- maybe just tag them from fresh to make sure
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr Context -- TODO benchmark if we can safely remove this
@@ -229,6 +225,11 @@ step (With bind body) = do
   step bind >>= \case
     VAttr m -> local (ctx %~ bindThunks (M.toList m)) (step body)
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
+step (Cond cond tr fl) = do
+  step cond >>= \case
+    VPrim (PBool True) -> step tr
+    VPrim (PBool False) -> step fl
+    _ -> throwError "Did not evaluate to a boolean"
 step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
@@ -249,9 +250,6 @@ step (Func args ret bodyExpr) = do
 freshTempId :: Eval TempID
 freshTempId = state (\(EvalState us un ts) -> (ts, EvalState us un (ts + 1)))
 
--- TODO I don't think TempIDs are necessary at all, thunks already provide deduplication
--- Maybe we need them for hashing?
--- In that case, locally reset to properly deduplicate?
 mkFunction ::
   Monad m =>
   m TempID ->
@@ -431,6 +429,7 @@ rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@Cond {} = lift (deepEvalExpr expr) >>= rtFromVal
 
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n

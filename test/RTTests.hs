@@ -80,8 +80,8 @@ rtTests =
             let f = n: rec: [] -> int { return rec[] + n; };
              in [] -> int {
                return f 1 self [];
-               return f 1 self [];
                return f 2 self [];
+               return f 1 self [];
              }
           |],
       funcWithNDeps
