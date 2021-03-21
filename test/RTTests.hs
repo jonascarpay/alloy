@@ -4,9 +4,17 @@
 
 module RTTests where
 
+import Control.Monad
+import Data.Either (isRight)
+import Data.Map qualified as M
 import Eval
+import Expr
+import Lens.Micro.Platform
+import Print
+import Program
 import Test.Tasty
 import Test.Tasty.ExpectedFailure (expectFailBecause)
+import Test.Tasty.Focus
 import Test.Tasty.HUnit
 import TestLib
 import Text.RawString.QQ
@@ -16,10 +24,19 @@ saFunc :: String -> String -> TestTree
 saFunc nm = funcWithNDeps nm 0
 
 funcWithNDeps :: String -> Int -> String -> TestTree
-funcWithNDeps name n prog = testCase name $ do
-  (Dependencies fn temp, _) <- assertParse prog >>= assertEval >>= assertFunc
-  assertEqual "" (length temp) 0
-  assertEqual "" n (length fn - 1)
+funcWithNDeps name exp prog = testCase name $ do
+  val <- assertParse prog >>= assertEval
+  let throw err = assertFailure $ unlines [err, show (ppVal val)]
+  case val of
+    (Fix (VFunc (Dependencies fn temp) call)) -> do
+      unless (isRight call) $ throw "unresolved temporary function id"
+      unless (null temp) $ throw "Function with dangling temporary functions"
+      let calls = toListOf (traverse . funCalls) fn
+      unless (all (`M.member` fn) calls) $
+        throw "dangling unresolved call in a dependency"
+      let got = length fn - 1
+      unless (exp == got) $ throw $ unwords ["expected", show exp, "dependencies, got", show got]
+    _ -> throw "Value was not a function"
 
 pending :: TestTree -> TestTree
 pending = expectFailBecause "Pending"
@@ -37,7 +54,7 @@ rtTests =
         saFunc "empty function" "with builtins.types; [] -> void { }",
       funcWithNDeps "trivial with" 0 "with builtins.types; [] -> int { return 0; }",
       pending $
-        expectFailBecause "Cannot construct void from nums" $
+        expectFailBecause "Cannot construct void for nums" $
           saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
       saFunc "simple recursion" "[] -> (builtins.types.int) { return self []; }",
       funcWithNDeps
@@ -51,17 +68,35 @@ rtTests =
         |],
       pending $
         funcWithNDeps
-          "repeated recursion"
-          4
+          "recursive case as argument"
+          2
           [r| with builtins.types;
               let f = rec: [] -> int { return rec[]; };
-               in [] -> int {
-                    return self [];
-                    return f self [];
-                    return f (f self) [];
-                    return f (f (f self)) [];
-                    return f (f (f (f self))) [];
-                  }
+               in [] -> int { return f self []; }
+          |],
+      funcWithNDeps
+        "temporary local functions"
+        2
+        [r| with builtins.types;
+            let f = n: rec: [] -> int { return rec[] + n; };
+             in [] -> int {
+               return f 1 self [];
+               return f 1 self [];
+               return f 2 self [];
+             }
+          |],
+      funcWithNDeps
+        "deeper recursion"
+        4
+        [r| with builtins.types;
+            let f = rec: [] -> int { return rec[]; };
+             in [] -> int {
+               return self [];
+               return f self [];
+               return f (f self) [];
+               return f (f (f self)) [];
+               return f (f (f (f self))) [];
+             }
           |],
       saFunc
         "nested return"
@@ -81,7 +116,9 @@ rtTests =
               };}
           |],
       pending $
-        saFunc "nested return without semicolon" "[] -> (builtins.types.int) { { return 4; } }",
+        saFunc
+          "nested return without semicolon"
+          "[] -> (builtins.types.int) { { return 4; } }",
       saFunc "named blocks parse" "[] -> (builtins.types.void) { lbl@{ }; }",
       saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }",
       saFunc

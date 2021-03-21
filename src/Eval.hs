@@ -180,6 +180,14 @@ deepEvalExpr = deferExpr >=> deepEval
 deepEval :: ThunkID -> Eval Value
 deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 
+localState :: MonadState s m => (s -> s) -> m a -> m a
+localState f m = do
+  s <- get
+  put (f s)
+  a <- m
+  put s
+  pure a
+
 step :: Expr -> Eval (ValueF ThunkID)
 step (Prim p) = pure $ VPrim p
 step (App f x) = do
@@ -225,8 +233,11 @@ step (Func args ret bodyExpr) = do
   typedArgs <- (traverse . traverse) evalType args
   retType <- evalType ret
   recDepth <- view envFnDepth
+  -- the scope of `local` here encompasses the construction of the final function,
+  -- but the `localState` only contains the evaluation of the nested body
+  -- TODO make `local` scope smaller
   local (functionBodyEnv typedArgs retType) $ do
-    step bodyExpr >>= \case
+    localState (tempSource .~ 0) (step bodyExpr) >>= \case
       VBlock deps body -> do
         fnStack <- view envFnStack
         name <- view $ ctx . ctxName . to (fromMaybe "fn")
@@ -248,7 +259,7 @@ mkFunction ::
   Dependencies ->
   FunDef PreCall ->
   m (Dependencies, Either TempID GUID)
-mkFunction fresh recDepth transDeps funDef = do
+mkFunction fresh recDepth transDeps funDef =
   case unresolvedCalls of
     [] -> pure mkClosedFunction
     l | any (< recDepth) l -> mkTempFunction
@@ -295,8 +306,6 @@ mkFunction fresh recDepth transDeps funDef = do
     unresolvedCalls = toListOf selfCalls funDef ++ toListOf (depTempFuncs . traverse . tempFuncs . selfCalls) transDeps
     selfCalls :: Traversal' (FunDef PreCall) RecIndex
     selfCalls = funCalls . precallRec
-    funCalls :: Traversal (FunDef call) (FunDef call') call call'
-    funCalls = fnBody . blkStmts . traverse . stmtExpr . rtExprCalls
 
 functionBodyEnv :: [(Name, Type)] -> Type -> EvalEnv -> EvalEnv
 functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =
@@ -310,8 +319,6 @@ functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =
         . (at "self" ?~ BSelf depth)
         . M.filter isThunk
         $ binds
-
--- Dependencies -> Dependencies
 
 evalType :: Expr -> Eval Type
 evalType expr =

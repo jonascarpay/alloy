@@ -95,7 +95,7 @@ lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
     err = error "Referencing non-existing GUID, should be impossible"
 
 ppGuid :: GUID -> Doc ann
-ppGuid (GUID n) = pretty $ take 5 $ showHex (fromIntegral n :: Word) ""
+ppGuid g = pretty $ take 5 $ show g
 
 ppRTLit :: RTLiteral -> Doc ann
 ppRTLit (RTInt n) = pretty n
@@ -110,18 +110,20 @@ opSymbol Sub = "-"
 ppFunctionName :: Name -> GUID -> Doc ann
 ppFunctionName name guid = pretty name <> "_" <> ppGuid guid
 
-ppWithDeps :: Dependencies -> Doc ann -> Doc ann
-ppWithDeps deps@(Dependencies fns temp) doc
-  | not (null temp) = error "impossible"
+ppWithDeps :: Dependencies -> Maybe GUID -> Doc ann -> Doc ann
+ppWithDeps deps@(Dependencies fns temp) censor doc
+  | not (null temp) = "<<impossible>>"
   | null fns = doc
   | otherwise =
     align $
       vcat
         [ "Functions:",
-          indent 2 . vcat $ ppFunDef deps <$> guidsByNames fns,
+          indent 2 . vcat $ ppFunDef deps <$> guidsByNames fns',
           "Body:",
           indent 2 doc
         ]
+  where
+    fns' = maybe id M.delete censor fns
 
 guidsByNames :: Map GUID (FunDef GUID) -> [GUID]
 guidsByNames m = snd <$> M.keys namedMap
@@ -131,7 +133,7 @@ guidsByNames m = snd <$> M.keys namedMap
 
 ppTypedBlock :: Dependencies -> Type -> Block Type (RTExpr GUID Type Type) -> Doc ann
 ppTypedBlock deps typ block =
-  ppWithDeps deps $
+  ppWithDeps deps Nothing $
     ppType typ
       <> ppBlock
         (ppAnn ppType)
@@ -173,7 +175,7 @@ ppMaybeType (Just typ) = ppType typ
 ppKnownGuid :: Dependencies -> PreCall -> Doc ann
 ppKnownGuid deps (CallKnown guid) =
   case deps ^. depKnownFuncs . at guid of
-    Nothing -> "impossible"
+    Nothing -> angles $ "impossible guid " <> ppGuid guid
     Just fd -> ppFunctionName (fd ^. fnName) guid
 
 ppVal :: Value -> Doc ann
@@ -185,6 +187,7 @@ ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock deps b)) =
   ppWithDeps
     deps
+    Nothing
     ( ppBlock
         ppMaybeType
         (ppRTExpr deps (ppKnownGuid deps) ppMaybeType ppMaybeType)
@@ -192,6 +195,5 @@ ppVal (Fix (VBlock deps b)) =
     )
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
-  let censor = depKnownFuncs . at guid .~ Nothing
-   in ppWithDeps (censor deps) $ ppFunDef deps guid
+  ppWithDeps deps (Just guid) $ ppFunDef deps guid
 ppVal (Fix (VType t)) = ppType t

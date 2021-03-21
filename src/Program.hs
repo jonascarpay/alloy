@@ -10,6 +10,7 @@ import Data.Map (Map)
 import Expr
 import GHC.Generics
 import Lens.Micro.Platform
+import Numeric (showHex)
 
 type RTBlock call typ = Block typ (RTExpr call typ typ)
 
@@ -81,7 +82,10 @@ rtInfo (RTCall _ _ a) = a
 rtInfo (RTLiteral _ a) = a
 
 newtype GUID = GUID {unGUID :: Int}
-  deriving (Eq, Show, Ord, Hashable)
+  deriving (Eq, Ord, Hashable)
+
+instance Show GUID where
+  show (GUID hash) = showHex (fromIntegral hash :: Word) ""
 
 type TempID = Int
 
@@ -145,3 +149,6 @@ instance Monoid Dependencies where
 makeLenses ''FunDef
 makeLenses ''Dependencies
 makeLenses ''TempFunc
+
+funCalls :: Traversal (FunDef call) (FunDef call') call call'
+funCalls = fnBody . blkStmts . traverse . stmtExpr . rtExprCalls
