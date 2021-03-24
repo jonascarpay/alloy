@@ -85,24 +85,18 @@ step (Func args ret bodyExpr) = do
   local (functionBodyEnv argVars retVar) $ do
     localState (tempSource .~ 0) (step bodyExpr) >>= \case
       VBlock deps body -> do
-        fnStack <- view envFnStack
         name <- view $ ctx . ctxName . to (fromMaybe "fn")
-        body' <- tcf deps recDepth fnStack argVars retVar body
+        body' <- typecheckFunction body
         argsTys <- (traverse . traverse) getType argVars
         retTy <- getType retVar
         let funDef = FunDef argsTys retTy name body'
         uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
       _ -> throwError "Function body did not evaluate to a block expression"
 
-tcf ::
-  Dependencies ->
-  Int ->
-  [([TypeVar], TypeVar)] ->
-  [(Name, TypeVar)] ->
-  TypeVar ->
+typecheckFunction ::
   RTBlock PreCall TypeVar ->
   Eval (RTBlock PreCall Type)
-tcf deps depth stack args ret blk = do
+typecheckFunction blk = do
   (blkStmts . traverse . types) getType blk
   where
     types :: Traversal (Stmt typ (RTExpr call typ typ)) (Stmt typ' (RTExpr call typ' typ')) typ typ'
@@ -169,14 +163,15 @@ mkFunction fresh recDepth transDeps funDef =
     selfCalls :: Traversal' (FunDef PreCall) RecIndex
     selfCalls = funCalls . precallRec
 
--- TODO This processes statements as a list because a declaration is relevant in the tail of the list
--- but that's kinda hacky and might overlap with type checking
 genStmt ::
   [Stmt (Maybe Expr) Expr] ->
   RTEval [Stmt TypeVar (RTExpr PreCall TypeVar TypeVar)]
 genStmt (Return expr : r) = do
   expr' <- rtFromExpr expr
   r' <- genStmt r
+  view envFnStack >>= \case
+    (_, tv) : _ -> lift $ unify_ (rtInfo expr') tv
+    _ -> pure ()
   pure (Return expr' : r')
 genStmt (Break mname mexpr : r) = do
   mexpr' <- traverse rtFromExpr mexpr
@@ -243,15 +238,25 @@ rtFromExpr (App f x) = do
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           tell tdeps
-          tv <- lift fresh -- TODO lookup actual function return type -- is this an error? test please
-          pure $ RTCall (either CallTemp CallKnown funId) rtArgs tv
+          (argVars, retVar) <- lift $ callSig tdeps (either CallTemp CallKnown funId)
+          safeZipWithM_
+            (throwError "Argument length mismatch")
+            (\expr tv -> lift $ unify (rtInfo expr) tv)
+            rtArgs
+            argVars
+          pure $ RTCall (either CallTemp CallKnown funId) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     VSelf n ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
-          tv <- lift fresh -- TODO lookup actual function return type, as above
-          pure $ RTCall (CallRec n) rtArgs tv
+          (argVars, retVar) <- lift $ callSig mempty (CallRec n)
+          safeZipWithM_
+            (throwError "Argument length mismatch")
+            (\expr tv -> lift $ unify (rtInfo expr) tv)
+            rtArgs
+            argVars
+          pure $ RTCall (CallRec n) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr (Cond cond t f) = do
@@ -271,27 +276,40 @@ rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 
+varsFromSig :: [Type] -> Type -> Eval ([TypeVar], TypeVar)
+varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
+
+-- TODO split into selfcallsig and id call sig, same as it's actually used
 callSig :: Dependencies -> PreCall -> Eval ([TypeVar], TypeVar)
 callSig deps (CallKnown guid) = do
   case deps ^. depKnownFuncs . at guid of
     Nothing -> error "impossible"
-    Just fn -> undefined -- pure (fn ^.. fnArgs . traverse . _2, fn ^. fnRet)
+    Just fn -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
 callSig _ (CallRec n) = do
   -- TODO clean this up, views envFnStack many times
   depth <- view (envFnStack . to length)
-  sel <- view envFnStack
-  view (envFnStack . to (safeLookup (depth - n))) >>= \case
+  -- TODO not a fan of the (-1) here
+  view (envFnStack . to (safeLookup (depth - n -1))) >>= \case
     Nothing -> throwError $ "impossible: " <> show (n, depth, depth - n)
     Just t -> pure t
 callSig deps (CallTemp tid) =
   case deps ^. depTempFuncs . at tid of
     Nothing -> throwError "impossible"
-    Just (TempFunc fn _) -> undefined -- pure (fn ^.. fnArgs . traverse . _2, fn ^. fnRet)
+    Just (TempFunc fn _) -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
 
 safeLookup :: Int -> [a] -> Maybe a
-safeLookup n l = case splitAt n l of
-  (_, a : _) -> Just a
-  _ -> Nothing
+safeLookup 0 (a : _) = Just a
+safeLookup n' (_ : as) = safeLookup (n' -1) as
+safeLookup _ _ = Nothing
+
+safeZipWithM_ :: Applicative m => m () -> (a -> b -> m c) -> [a] -> [b] -> m ()
+safeZipWithM_ err f as bs
+  | length as /= length bs = err
+  | otherwise = zipWithM_ f as bs
+
+safeHead :: [a] -> Maybe a
+safeHead [] = Nothing
+safeHead (a : _) = Just a
 
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n
