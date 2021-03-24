@@ -32,7 +32,7 @@ data ValueF val
   | VRTVar Name
   | VBlockLabel Name
   | VSelf Int
-  | VBlock Dependencies (RTBlock PreCall (Maybe Type))
+  | VBlock Dependencies (RTBlock PreCall TypeVar)
   | VFunc Dependencies (Either TempID GUID)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
@@ -230,6 +230,12 @@ tvarMay mty = do
   tv <- fresh
   forM_ mty $ setType tv
   pure tv
+
+unify :: TypeVar -> TypeVar -> Eval TypeVar
+unify a b = a <$ unify_ a b
+
+unify_ :: TypeVar -> TypeVar -> Eval ()
+unify_ (TypeVar a) (TypeVar b) = liftIO $ UF.union' a b (\sa sb -> pure (sa <> sb))
 
 getType :: TypeVar -> Eval Type
 getType (TypeVar tv) = do

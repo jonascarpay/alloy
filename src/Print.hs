@@ -204,11 +204,10 @@ ppVal (Fix (VBlock deps b)) =
   ppWithDeps
     deps
     Nothing
-    ( ppBlock
-        ppMaybeType
-        (ppRTExpr deps (ppKnownGuid deps) ppMaybeType ppMaybeType)
-        b
-    )
+    $ ppBlock
+      (const "<var>")
+      (ppRTExpr deps (ppKnownGuid deps) (const "<var>") (const "<var>"))
+      b
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
   ppWithDeps deps (Just guid) $ ppFunDef deps guid

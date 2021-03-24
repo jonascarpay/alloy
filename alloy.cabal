@@ -51,7 +51,6 @@ library
     Parse
     Print
     Program
-    Typecheck
 
   build-depends:
 

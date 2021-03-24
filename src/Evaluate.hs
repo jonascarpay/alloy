@@ -100,9 +100,13 @@ tcf ::
   [([TypeVar], TypeVar)] ->
   [(Name, TypeVar)] ->
   TypeVar ->
-  RTBlock PreCall (Maybe Type) ->
+  RTBlock PreCall TypeVar ->
   Eval (RTBlock PreCall Type)
-tcf deps depth stack args ret blk = pure $ Block Nothing []
+tcf deps depth stack args ret blk = do
+  (blkStmts . traverse . types) getType blk
+  where
+    types :: Traversal (Stmt typ (RTExpr call typ typ)) (Stmt typ' (RTExpr call typ' typ')) typ typ'
+    types f = stmtMasterTraversal (rtExprMasterTraversal pure f f pure pure) f pure
 
 evalType :: Expr -> Eval Type
 evalType expr =
@@ -169,7 +173,7 @@ mkFunction fresh recDepth transDeps funDef =
 -- but that's kinda hacky and might overlap with type checking
 genStmt ::
   [Stmt (Maybe Expr) Expr] ->
-  RTEval [Stmt (Maybe Type) (RTExpr PreCall (Maybe Type) (Maybe Type))]
+  RTEval [Stmt TypeVar (RTExpr PreCall TypeVar TypeVar)]
 genStmt (Return expr : r) = do
   expr' <- rtFromExpr expr
   r' <- genStmt r
@@ -188,7 +192,7 @@ genStmt (Decl name typ expr : r) = do
   expr' <- rtFromExpr expr
   tv <- lift $ tvarMay typ'
   r' <- local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r)
-  pure (Decl name typ' expr' : r')
+  pure (Decl name tv expr' : r')
 genStmt (Assign name expr : r) = do
   name' <- resolveToRuntimeVar name
   expr' <- rtFromExpr expr
@@ -202,7 +206,7 @@ genStmt [] = pure []
 
 genBlock ::
   Block (Maybe Expr) Expr ->
-  Eval (Dependencies, RTBlock PreCall (Maybe Type))
+  Eval (Dependencies, RTBlock PreCall TypeVar)
 genBlock (Block lbl stmts) = do
   (stmts', deps) <- runWriterT $ genStmt stmts
   pure (deps, Block lbl stmts')
@@ -214,16 +218,17 @@ deepEvalExpr = deferExpr >=> deepEval
 
 rtFromExpr ::
   Expr ->
-  RTEval (RTExpr PreCall (Maybe Type) (Maybe Type))
+  RTEval (RTExpr PreCall TypeVar TypeVar)
 rtFromExpr (BinExpr op a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
-  pure $ RTBin op rta rtb Nothing
+  tv <- lift $ unify (rtInfo rta) (rtInfo rtb)
+  pure $ RTBin op rta rtb tv
 rtFromExpr (Var n) =
   lookupVar
     n
     (lift . deepEval >=> rtFromVal)
-    (const $ pure (RTVar n Nothing))
+    (pure . RTVar n)
     (const $ throwError "referencing block label as expressiong")
     (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
@@ -238,20 +243,24 @@ rtFromExpr (App f x) = do
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
           tell tdeps
-          pure $ RTCall (either CallTemp CallKnown funId) rtArgs Nothing
+          tv <- lift fresh -- TODO lookup actual function return type -- is this an error? test please
+          pure $ RTCall (either CallTemp CallKnown funId) rtArgs tv
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     VSelf n ->
       case x of
         List argExprs -> do
           rtArgs <- traverse rtFromExpr (toList argExprs)
-          pure $ RTCall (CallRec n) rtArgs Nothing
+          tv <- lift fresh -- TODO lookup actual function return type, as above
+          pure $ RTCall (CallRec n) rtArgs tv
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     _ -> throwError "Calling a non-function"
 rtFromExpr (Cond cond t f) = do
   rtc <- rtFromExpr cond
+  lift $ setType (rtInfo rtc) TBool
   rtt <- rtFromExpr t
   rtf <- rtFromExpr f
-  pure $ RTCond rtc rtt rtf Nothing
+  tv <- lift $ unify (rtInfo rtt) (rtInfo rtf)
+  pure $ RTCond rtc rtt rtf tv
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -262,20 +271,46 @@ rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 
+callSig :: Dependencies -> PreCall -> Eval ([TypeVar], TypeVar)
+callSig deps (CallKnown guid) = do
+  case deps ^. depKnownFuncs . at guid of
+    Nothing -> error "impossible"
+    Just fn -> undefined -- pure (fn ^.. fnArgs . traverse . _2, fn ^. fnRet)
+callSig _ (CallRec n) = do
+  -- TODO clean this up, views envFnStack many times
+  depth <- view (envFnStack . to length)
+  sel <- view envFnStack
+  view (envFnStack . to (safeLookup (depth - n))) >>= \case
+    Nothing -> throwError $ "impossible: " <> show (n, depth, depth - n)
+    Just t -> pure t
+callSig deps (CallTemp tid) =
+  case deps ^. depTempFuncs . at tid of
+    Nothing -> throwError "impossible"
+    Just (TempFunc fn _) -> undefined -- pure (fn ^.. fnArgs . traverse . _2, fn ^. fnRet)
+
+safeLookup :: Int -> [a] -> Maybe a
+safeLookup n l = case splitAt n l of
+  (_, a : _) -> Just a
+  _ -> Nothing
+
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n
 rtLitFromPrim (PDouble n) = pure $ RTDouble n
 rtLitFromPrim (PBool b) = pure $ RTBool b
 
-rtFromVal :: Value -> RTEval (RTExpr PreCall (Maybe Type) (Maybe Type))
-rtFromVal (Fix (VPrim p)) = fmap (`RTLiteral` Nothing) (rtLitFromPrim p)
+rtFromVal :: Value -> RTEval (RTExpr PreCall TypeVar TypeVar)
+rtFromVal (Fix (VPrim p)) = do
+  lit <- rtLitFromPrim p
+  tv <- lift fresh -- TODO appropriate type constraint
+  pure $ RTLiteral lit tv
 rtFromVal (Fix (VAttr m)) = do
   m' <- flip M.traverseWithKey m $ \key field ->
     rtFromVal field >>= \case
       RTLiteral l _ -> pure l
       _ -> throwError $ "Field " <> key <> " did not evaluate to a literal"
-  pure $ RTLiteral (RTStruct m') Nothing
-rtFromVal (Fix (VRTVar n)) = pure $ RTVar n Nothing
+  tv <- lift fresh -- TODO appropriate type constraint
+  pure $ RTLiteral (RTStruct m') tv
+rtFromVal (Fix (VRTVar n)) = RTVar n <$> lift fresh -- TODO PROPER RT VARIABLE HANDLING
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
 rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"
@@ -283,7 +318,11 @@ rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
 rtFromVal (Fix VType {}) = throwError "can't handle type"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
 rtFromVal (Fix VBlockLabel {}) = throwError "Block labels don't make sense here"
-rtFromVal (Fix (VBlock deps b)) = RTBlock b Nothing <$ tell deps
+rtFromVal (Fix (VBlock deps b)) = do
+  -- TODO block typevar
+  tell deps
+  tv <- lift fresh
+  pure $ RTBlock b tv
 
 functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
 functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =

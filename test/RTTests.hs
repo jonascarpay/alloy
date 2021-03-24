@@ -57,11 +57,10 @@ rtTests =
         expectFailBecause "Cannot construct void for nums" $
           saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
       saFunc "simple recursion" "[] -> (builtins.types.int) { return self []; }",
-      focus $
-        funcWithNDeps
-          "mutual recursion"
-          1
-          [r| with builtins.types;
+      funcWithNDeps
+        "mutual recursion"
+        1
+        [r| with builtins.types;
             [] -> int
               let top = self;
                   sub = [] -> int { return top[]; };
