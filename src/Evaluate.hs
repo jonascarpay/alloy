@@ -34,7 +34,7 @@ step (App f x) = do
       local (ctx .~ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break since it does not properly handle the environment
     _ -> throwError "Calling a non-function"
-step (Var x) = lookupVar x force (const $ pure $ VRTVar x) (const $ pure $ VBlockLabel x) (pure . VSelf)
+step (Var x) = lookupVar x force (pure . VRTVar x) (pure . VBlockLabel x) (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view ctx
 step (Let binds body) = do
   n0 <- use thunkSource
@@ -175,13 +175,19 @@ genStmt (Return expr : r) = do
   pure (Return expr' : r')
 genStmt (Break mname mexpr : r) = do
   mexpr' <- traverse rtFromExpr mexpr
-  mname' <- traverse resolveToBlockLabel mname
+  mlbl <- traverse resolveToBlockLabel mname
+  case mlbl of
+    Just (_, tv) -> lift $
+      case mexpr' of
+        Just expr -> unify_ tv (rtInfo expr)
+        Nothing -> setType tv TVoid
+    Nothing -> pure () -- TODO either track parent block or disallow unlabeled break
   r' <- genStmt r
-  pure (Break mname' mexpr' : r')
+  pure (Break (fst <$> mlbl) mexpr' : r')
 genStmt (Continue mname : r) = do
   r' <- genStmt r
   mname' <- traverse resolveToBlockLabel mname
-  pure (Continue mname' : r')
+  pure (Continue (fst <$> mname') : r')
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ mapM evalType typ
   expr' <- rtFromExpr expr
@@ -189,8 +195,9 @@ genStmt (Decl name typ expr : r) = do
   r' <- local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r)
   pure (Decl name tv expr' : r')
 genStmt (Assign name expr : r) = do
-  name' <- resolveToRuntimeVar name
+  (name', tv) <- resolveToRuntimeVar name
   expr' <- rtFromExpr expr
+  lift $ unify tv (rtInfo expr')
   r' <- genStmt r
   pure (Assign name' expr' : r')
 genStmt (ExprStmt expr : r) = do
@@ -328,7 +335,7 @@ rtFromVal (Fix (VAttr m)) = do
       _ -> throwError $ "Field " <> key <> " did not evaluate to a literal"
   tv <- lift fresh -- TODO appropriate type constraint
   pure $ RTLiteral (RTStruct m') tv
-rtFromVal (Fix (VRTVar n)) = RTVar n <$> lift fresh -- TODO PROPER RT VARIABLE HANDLING
+rtFromVal (Fix (VRTVar n tv)) = pure $ RTVar n tv -- TODO PROPER RT VARIABLE HANDLING
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
 rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"

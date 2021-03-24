@@ -29,8 +29,8 @@ data ValueF val
   | VClosure' (ThunkID -> Eval (ValueF ThunkID))
   | VType Type
   | VAttr (Map Name val)
-  | VRTVar Name
-  | VBlockLabel Name
+  | VRTVar Name TypeVar -- TODO proper binding
+  | VBlockLabel Name TypeVar -- TODO proper binding
   | VSelf Int
   | VBlock Dependencies (RTBlock PreCall TypeVar)
   | VFunc Dependencies (Either TempID GUID)
@@ -191,22 +191,22 @@ freshTempId = state (\(EvalState us un ts) -> (ts, EvalState us un (ts + 1)))
 
 type RTEval = WriterT Dependencies Eval -- TODO rename this
 
-resolveToRuntimeVar :: Name -> RTEval Name
-resolveToRuntimeVar name = lift $ lookupVar name kComp (const $ pure name) (const err) (const err)
+resolveToRuntimeVar :: Name -> RTEval (Name, TypeVar)
+resolveToRuntimeVar name = lift $ lookupVar name kComp (\tv -> pure (name, tv)) (const err) (const err)
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
     kComp tid =
       force tid >>= \case
-        VRTVar v -> pure v
+        VRTVar v tv -> pure (v, tv)
         _ -> err
 
-resolveToBlockLabel :: Name -> RTEval Name
-resolveToBlockLabel name = lift $ lookupVar name kComp (const err) (const $ pure name) (const err)
+resolveToBlockLabel :: Name -> RTEval (Name, TypeVar)
+resolveToBlockLabel name = lift $ lookupVar name kComp (const err) (\tv -> pure (name, tv)) (const err)
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
     kComp tid =
       force tid >>= \case
-        VBlockLabel v -> pure v
+        VBlockLabel v tv -> pure (v, tv)
         _ -> err
 
 mkThunk :: Thunk -> Eval ThunkID
