@@ -55,7 +55,7 @@ rtExprMasterTraversal fCall fTyp fInfo fName fLit = go
     go (RTVar nm i) = RTVar <$> fName nm <*> fInfo i
     go (RTLiteral lit i) = RTLiteral <$> fLit lit <*> fInfo i
     go (RTBin op l r i) = RTBin op <$> go l <*> go r <*> fInfo i
-    go (RTBlock (Block lbl blk) i) = RTBlock <$> (Block <$> traverse fName lbl <*> traverse (stmtMasterTraversal go fTyp fName) blk) <*> fInfo i
+    go (RTBlock (Block lbl blk typ) i) = RTBlock <$> (Block <$> traverse fName lbl <*> traverse (stmtMasterTraversal go fTyp fName) blk <*> fTyp typ) <*> fInfo i
     go (RTCall cl args i) = RTCall <$> fCall cl <*> traverse go args <*> fInfo i
     go (RTCond cond tr fl i) = RTCond <$> go cond <*> go tr <*> go fl <*> fInfo i
 

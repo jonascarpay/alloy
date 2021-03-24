@@ -123,7 +123,7 @@ rtTests =
       saFunc "named blocks parse" "[] -> (builtins.types.void) { lbl@{ }; }",
       saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }",
       saFunc
-        "break as if return"
+        "labeled break as return"
         [r| with builtins.types;
             [] -> int lbl@{
               var x : int = 4;
@@ -132,13 +132,38 @@ rtTests =
         |],
       negative $
         saFunc
-          "break as if return (negative)"
+          "labeled break as return (negative)"
           [r| with builtins.types;
               [] -> void lbl@{
                 var x : int = 4;
                 break @lbl x;
               }
           |],
+      negative $
+        saFunc
+          "labeled break as return (negative 2)"
+          "[] -> (builtins.types.int) lbl@{ break @lbl; }",
+      saFunc
+        "break as return"
+        [r| with builtins.types;
+            [] -> int {
+              var x: int = 4;
+              break x;
+            }
+        |],
+      negative $
+        saFunc
+          "break as return (negative)"
+          [r| with builtins.types;
+              [] -> void {
+                var x : int = 4;
+                break x;
+              }
+          |],
+      negative $
+        saFunc
+          "break as return (negative 2)"
+          "[] -> (builtins.types.int) { break; }",
       saFunc
         "nested break return"
         [r| with builtins.types;

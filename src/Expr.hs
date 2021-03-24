@@ -69,7 +69,8 @@ instance Hashable CompOp
 
 data Block typ expr = Block
   { _blkLabel :: Maybe Name,
-    _blkStmts :: [Stmt typ expr]
+    _blkStmts :: [Stmt typ expr],
+    _blkType :: typ
   }
   deriving (Eq, Show, Generic)
 

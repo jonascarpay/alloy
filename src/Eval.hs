@@ -97,7 +97,8 @@ data Context = Context
 data EvalEnv = EvalEnv
   { _ctx :: Context,
     _envFnDepth :: Int,
-    _envFnStack :: [([TypeVar], TypeVar)]
+    _envFnStack :: [([TypeVar], TypeVar)],
+    _envBlockStack :: [TypeVar]
   }
 
 makeLenses ''Context
@@ -136,7 +137,7 @@ runEval :: Eval a -> IO (Either String a)
 runEval (EvalT m) =
   (fmap . fmap) fst $
     runExceptT $
-      evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty) (EvalState 0 mempty 0)
+      evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do

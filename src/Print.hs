@@ -67,9 +67,9 @@ ppLabel Nothing = mempty
 
 -- TODO just take ppStatement
 ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
-ppBlock _ _ (Block mlbl []) = ppLabel mlbl <> "{}"
-ppBlock ft fe (Block lbl [stmt]) = ppLabel lbl <> braces (ppStatement ft fe stmt)
-ppBlock ft fe (Block lbl stmts) = ppLabel lbl <> braces' (align $ vcat (ppStatement ft fe <$> stmts))
+ppBlock _ _ (Block mlbl [] _) = ppLabel mlbl <> "{}"
+ppBlock ft fe (Block lbl [stmt] _) = ppLabel lbl <> braces (ppStatement ft fe stmt)
+ppBlock ft fe (Block lbl stmts _) = ppLabel lbl <> braces' (align $ vcat (ppStatement ft fe <$> stmts))
 
 ppStatement :: (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt typ expr -> Doc ann
 ppStatement _ fe (Return expr) = "return" <+> fe expr <> ";"

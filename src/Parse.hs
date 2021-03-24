@@ -203,7 +203,7 @@ pBlock = do
   braces $ do
     stmts <- many (try pStatement)
     retExpr <- optional pExpr
-    pure $ Block mname (stmts <> maybe [] (pure . Break Nothing . Just) retExpr)
+    pure $ Block mname (stmts <> maybe [] (pure . Break Nothing . Just) retExpr) Nothing
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?

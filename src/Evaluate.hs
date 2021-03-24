@@ -62,9 +62,13 @@ step (Acc f em) =
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) = fmap (uncurry VBlock) $ do
   tv <- fresh
-  case b ^. blkLabel of
-    Nothing -> genBlock b
-    Just lbl -> local (ctx . ctxBinds . at lbl ?~ BBlockLabel tv) $ genBlock b
+  local (envBlockStack %~ (tv :)) $
+    case b ^. blkLabel of
+      Nothing -> genBlock tv b
+      Just lbl ->
+        local
+          (ctx . ctxBinds . at lbl ?~ BBlockLabel tv)
+          $ genBlock tv b
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -85,6 +89,7 @@ step (Func args ret bodyExpr) = do
   local (functionBodyEnv argVars retVar) $ do
     localState (tempSource .~ 0) (step bodyExpr) >>= \case
       VBlock deps body -> do
+        unify_ retVar (body ^. blkType)
         name <- view $ ctx . ctxName . to (fromMaybe "fn")
         body' <- typecheckFunction body
         argsTys <- (traverse . traverse) getType argVars
@@ -96,8 +101,10 @@ step (Func args ret bodyExpr) = do
 typecheckFunction ::
   RTBlock PreCall TypeVar ->
   Eval (RTBlock PreCall Type)
-typecheckFunction blk = do
-  (blkStmts . traverse . types) getType blk
+typecheckFunction (Block lbl stmts typ) = do
+  stmts' <- (traverse . types) getType stmts
+  typ' <- getType typ
+  pure $ Block lbl stmts' typ'
   where
     types :: Traversal (Stmt typ (RTExpr call typ typ)) (Stmt typ' (RTExpr call typ' typ')) typ typ'
     types f = stmtMasterTraversal (rtExprMasterTraversal pure f f pure pure) f pure
@@ -123,7 +130,7 @@ mkFunction fresh recDepth transDeps funDef =
   where
     mkClosedFunction =
       let unPreCall (CallKnown guid) = guid
-          unPreCall _ = error "impossible"
+          unPreCall _ = error "impossible" -- TODO throwError
           funDef' = funDef & funCalls %~ unPreCall
           guid = GUID $ hash funDef'
           deps = transDeps & depKnownFuncs . at guid ?~ funDef'
@@ -155,7 +162,7 @@ mkFunction fresh recDepth transDeps funDef =
           replaceAll (CallRec n) | n == depth = guid
           replaceAll (CallTemp t) | Just (guid, _) <- M.lookup t children = guid
           replaceAll (CallKnown guid) = guid
-          replaceAll _ = error "impossible"
+          replaceAll _ = error "impossible" -- TODO throwError
           transDeps = fold (toListOf (traverse . _2) children)
        in (guid, transDeps & at guid ?~ funDef')
 
@@ -176,12 +183,15 @@ genStmt (Return expr : r) = do
 genStmt (Break mname mexpr : r) = do
   mexpr' <- traverse rtFromExpr mexpr
   mlbl <- traverse resolveToBlockLabel mname
-  case mlbl of
-    Just (_, tv) -> lift $
-      case mexpr' of
-        Just expr -> unify_ tv (rtInfo expr)
-        Nothing -> setType tv TVoid
-    Nothing -> pure () -- TODO either track parent block or disallow unlabeled break
+  tv <- case mlbl of
+    Just (_, tv) -> pure tv
+    Nothing ->
+      view envBlockStack >>= \case
+        tv : _ -> pure tv
+        _ -> throwError "impossible empty block stack"
+  lift $ case mexpr' of
+    Just expr -> unify_ tv (rtInfo expr)
+    Nothing -> setType tv TVoid
   r' <- genStmt r
   pure (Break (fst <$> mlbl) mexpr' : r')
 genStmt (Continue mname : r) = do
@@ -197,7 +207,7 @@ genStmt (Decl name typ expr : r) = do
 genStmt (Assign name expr : r) = do
   (name', tv) <- resolveToRuntimeVar name
   expr' <- rtFromExpr expr
-  lift $ unify tv (rtInfo expr')
+  lift $ unify_ tv (rtInfo expr')
   r' <- genStmt r
   pure (Assign name' expr' : r')
 genStmt (ExprStmt expr : r) = do
@@ -207,11 +217,13 @@ genStmt (ExprStmt expr : r) = do
 genStmt [] = pure []
 
 genBlock ::
+  TypeVar ->
   Block (Maybe Expr) Expr ->
   Eval (Dependencies, RTBlock PreCall TypeVar)
-genBlock (Block lbl stmts) = do
+genBlock tv (Block lbl stmts typ) = do
   (stmts', deps) <- runWriterT $ genStmt stmts
-  pure (deps, Block lbl stmts')
+  forM_ typ (evalType >=> setType tv) -- Note that you currently cannot actually give a type expression for a block yet
+  pure (deps, Block lbl stmts' tv)
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
@@ -290,7 +302,7 @@ varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
 callSig :: Dependencies -> PreCall -> Eval ([TypeVar], TypeVar)
 callSig deps (CallKnown guid) = do
   case deps ^. depKnownFuncs . at guid of
-    Nothing -> error "impossible"
+    Nothing -> error "impossible" -- TODO throwError
     Just fn -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
 callSig _ (CallRec n) = do
   -- TODO clean this up, views envFnStack many times
@@ -313,10 +325,6 @@ safeZipWithM_ :: Applicative m => m () -> (a -> b -> m c) -> [a] -> [b] -> m ()
 safeZipWithM_ err f as bs
   | length as /= length bs = err
   | otherwise = zipWithM_ f as bs
-
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (a : _) = Just a
 
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n
@@ -350,12 +358,12 @@ rtFromVal (Fix (VBlock deps b)) = do
   pure $ RTBlock b tv
 
 functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =
-  EvalEnv (Context binds' name) depth' stack'
+functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth fns _) =
+  EvalEnv (Context binds' name) depth' fns' []
   where
     (names, types) = unzip typedArgs
     depth' = depth + 1
-    stack' = (types, ret) : stack
+    fns' = (types, ret) : fns
     binds' =
       flip (foldr (uncurry bindRtvar)) typedArgs
         . (at "self" ?~ BSelf depth)
