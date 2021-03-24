@@ -9,18 +9,17 @@ module Eval where
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
 import Control.Monad.Writer
-import Data.Foldable
 import Data.Functor.Identity
-import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.Maybe
 import Data.Sequence (Seq)
+import Data.Set (Set)
+import Data.Set qualified as S
+import Data.UnionFind.IO qualified as UF
 import Data.Void
 import Expr
 import Lens.Micro.Platform
 import Program
-import Typecheck
 
 type ThunkID = Int
 
@@ -63,10 +62,10 @@ newtype EvalT m a = EvalT
         EvalEnv
         Dependencies
         EvalState
-        (ExceptT String m)
+        (ExceptT String IO)
         a
   }
-  deriving (Functor, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadWriter Dependencies)
+  deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadWriter Dependencies)
 
 data EvalState = EvalState
   { _thunkSource :: Int,
@@ -74,12 +73,13 @@ data EvalState = EvalState
     _tempSource :: Int
   }
 
+newtype TypeVar = TypeVar (UF.Point (Set Type))
+
 data Binding
   = BThunk ThunkID
-  | BRTVar
-  | BBlockLabel
+  | BRTVar TypeVar
+  | BBlockLabel TypeVar
   | BSelf Int
-  deriving (Eq, Show)
 
 isThunk :: Binding -> Bool
 isThunk (BThunk _) = True
@@ -93,14 +93,12 @@ data Context = Context
   { _ctxBinds :: Map Name Binding,
     _ctxName :: Maybe Name
   }
-  deriving (Eq, Show)
 
 data EvalEnv = EvalEnv
   { _ctx :: Context,
     _envFnDepth :: Int,
-    _envFnStack :: [([Type], Type)]
+    _envFnStack :: [([TypeVar], TypeVar)]
   }
-  deriving (Eq, Show)
 
 makeLenses ''Context
 makeLenses ''EvalEnv
@@ -113,16 +111,16 @@ lookupVar ::
   (MonadReader EvalEnv m, MonadError String m) =>
   Name ->
   (ThunkID -> m r) ->
-  m r ->
-  m r ->
+  (TypeVar -> m r) ->
+  (TypeVar -> m r) ->
   (Int -> m r) ->
   m r
 lookupVar name kct krt klbl kself = do
   view (ctx . ctxBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just (BThunk tid) -> kct tid
-    Just BRTVar -> krt
-    Just BBlockLabel -> klbl
+    Just (BRTVar tv) -> krt tv
+    Just (BBlockLabel tv) -> klbl tv
     Just (BSelf n) -> kself n
 
 bindThunk :: Name -> ThunkID -> Context -> Context
@@ -131,11 +129,14 @@ bindThunk name tid = ctxBinds . at name ?~ BThunk tid
 bindThunks :: [(Name, ThunkID)] -> Context -> Context
 bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
-bindRtvar :: Name -> Env -> Env
-bindRtvar n = M.insert n BRTVar
+bindRtvar :: Name -> TypeVar -> Env -> Env
+bindRtvar n tv = M.insert n (BRTVar tv)
 
-runEval :: Eval a -> Either String a
-runEval (EvalT m) = fmap fst $ runExcept $ evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty) (EvalState 0 mempty 0)
+runEval :: Eval a -> IO (Either String a)
+runEval (EvalT m) =
+  (fmap . fmap) fst $
+    runExceptT $
+      evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -188,23 +189,10 @@ localState f m = do
 freshTempId :: Eval TempID
 freshTempId = state (\(EvalState us un ts) -> (ts, EvalState us un (ts + 1)))
 
-functionBodyEnv :: [(Name, Type)] -> Type -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =
-  EvalEnv (Context binds' name) depth' stack'
-  where
-    (names, types) = unzip typedArgs
-    depth' = depth + 1
-    stack' = (types, ret) : stack
-    binds' =
-      flip (foldr bindRtvar) names
-        . (at "self" ?~ BSelf depth)
-        . M.filter isThunk
-        $ binds
-
 type RTEval = WriterT Dependencies Eval -- TODO rename this
 
 resolveToRuntimeVar :: Name -> RTEval Name
-resolveToRuntimeVar name = lift $ lookupVar name kComp (pure name) err (const err)
+resolveToRuntimeVar name = lift $ lookupVar name kComp (const $ pure name) (const err) (const err)
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
     kComp tid =
@@ -213,7 +201,7 @@ resolveToRuntimeVar name = lift $ lookupVar name kComp (pure name) err (const er
         _ -> err
 
 resolveToBlockLabel :: Name -> RTEval Name
-resolveToBlockLabel name = lift $ lookupVar name kComp err (pure name) (const err)
+resolveToBlockLabel name = lift $ lookupVar name kComp (const err) (const $ pure name) (const err)
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
     kComp tid =
@@ -226,6 +214,30 @@ mkThunk thunk = state $ \(EvalState n m t) -> (n, EvalState (n + 1) (M.insert n 
 
 deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
 deferM = mkThunk . Deferred
+
+-- TODO: generalize to MonadIO?
+fresh :: Eval TypeVar
+fresh = liftIO $ TypeVar <$> UF.fresh mempty
+
+setType :: TypeVar -> Type -> Eval ()
+setType (TypeVar tv) ty = liftIO $ UF.modifyDescriptor tv (S.insert ty)
+
+tvar :: Type -> Eval TypeVar
+tvar ty = fresh >>= \var -> var <$ setType var ty
+
+tvarMay :: Maybe Type -> Eval TypeVar
+tvarMay mty = do
+  tv <- fresh
+  forM_ mty $ setType tv
+  pure tv
+
+getType :: TypeVar -> Eval Type
+getType (TypeVar tv) = do
+  tys <- liftIO $ UF.descriptor tv
+  case S.toList tys of
+    [a] -> pure a
+    [] -> pure TVoid
+    l -> throwError $ "Overdetermined: " <> show l
 
 deferVal :: ValueF ThunkID -> Eval ThunkID
 deferVal = mkThunk . Computed

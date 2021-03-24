@@ -18,9 +18,8 @@ import Eval
 import Expr
 import Lens.Micro.Platform
 import Program
-import Typecheck
 
-eval :: Expr -> Either String Value
+eval :: Expr -> IO (Either String Value)
 eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
 deferExpr :: Expr -> Eval ThunkID
@@ -35,7 +34,7 @@ step (App f x) = do
       local (ctx .~ bindThunk arg tx env) (step body)
     (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break since it does not properly handle the environment
     _ -> throwError "Calling a non-function"
-step (Var x) = lookupVar x force (pure $ VRTVar x) (pure $ VBlockLabel x) (pure . VSelf)
+step (Var x) = lookupVar x force (const $ pure $ VRTVar x) (const $ pure $ VBlockLabel x) (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view ctx
 step (Let binds body) = do
   n0 <- use thunkSource
@@ -61,10 +60,11 @@ step (Acc f em) =
         Nothing -> throwError $ "field " <> f <> " not present"
         Just tid -> force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) = fmap (uncurry VBlock) $
+step (BlockExpr b) = fmap (uncurry VBlock) $ do
+  tv <- fresh
   case b ^. blkLabel of
     Nothing -> genBlock b
-    Just lbl -> local (ctx . ctxBinds . at lbl ?~ BBlockLabel) $ genBlock b
+    Just lbl -> local (ctx . ctxBinds . at lbl ?~ BBlockLabel tv) $ genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -76,21 +76,33 @@ step (Cond cond tr fl) = do
     VPrim (PBool False) -> step fl
     _ -> throwError "Did not evaluate to a boolean"
 step (Func args ret bodyExpr) = do
-  typedArgs <- (traverse . traverse) evalType args
-  retType <- evalType ret
+  argVars <- (traverse . traverse) (evalType >=> tvar) args
+  retVar <- evalType ret >>= tvar
   recDepth <- view envFnDepth
   -- the scope of `local` here encompasses the construction of the final function,
   -- but the `localState` only contains the evaluation of the nested body
   -- TODO make `local` scope smaller
-  local (functionBodyEnv typedArgs retType) $ do
+  local (functionBodyEnv argVars retVar) $ do
     localState (tempSource .~ 0) (step bodyExpr) >>= \case
       VBlock deps body -> do
         fnStack <- view envFnStack
         name <- view $ ctx . ctxName . to (fromMaybe "fn")
-        body' <- liftEither $ typecheckFunction deps recDepth fnStack typedArgs retType body
-        let funDef = FunDef typedArgs retType name body'
+        body' <- tcf deps recDepth fnStack argVars retVar body
+        argsTys <- (traverse . traverse) getType argVars
+        retTy <- getType retVar
+        let funDef = FunDef argsTys retTy name body'
         uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
       _ -> throwError "Function body did not evaluate to a block expression"
+
+tcf ::
+  Dependencies ->
+  Int ->
+  [([TypeVar], TypeVar)] ->
+  [(Name, TypeVar)] ->
+  TypeVar ->
+  RTBlock PreCall (Maybe Type) ->
+  Eval (RTBlock PreCall Type)
+tcf deps depth stack args ret blk = pure $ Block Nothing []
 
 evalType :: Expr -> Eval Type
 evalType expr =
@@ -174,7 +186,8 @@ genStmt (Continue mname : r) = do
 genStmt (Decl name typ expr : r) = do
   typ' <- lift $ mapM evalType typ
   expr' <- rtFromExpr expr
-  r' <- local (ctx . ctxBinds %~ bindRtvar name) (genStmt r)
+  tv <- lift $ tvarMay typ'
+  r' <- local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r)
   pure (Decl name typ' expr' : r')
 genStmt (Assign name expr : r) = do
   name' <- resolveToRuntimeVar name
@@ -210,8 +223,8 @@ rtFromExpr (Var n) =
   lookupVar
     n
     (lift . deepEval >=> rtFromVal)
-    (pure (RTVar n Nothing))
-    (throwError "referencing block label as expressiong")
+    (const $ pure (RTVar n Nothing))
+    (const $ throwError "referencing block label as expressiong")
     (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
@@ -271,3 +284,16 @@ rtFromVal (Fix VType {}) = throwError "can't handle type"
 rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
 rtFromVal (Fix VBlockLabel {}) = throwError "Block labels don't make sense here"
 rtFromVal (Fix (VBlock deps b)) = RTBlock b Nothing <$ tell deps
+
+functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
+functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth stack) =
+  EvalEnv (Context binds' name) depth' stack'
+  where
+    (names, types) = unzip typedArgs
+    depth' = depth + 1
+    stack' = (types, ret) : stack
+    binds' =
+      flip (foldr (uncurry bindRtvar)) typedArgs
+        . (at "self" ?~ BSelf depth)
+        . M.filter isThunk
+        $ binds

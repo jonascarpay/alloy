@@ -27,7 +27,7 @@ assertParse str = do
 
 assertEval :: Expr -> IO Value
 assertEval expr =
-  case evalInfo expr of
+  evalInfo expr >>= \case
     Left err -> assertFailure $ show err
     Right val -> pure val
 
