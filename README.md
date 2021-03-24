@@ -1,6 +1,82 @@
 # alloy
 
 ## TODO
+- [ ] Revisit labeled blocks
+  - [ ] unbreakable blocks?
+    - maybe you can only break with a label, and then hiding labels from scope makes block unbreakable
+    - [ ] censored blocks?
+  - [ ] regular continue/break behavior?
+- [ ] type-based machinery
+  - [ ] type classes/traits?
+    - zig doesn't
+    - zig has reflection, i.e. typeOf
+- [ ] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
+- [ ] check if functions properly return?
+  - removed/put on ice because break/return complicates things
+  - maybe _every_ block has to end with a LLVM-style terminator
+- [ ] RTExpr values/syntax?
+  - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
+  - maybe it's just a matter of making syntax slightly more explicit
+    - `fn @comptimeArg (rta + rtb)`?
+  - [x] blocks _are_ RTExpr values
+    - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
+- [ ] booleans, enums, atoms
+  - [ ] unscoped/global atoms?
+    - would mean the compiler collects them and assigns unique int ids to them
+      - for this to work across modules, it could/would need to be a hash of its name
+      - not sure if that's a good idea though
+    - similar to how zig does error values
+  - [ ] are enums just namespaced atoms?
+    - _would_ be numbered in ascending order
+    - still need global atoms?
+  - [ ] are booleans just enums?
+- [ ] `builtins.trace`
+  - could just use Haskell's `trace` for now
+  - requires strings
+- [ ] literal conversions
+- [ ] type holes
+- [ ] `printf` in Zig knows the types of its arguments at compile time -- do we want/need that?
+- [ ] comptime stack traces
+- [ ] `builtins.error`
+  - strings
+- [ ] negative lit
+- [ ] proper keyword parsing
+  - [x] currently `truee` parses to `true e`
+- [ ] print `VClosure` using let-bindings?
+- [ ] (key)word parsing backtracks too much
+  - [ ] parsing in general kinda sucks
+- [ ] custom pretty-printing
+  - [ ] own type class
+    - multi-line, single line
+- [x] turn the test cases into test cases so we can focus them
+- [ ] list builtins
+  - [ ] concatenation
+  - [ ] destructing
+  - [ ] does map need to be a builtin?
+- [ ] nix-style `{ foo.bar: 4 }`?
+- [ ] proper megaparsec errors for unexpected keywords
+  - highlight the entire word, say what was expected, etc.
+- [ ] Does an attribute set of programs share RT stuff between itself?
+  - may be just a question of naming them well
+    - if functions are hashed this is free
+- [ ] check whether all rejected words are actually keywords
+  - at a later point just make sure we didn't leave anything in there that we don't use
+- [ ] think about runtime function call syntax
+  - it's not lists
+- [ ] rename stuff
+  - [ ] lazy evaluation terminology
+- [ ] imports
+  - [ ] check for unbound variables to avoid capture issues
+- [ ] warnings
+- [ ] have subcommands in the executable for the building and the repl
+- [ ] have inherit from-expressions evaluate the attr set only once
+- [ ] benchmarks
+  - [ ] use Text instead of String
+- [x] inherit from set, inherit multiple
+- [ ] `where` expressions?
+- [x] ~remove microlens dependency?~ no
+
+## DONE
 - [x] step 1
   - [x] Closure scope contains ThunkIDs instead of values
   - [x] arithmetic expressions
@@ -59,74 +135,3 @@
       - [x] should also be ternary
 - [x] step 7
   - terminator expressions
-- [ ] eventually
-  - [ ] Revisit labeled blocks
-    - [ ] unbreakable blocks?
-      - [ ] censored blocks?
-    - [ ] regular continue/break behavior?
-  - [ ] Name refers to many things, like variables but also things that have already resolved to a known label or runtime variable
-  - [ ] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
-  - [ ] check if functions properly return?
-    - removed/put on ice because break/return complicates things
-    - maybe _every_ block has to end with a LLVM-style terminator
-  - [ ] RTExpr values/syntax?
-    - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
-    - maybe it's just a matter of making syntax slightly more explicit
-      - `fn @comptimeArg (rta + rtb)`?
-    - [x] blocks _are_ RTExpr values
-      - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
-  - [ ] booleans, enums, atoms
-    - [ ] unscoped/global atoms?
-      - would mean the compiler collects them and assigns unique int ids to them
-        - for this to work across modules, it could/would need to be a hash of its name
-        - not sure if that's a good idea though
-      - similar to how zig does error values
-    - [ ] are enums just namespaced atoms?
-      - _would_ be numbered in ascending order
-      - still need global atoms?
-    - [ ] are booleans just enums?
-  - [ ] `builtins.trace`
-    - could just use Haskell's `trace` for now
-    - requires strings
-  - [ ] literal conversions
-  - [ ] type holes
-  - [ ] `printf` in Zig knows the types of its arguments at compile time -- do we want/need that?
-  - [ ] comptime stack traces
-  - [ ] `builtins.error`
-    - strings
-  - [ ] negative lit
-  - [ ] proper keyword parsing
-    - [x] currently `truee` parses to `true e`
-  - [ ] print `VClosure` using let-bindings?
-  - [ ] (key)word parsing backtracks too much
-    - [ ] parsing in general kinda sucks
-  - [ ] custom pretty-printing
-    - [ ] own type class
-      - multi-line, single line
-  - [x] turn the test cases into test cases so we can focus them
-  - [ ] list builtins
-    - [ ] concatenation
-    - [ ] destructing
-    - [ ] does map need to be a builtin?
-  - [ ] nix-style `{ foo.bar: 4 }`?
-  - [ ] proper megaparsec errors for unexpected keywords
-    - highlight the entire word, say what was expected, etc.
-  - [ ] Does an attribute set of programs share RT stuff between itself?
-    - may be just a question of naming them well
-      - if functions are hashed this is free
-  - [ ] check whether all rejected words are actually keywords
-    - at a later point just make sure we didn't leave anything in there that we don't use
-  - [ ] think about runtime function call syntax
-    - it's not lists
-  - [ ] rename stuff
-    - [ ] lazy evaluation terminology
-  - [ ] imports
-    - [ ] check for unbound variables to avoid capture issues
-  - [ ] warnings
-  - [ ] have subcommands in the executable for the building and the repl
-  - [ ] have inherit from-expressions evaluate the attr set only once
-  - [ ] benchmarks
-    - [ ] use Text instead of String
-  - [x] inherit from set, inherit multiple
-  - [ ] `where` expressions?
-  - [x] ~remove microlens dependency?~ no
