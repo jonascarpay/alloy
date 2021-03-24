@@ -4,7 +4,7 @@
 module Lib where
 
 import Data.Bifunctor
-import Eval
+import Evaluate
 import Expr
 import Parse
 import Prettyprinter
