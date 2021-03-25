@@ -100,6 +100,41 @@ rtTests =
                return f (f (f (f self))) [];
              }
           |],
+      funcWithNDeps
+        "simplest deduplication"
+        2
+        [r| with builtins.types;
+            let
+              a = [] -> int { c[] };
+              b = [] -> int { c[] };
+              c = [] -> int { 4 };
+            in [] -> int {
+              return a[] + b[];
+            }
+         |],
+      funcWithNDeps
+        "deduplication with bindings"
+        1
+        [r| with builtins.types;
+            let
+              a = [] -> int { var x: int = 4; x };
+              b = [] -> int { var x: int = 4; x };
+            in [] -> int {
+              return a[] + b[];
+            }
+         |],
+      pending $
+        funcWithNDeps
+          "semantic deduplication"
+          1
+          [r| with builtins.types;
+            let
+              a = [] -> int { var va: int = 4; va };
+              b = [] -> int { var vb: int = 4; vb };
+            in [] -> int {
+              return a[] + b[];
+            }
+         |],
       saFunc
         "nested return"
         [r| with builtins.types;
