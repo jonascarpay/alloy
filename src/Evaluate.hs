@@ -51,6 +51,8 @@ step (BinExpr bop a b) = do
     (ArithOp _, _, _) -> throwError "Arithmetic on not a pair of numbers"
     (CompOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PBool $ comp op pa pb
     (CompOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp Eq, VType ta, VType tb) -> pure . VPrim . PBool $ ta == tb
+    (CompOp Neq, VType ta, VType tb) -> pure . VPrim . PBool $ ta /= tb
     (CompOp _, _, _) -> throwError "Cannot compare the thing you're trying to compare"
 step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
 step (Acc f em) =

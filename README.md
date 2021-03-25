@@ -8,9 +8,9 @@
   - [ ] regular continue/break behavior?
 - [ ] type-based machinery
   - [ ] type classes/traits?
-    - zig doesn't
-    - zig has reflection, i.e. typeOf
-- [ ] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
+  - [x] typeOf
+  - [x] pattern matching on types? Currently just uses equality checks, doesn't work on structs
+- [x] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
 - [ ] check if functions properly return?
   - removed/put on ice because break/return complicates things
   - maybe _every_ block has to end with a LLVM-style terminator
