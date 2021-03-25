@@ -149,6 +149,7 @@ withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
   tNine <- deferVal . VPrim $ PInt 9
   tStruct <- deferVal $ VClosure' (force >=> struct)
+  tTypeOf <- deferVal $ VClosure' (force >=> typeOf)
   tTypes <-
     deferAttrs
       [ ("int", VType TInt),
@@ -162,9 +163,16 @@ withBuiltins m = do
         [ ("undefined", tUndefined),
           ("nine", tNine),
           ("types", tTypes),
-          ("struct", tStruct)
+          ("struct", tStruct),
+          ("typeOf", tTypeOf)
         ]
   local (ctx %~ bindThunk "builtins" tBuiltins) m
+
+typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
+typeOf (VRTVar _ tv) = VType <$> getType tv
+typeOf (VBlockLabel _ tv) = VType <$> getType tv
+typeOf (VBlock _ blk) = VType <$> getType (blk ^. blkType)
+typeOf _ = throwError "Cannot get typeOf"
 
 struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 struct (VAttr m) = do
