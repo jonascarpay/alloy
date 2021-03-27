@@ -35,39 +35,15 @@ evalTests =
       is9 "snd" "(x: y: y) 11 9",
       is9 "simple attribute set" "{foo: 9}.foo",
       is9 "simple let binding" "let x = 9; in x",
-      is9
-        "let with local reference"
-        [r| let y = 9;
-                  x = y;
-               in x
-        |],
+      is9 "let with nonrecursive local reference" "let y = 9; x = y; in x",
       is9 "nested attrs" "{foo: {bar: 9}}.foo.bar",
       is9 "let binding with nested attrs" "let attrs = {foo: {bar: 9}}; in attrs.foo.bar",
       is9 "reference in attr binding" "(x: {a: x}.a) 9",
-      is9
-        "not sure what to call it but it used to fail"
-        [r|let id = x: x;
-                 x = 9;
-              in id x
-        |],
-      is9
-        "id id id id id"
-        [r| let id = x: x;
-                  x = 9;
-               in id id id id x
-        |],
-      is9
-        "scoping test"
-        "(id: x: (id id) (id x)) (x: x) 9",
-      is9
-        "let scoping test"
-        [r| let id = x: x;
-                  x = 9;
-               in (id id) (id x)
-        |],
-      is9
-        "laziness test"
-        "let diverge = (x: x x) (x: x x); in 9",
+      is9 "not sure what to call it but it used to fail" "let id = x: x; x = 9; in id x",
+      is9 "id id id id id" "let id = x: x; x = 9; in id id id id x",
+      is9 "scoping test" "(id: x: (id id) (id x)) (x: x) 9",
+      is9 "let scoping test" "let id = x: x; x = 9; in (id id) (id x)",
+      is9 "laziness test" "let diverge = (x: x x) (x: x x); in 9",
       is9
         "inherit from"
         [r|
@@ -78,18 +54,13 @@ evalTests =
       is9
         "lazy attr inheritance test"
         [r| let diverge = builtins.undefined;
-                  x = 9;
-               in { inherit diverge,
-                    inherit x
-                  }.x
+                x = 9;
+             in { inherit diverge,
+                  inherit x
+                }.x
         |],
       is9 "simple builtin" "builtins.nine",
-      is9
-        "laziness ignores undefined"
-        [r| let x = builtins.undefined;
-                y = builtins.nine;
-             in y
-        |],
+      is9 "laziness ignores undefined" "with builtins; let x = undefined; y = nine; in y",
       is9
         "y combinator"
         [r| let y = f: (x: f (x x)) (x: (f (x x)));
@@ -98,30 +69,21 @@ evalTests =
                   nine: self.three * self.three});
                in attr.nine
         |],
-      is9
-        "forward let reference"
-        [r| let a = b;
-                b = 9;
-             in a
-          |],
-      is9
-        "recursive let reference"
-        [r| let attr = { foo: 9, bar: attr.foo };
-               in attr.bar
-          |],
+      is9 "forward let reference" "let a = b; b = 9; in a",
+      is9 "recursive let reference" "let attr = { foo: 9, bar: attr.foo }; in attr.bar",
       is9
         "line comments"
         [r| let a = 9; # comment"
-               in a
+             in a
         |],
-      is9
-        "with-expression"
-        "with builtins; nine",
+      is9 "with-expression" "with builtins; nine",
       is9 "simple if true" "if true then 9 else 10",
       is9 "simple if false" "if false then 10 else 9",
+      is9 "lazy if true" "if true then 9 else builtins.undefined",
+      is9 "lazy if false" "if false then builtins.undefined else 9",
       is9 "nested if true" "if true then if true then 9 else 10 else 10",
       is9 "nested if false" "if false then 10 else if false then 10 else 9",
-      is9 "if comparison" "if 2 + 2 < 5 then 9 else 8",
+      is9 "if comparison" "if 2 + 2 < 5 then 9 else 10",
       is9 "typeOf" "if builtins.typeOf {break;} == builtins.types.void then 9 else 8",
       is9 "matchType" "builtins.matchType (builtins.types.int) { int: 9, default: builtins.undefined }",
       is9
@@ -137,7 +99,5 @@ evalTests =
               default: undefined
             }
         |],
-      is9
-        "matchType default"
-        "builtins.matchType (builtins.typeOf {break;}) { default: 9, }"
+      is9 "matchType default" "builtins.matchType builtins.types.void { default: 9, }"
     ]
