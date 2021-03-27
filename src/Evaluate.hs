@@ -25,15 +25,19 @@ eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 deferExpr :: Expr -> Eval ThunkID
 deferExpr expr = ask >>= \env -> deferM $ local (const env) (step expr)
 
+-- TODO once we only have non-Expr closures, this can be moved to Eval
+reduce :: ValueF ThunkID -> ThunkID -> Eval (ValueF ThunkID)
+reduce (VClosure arg body env) tid = do
+  local (ctx .~ bindThunk arg tid env) (step body)
+reduce (VClosure' m) tid = m tid -- FIXME this will eventually break since it does not properly handle the environment
+reduce _ _ = throwError "Calling a non-function"
+
 step :: Expr -> Eval (ValueF ThunkID)
 step (Prim p) = pure $ VPrim p
 step (App f x) = do
-  step f >>= \case
-    (VClosure arg body env) -> do
-      tx <- deferExpr x
-      local (ctx .~ bindThunk arg tx env) (step body)
-    (VClosure' m) -> deferExpr x >>= m -- FIXME this will eventually break since it does not properly handle the environment
-    _ -> throwError "Calling a non-function"
+  tf <- step f
+  tx <- deferExpr x
+  reduce tf tx
 step (Var x) = lookupVar x force (pure . VRTVar x) (pure . VBlockLabel x) (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view ctx
 step (Let binds body) = do
@@ -363,11 +367,78 @@ functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
 functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth fns _) =
   EvalEnv (Context binds' name) depth' fns' []
   where
-    (names, types) = unzip typedArgs
     depth' = depth + 1
-    fns' = (types, ret) : fns
+    fns' = (snd <$> typedArgs, ret) : fns
     binds' =
       flip (foldr (uncurry bindRtvar)) typedArgs
         . (at "self" ?~ BSelf depth)
         . M.filter isThunk
         $ binds
+
+-- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
+withBuiltins :: Eval a -> Eval a
+withBuiltins m = do
+  tUndefined <- deferM $ throwError "undefined"
+  tNine <- deferVal . VPrim $ PInt 9
+  tStruct <- deferVal $ VClosure' (force >=> struct)
+  tTypeOf <- deferVal $ VClosure' (force >=> typeOf)
+  tMatchType <- deferVal $ VClosure' (force >=> matchType)
+  tTypes <-
+    deferAttrs
+      [ ("int", VType TInt),
+        ("double", VType TDouble),
+        ("void", VType TVoid),
+        ("bool", VType TBool)
+      ]
+  tBuiltins <-
+    deferVal . VAttr $
+      M.fromList
+        [ ("undefined", tUndefined),
+          ("nine", tNine),
+          ("types", tTypes),
+          ("struct", tStruct),
+          ("typeOf", tTypeOf),
+          ("matchType", tMatchType)
+        ]
+  local (ctx %~ bindThunk "builtins" tBuiltins) m
+
+typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
+typeOf (VRTVar _ tv) = VType <$> getType tv
+typeOf (VBlockLabel _ tv) = VType <$> getType tv
+typeOf (VBlock _ blk) = VType <$> getType (blk ^. blkType)
+typeOf _ = throwError "Cannot get typeOf"
+
+struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
+struct (VAttr m) = do
+  let forceType tid = do
+        force tid >>= \case
+          (VType t) -> pure t
+          _ -> throwError "Struct member was not a type expression"
+  types <- traverse forceType m
+  pure $ VType $ TStruct types
+struct _ = throwError "Con/struct/ing a struct from s'thing other than an attr set"
+
+-- TODO _is_ this a type? i.e. church-encode types?
+matchType :: ValueF ThunkID -> Eval (ValueF ThunkID)
+matchType (VType typ) =
+  pure $
+    VClosure' $
+      force >=> \case
+        VAttr attrs ->
+          let getAttr attr = case M.lookup attr attrs of
+                Just x -> pure x
+                Nothing -> case M.lookup "default" attrs of
+                  Nothing -> throwError $ "Attr " <> attr <> " not present, no default case"
+                  Just x -> pure x
+           in case typ of
+                TInt -> getAttr "int" >>= force
+                TDouble -> getAttr "double" >>= force
+                TVoid -> getAttr "void" >>= force
+                TBool -> getAttr "bool" >>= force
+                TStruct fields -> do
+                  k <- getAttr "struct" >>= force
+                  -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
+                  fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
+                  reduce k fields'
+        _ -> throwError "matchType did not get an attr of type matchers"
+matchType _ = throwError "matching on not-a-type"

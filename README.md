@@ -2,6 +2,7 @@
 
 ## TODO
 - [ ] Revisit labeled blocks
+  - [ ] Can return just be a macro?
   - [ ] unbreakable blocks?
     - maybe you can only break with a label, and then hiding labels from scope makes block unbreakable
     - [ ] censored blocks?
@@ -9,7 +10,9 @@
 - [ ] type-based machinery
   - [ ] type classes/traits?
   - [x] typeOf
-  - [x] pattern matching on types? Currently just uses equality checks, doesn't work on structs
+  - [x] type equality
+  - [ ] pattern matching on types?
+  - [ ] are types just their encoding?
 - [x] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
 - [ ] check if functions properly return?
   - removed/put on ice because break/return complicates things

@@ -26,7 +26,7 @@ type ThunkID = Int
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr Context -- TODO benchmark if we can safely remove this
-  | VClosure' (ThunkID -> Eval (ValueF ThunkID))
+  | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
   | VRTVar Name TypeVar -- TODO proper binding
@@ -56,6 +56,7 @@ data ThunkF m v = Deferred (m v) | Computed v
 
 type Thunk = ThunkF Eval (ValueF ThunkID)
 
+-- TODO Eval is no longer a transformer, remove the m argument
 newtype EvalT m a = EvalT
   { _unLazyT ::
       RWST
@@ -143,46 +144,6 @@ deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
   attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
   deferVal $ VAttr $ M.fromList attrs'
-
-withBuiltins :: Eval a -> Eval a
-withBuiltins m = do
-  tUndefined <- deferM $ throwError "undefined"
-  tNine <- deferVal . VPrim $ PInt 9
-  tStruct <- deferVal $ VClosure' (force >=> struct)
-  tTypeOf <- deferVal $ VClosure' (force >=> typeOf)
-  tTypes <-
-    deferAttrs
-      [ ("int", VType TInt),
-        ("double", VType TDouble),
-        ("void", VType TVoid),
-        ("bool", VType TBool)
-      ]
-  tBuiltins <-
-    deferVal . VAttr $
-      M.fromList
-        [ ("undefined", tUndefined),
-          ("nine", tNine),
-          ("types", tTypes),
-          ("struct", tStruct),
-          ("typeOf", tTypeOf)
-        ]
-  local (ctx %~ bindThunk "builtins" tBuiltins) m
-
-typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
-typeOf (VRTVar _ tv) = VType <$> getType tv
-typeOf (VBlockLabel _ tv) = VType <$> getType tv
-typeOf (VBlock _ blk) = VType <$> getType (blk ^. blkType)
-typeOf _ = throwError "Cannot get typeOf"
-
-struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
-struct (VAttr m) = do
-  let forceType tid = do
-        force tid >>= \case
-          (VType t) -> pure t
-          _ -> throwError "Struct member was not a type expression"
-  types <- traverse forceType m
-  pure $ VType $ TStruct types
-struct _ = throwError "Con/struct/ing a struct from s'thing other than an attr set"
 
 deepEval :: ThunkID -> Eval Value
 deepEval tid = Fix <$> (force tid >>= traverse deepEval)

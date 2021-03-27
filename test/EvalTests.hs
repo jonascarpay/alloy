@@ -122,5 +122,22 @@ evalTests =
       is9 "nested if true" "if true then if true then 9 else 10 else 10",
       is9 "nested if false" "if false then 10 else if false then 10 else 9",
       is9 "if comparison" "if 2 + 2 < 5 then 9 else 8",
-      is9 "typeOf" "if builtins.typeOf {break;} == builtins.types.void then 9 else 8"
+      is9 "typeOf" "if builtins.typeOf {break;} == builtins.types.void then 9 else 8",
+      is9 "matchType" "builtins.matchType (builtins.types.int) { int: 9, default: builtins.undefined }",
+      is9
+        "matchType struct"
+        [r| with builtins;
+            with types;
+            let t = struct { x: double, y: int };
+            in matchType t {
+              struct: ms: matchType (ms.y) {
+                int: 9,
+                default: undefined
+              },
+              default: undefined
+            }
+        |],
+      is9
+        "matchType default"
+        "builtins.matchType (builtins.typeOf {break;}) { default: 9, }"
     ]
