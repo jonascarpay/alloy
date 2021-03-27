@@ -15,7 +15,8 @@ runCommand (Evaluate fp) = do
   input <- readFile fp
   case MP.parse pToplevel fp input of
     Left err -> putStrLn $ MP.errorBundlePretty err
-    Right expr -> either print print (evalCheckInfo expr)
+    Right expr -> do
+      evalInfo expr >>= either print (print . ppVal)
 
 main :: IO ()
 main = execParser opts >>= runCommand

@@ -252,3 +252,23 @@ rtTests =
         "terminator expression"
         "[] -> (builtins.types.int) { 3 }"
     ]
+
+{--
+  forr = init: incr: cond: body: outer@{
+    var i = init;
+    loop@{
+      if cond i then {break;} else {break @outer;};
+      body;
+      incr i;
+      continue @loop;
+    }
+  };
+
+in [] -> double {
+  var x : int = 1;
+
+  forr {break 0;} (i: {i += 1;}) (i: {i < 10}) {
+    var asdf = 2;
+  };
+}
+--}
