@@ -254,10 +254,6 @@ rtFromExpr (Var n) =
 rtFromExpr (App f x) = do
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
-    VClosure arg body env -> do
-      tx <- lift $ deferExpr x
-      local (ctx .~ bindThunk arg tx env) $
-        lift (deepEvalExpr body) >>= rtFromVal
     VFunc tdeps funId ->
       case x of
         List argExprs -> do
@@ -283,7 +279,7 @@ rtFromExpr (App f x) = do
             argVars
           pure $ RTCall (CallRec n) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
-    _ -> throwError "Calling a non-function"
+    val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
 rtFromExpr (Cond cond t f) = do
   rtc <- rtFromExpr cond
   lift $ setType (rtInfo rtc) TBool
