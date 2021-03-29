@@ -102,7 +102,7 @@ pExpr =
     [ pLet,
       pCond,
       pLam,
-      pFunc,
+      try pFunc,
       uncurry With <$> pWith,
       makeExprParser (try pTerm) operatorTable
       -- TODO The `try` here is to make sure App doesn't try consuming too much, but it is super dangerous since it might lead to blow-up

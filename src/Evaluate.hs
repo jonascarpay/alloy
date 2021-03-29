@@ -328,6 +328,7 @@ safeZipWithM_ err f as bs
   | length as /= length bs = err
   | otherwise = zipWithM_ f as bs
 
+-- TODO type constraints
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n
 rtLitFromPrim (PDouble n) = pure $ RTDouble n
