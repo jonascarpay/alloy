@@ -269,5 +269,49 @@ rtTests =
               var z: double = 4;
               z = x;
             }
-        |]
+        |],
+      pending $
+        saFunc
+          "typeOf forward expression"
+          [r| with builtins.types;
+              [] -> int {
+                var x = 4;
+                var y: builtins.typeOf x = x;
+                return x;
+              }
+          |],
+      saFunc
+        "comparator arithop maintains type"
+        [r| with builtins.types;
+              [] -> int {
+                var x: int = 4;
+                var z: builtins.typeOf x = x + 3;
+              }
+          |],
+      negative $
+        saFunc
+          "comparator arithop maintains type (negative)"
+          [r| with builtins.types;
+              [] -> int {
+                var x: int = 4;
+                var z: bool = x + 3;
+              }
+          |],
+      saFunc
+        "comparator binop resolves to bool"
+        [r| with builtins.types;
+              [] -> int {
+                var x: int = 4;
+                var z: bool = (x == 3);
+              }
+          |],
+      negative $
+        saFunc
+          "comparator binop resolves to bool (negative)"
+          [r| with builtins.types;
+              [] -> int {
+                var x: int = 4;
+                var z: builtins.typeOf x = (x == 3);
+              }
+          |]
     ]

@@ -240,11 +240,17 @@ deepEvalExpr = deferExpr >=> deepEval
 rtFromExpr ::
   Expr ->
   RTEval (RTExpr PreCall TypeVar TypeVar)
-rtFromExpr (BinExpr op a b) = do
+rtFromExpr (BinExpr (ArithOp op) a b) = do
   rta <- rtFromExpr a
   rtb <- rtFromExpr b
   tv <- lift $ unify (rtInfo rta) (rtInfo rtb)
-  pure $ RTBin op rta rtb tv
+  pure $ RTBin (ArithOp op) rta rtb tv
+rtFromExpr (BinExpr (CompOp op) a b) = do
+  rta <- rtFromExpr a
+  rtb <- rtFromExpr b
+  lift $ unify_ (rtInfo rta) (rtInfo rtb)
+  tv <- lift $ tvar TBool
+  pure $ RTBin (CompOp op) rta rtb tv
 rtFromExpr (Var n) =
   lookupVar
     n
