@@ -57,7 +57,7 @@ data ThunkF m v = Deferred (m v) | Computed v
 type Thunk = ThunkF Eval (ValueF ThunkID)
 
 -- TODO Eval is no longer a transformer, remove the m argument
-newtype EvalT m a = EvalT
+newtype Eval a = Eval
   { _unLazyT ::
       RWST
         EvalEnv
@@ -86,8 +86,6 @@ isThunk :: Binding -> Bool
 isThunk (BThunk _) = True
 isThunk _ = False
 
-type Eval = EvalT Identity
-
 type Env = Map Name Binding
 
 data Context = Context
@@ -106,7 +104,7 @@ makeLenses ''Context
 makeLenses ''EvalEnv
 makeLenses ''EvalState
 
-withName :: Monad m => Name -> EvalT m a -> EvalT m a
+withName :: Name -> Eval a -> Eval a
 withName name = local (ctx . ctxName ?~ name)
 
 lookupVar ::
@@ -135,7 +133,7 @@ bindRtvar :: Name -> TypeVar -> Env -> Env
 bindRtvar n tv = M.insert n (BRTVar tv)
 
 runEval :: Eval a -> IO (Either String a)
-runEval (EvalT m) =
+runEval (Eval m) =
   (fmap . fmap) fst $
     runExceptT $
       evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
