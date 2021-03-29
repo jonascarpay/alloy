@@ -61,12 +61,12 @@ newtype Eval a = Eval
   { _unLazyT ::
       RWST
         EvalEnv
-        Dependencies
+        ()
         EvalState
         (ExceptT String IO)
         a
   }
-  deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadWriter Dependencies)
+  deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState)
 
 data EvalState = EvalState
   { _thunkSource :: Int,
