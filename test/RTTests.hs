@@ -250,5 +250,24 @@ rtTests =
         |],
       saFunc
         "terminator expression"
-        "[] -> (builtins.types.int) { 3 }"
+        "[] -> (builtins.types.int) { 3 }",
+      negative $
+        saFunc
+          "simple declaration type mismatch"
+          [r| with builtins.types;
+            [] -> int {
+              var x: int = 4;
+              var z: double = x;
+            }
+        |],
+      negative $
+        saFunc
+          "simple assignment type mismatch"
+          [r| with builtins.types;
+            [] -> int {
+              var x: int = 4;
+              var z: double = 4;
+              z = x;
+            }
+        |]
     ]

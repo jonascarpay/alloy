@@ -208,6 +208,7 @@ genStmt (Decl name typ expr : r) = do
   typ' <- lift $ mapM evalType typ
   expr' <- rtFromExpr expr
   tv <- lift $ tvarMay typ'
+  lift $ unify_ tv (rtInfo expr')
   r' <- local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r)
   pure (Decl name tv expr' : r')
 genStmt (Assign name expr : r) = do
