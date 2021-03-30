@@ -9,7 +9,7 @@ module Eval where
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
 import Control.Monad.Writer
-import Coroutine qualified as CR
+import Coroutine
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
@@ -59,7 +59,7 @@ type Thunk = ThunkF Eval (ValueF ThunkID)
 -- TODO Eval is no longer a transformer, remove the m argument
 newtype Eval a = Eval
   { _unLazyT ::
-      CR.Coroutine
+      Coroutine
         ( RWST
             EvalEnv
             ()
@@ -68,10 +68,7 @@ newtype Eval a = Eval
         )
         a
   }
-  deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState)
-
-suspend :: Eval a -> Eval a
-suspend (Eval m) = Eval (CR.suspend m)
+  deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadCoroutine)
 
 data EvalState = EvalState
   { _thunkSource :: Int,
@@ -141,7 +138,7 @@ runEval :: Eval a -> IO (Either String a)
 runEval (Eval m) =
   (fmap . fmap) fst $
     runExceptT $
-      evalRWST (CR.runCoroutine m) (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
+      evalRWST (runCoroutine m) (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
