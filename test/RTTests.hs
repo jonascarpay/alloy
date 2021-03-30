@@ -55,7 +55,7 @@ rtTests =
         saFunc "trivial" "[] -> builtins.types.int { return 0; }",
       pending $
         saFunc "empty function" "with builtins.types; [] -> void { }",
-      funcWithNDeps "trivial with" 0 "with builtins.types; [] -> int { return 0; }",
+      saFunc "trivial with" "with builtins.types; [] -> int { return 0; }",
       pending $
         expectFailBecause "Cannot construct void for nums" $
           saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",

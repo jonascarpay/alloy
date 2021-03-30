@@ -182,16 +182,15 @@ mkFunction fresh recDepth transDeps funDef =
 genStmt ::
   [Stmt (Maybe Expr) Expr] ->
   RTEval [Stmt TypeVar (RTExpr PreCall TypeVar TypeVar)]
-genStmt (Return expr : r) =
-  liftP2
-    (\e' r' -> Return e' : r')
-    ( do
-        expr' <- rtFromExpr expr
-        view envFnStack >>= \case
-          (_, tv) : _ -> lift $ unify_ (rtInfo expr') tv
-          _ -> pure ()
-        pure expr'
+genStmt (Return expr : r) = do
+  tv <- lift fresh
+  liftP3
+    (\_ e' r' -> Return e' : r')
+    ( view envFnStack >>= \case
+        (_, rtv) : _ -> lift $ unify_ rtv tv
+        _ -> throwError "impossible?"
     )
+    (rtFromExprUnify expr tv)
     (genStmt r)
 genStmt (Break mname mexpr : r) = do
   tv <- lift fresh
@@ -374,7 +373,6 @@ safeZipWithM_ err f as bs
   | length as /= length bs = err
   | otherwise = zipWithM_ f as bs
 
--- TODO type constraints
 rtLitFromPrim :: Prim -> RTEval RTLiteral
 rtLitFromPrim (PInt n) = pure $ RTInt n
 rtLitFromPrim (PDouble n) = pure $ RTDouble n
@@ -382,8 +380,8 @@ rtLitFromPrim (PBool b) = pure $ RTBool b
 
 rtFromVal :: Value -> RTEval (RTExpr PreCall TypeVar TypeVar)
 rtFromVal (Fix (VPrim p)) = do
+  tv <- lift fresh
   lit <- rtLitFromPrim p
-  tv <- lift fresh -- TODO appropriate type constraint
   pure $ RTLiteral lit tv
 rtFromVal (Fix (VAttr m)) = do
   m' <- flip M.traverseWithKey m $ \key field ->
@@ -452,7 +450,12 @@ typeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
 typeOf _ = throwError "Cannot get typeOf"
 
 getTypeSuspend :: TypeVar -> Eval Type
-getTypeSuspend tv = getType (suspend $ getTypeSuspend tv) tv
+getTypeSuspend tv = go retries
+  where
+    retries = 10
+    go :: Int -> Eval Type
+    go 0 = throwError "Underdetermined type variable"
+    go n = getType (suspend $ go (n -1)) tv
 
 struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 struct (VAttr m) = do
