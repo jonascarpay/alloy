@@ -44,6 +44,7 @@ library
   import:          common-options
   hs-source-dirs:  src
   exposed-modules:
+    Coroutine
     Eval
     Evaluate
     Expr

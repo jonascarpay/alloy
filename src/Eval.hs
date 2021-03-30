@@ -9,8 +9,7 @@ module Eval where
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
 import Control.Monad.Writer
-import Data.Bifunctor
-import Data.Functor.Identity
+import Coroutine qualified as CR
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
@@ -60,14 +59,19 @@ type Thunk = ThunkF Eval (ValueF ThunkID)
 -- TODO Eval is no longer a transformer, remove the m argument
 newtype Eval a = Eval
   { _unLazyT ::
-      RWST
-        EvalEnv
-        ()
-        EvalState
-        (ExceptT String IO)
+      CR.Coroutine
+        ( RWST
+            EvalEnv
+            ()
+            EvalState
+            (ExceptT String IO)
+        )
         a
   }
   deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState)
+
+suspend :: Eval a -> Eval a
+suspend (Eval m) = Eval (CR.suspend m)
 
 data EvalState = EvalState
   { _thunkSource :: Int,
@@ -137,7 +141,7 @@ runEval :: Eval a -> IO (Either String a)
 runEval (Eval m) =
   (fmap . fmap) fst $
     runExceptT $
-      evalRWST m (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
+      evalRWST (CR.runCoroutine m) (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -227,47 +231,3 @@ force tid =
       pure v
     Just (Computed x) -> pure x
     Nothing -> throwError "Looking up invalid thunk?"
-
-newtype Coroutine m r = Coroutine {resume :: m (Either (Coroutine m r) r)}
-
-instance Functor m => Functor (Coroutine m) where
-  fmap f (Coroutine m) = Coroutine $ bimap (fmap f) f <$> m
-
-instance Monad m => Applicative (Coroutine m) where
-  pure = Coroutine . pure . pure
-  (<*>) = ap
-
-instance Monad m => Monad (Coroutine m) where
-  Coroutine m >>= f =
-    Coroutine $
-      m >>= \case
-        Left k -> pure $ Left (k >>= f)
-        Right r -> resume (f r)
-
-instance MonadTrans Coroutine where lift = Coroutine . fmap Right
-
-instance MonadIO m => MonadIO (Coroutine m) where liftIO = lift . liftIO
-
-suspend :: Applicative m => Coroutine m r -> Coroutine m r
-suspend = Coroutine . pure . Left
-
-runCoroutine :: Monad m => Coroutine m r -> m r
-runCoroutine (Coroutine m) = m >>= either runCoroutine pure
-
-liftP2 :: Monad m => (a -> b -> c) -> Coroutine m a -> Coroutine m b -> Coroutine m c
-liftP2 f a = par (f <$> a)
-
-liftP3 :: Monad m => (a -> b -> c -> d) -> Coroutine m a -> Coroutine m b -> Coroutine m c -> Coroutine m d
-liftP3 f a b = par (liftP2 f a b)
-
--- | Run two computations until suspension.
--- If either suspends, this will produce a suspended computation.
--- The difference with normal (<*>) and (>>=) is that here, if the first computation suspends, it will still attempt to run the second computation.
-par :: Monad m => Coroutine m (a -> b) -> Coroutine m a -> Coroutine m b
-par mf ma =
-  Coroutine $
-    let go (Right f) (Right a) = Right (f a)
-        go (Right f) (Left ka) = Left (f <$> ka)
-        go (Left kf) (Right a) = Left $ ($ a) <$> kf
-        go (Left kf) (Left ka) = Left $ par kf ka
-     in go <$> resume mf <*> resume ma
