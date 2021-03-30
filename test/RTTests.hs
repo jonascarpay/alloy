@@ -270,16 +270,15 @@ rtTests =
               z = x;
             }
         |],
-      pending $
-        saFunc
-          "typeOf forward expression"
-          [r| with builtins.types;
-              [] -> int {
-                var x = 4;
-                var y: builtins.typeOf x = x;
-                return x;
-              }
-          |],
+      saFunc
+        "typeOf forward expression"
+        [r| with builtins.types;
+            [] -> int {
+              var x = 4;
+              var y: builtins.typeOf x = x;
+              return x;
+            }
+        |],
       saFunc
         "comparator arithop maintains type"
         [r| with builtins.types;
@@ -312,6 +311,44 @@ rtTests =
               [] -> int {
                 var x: int = 4;
                 var z: builtins.typeOf x = (x == 3);
+              }
+          |],
+      saFunc
+        "branches of conditional must match"
+        [r| with builtins.types;
+            [] -> int {
+              var x: int = 4;
+              var y: int = 4;
+              var z = if true then x else y;
+            }
+        |],
+      negative $
+        saFunc
+          "branches of conditional must match (negative)"
+          [r| with builtins.types;
+              [] -> int {
+                var x: int = 4;
+                var y: double = 4;
+                var z = if true then x else y;
+              }
+          |],
+      saFunc
+        "conditional must be bool"
+        [r| with builtins.types;
+            [] -> int {
+              var x: int = 4;
+              var y: bool = 4;
+              var z = if y then x else x;
+            }
+        |],
+      negative $
+        saFunc
+          "conditional must be bool (negative)"
+          [r| with builtins.types;
+              [] -> int {
+                var x: int = 4;
+                var y: int = 4;
+                var z = if y then x else x;
               }
           |]
     ]

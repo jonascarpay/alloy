@@ -7,6 +7,7 @@ module Coroutine where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Control.Monad.Writer
 import Data.Bifunctor
 
 -- | Monad transformer that allows a computation to be suspended.
@@ -68,3 +69,7 @@ instance Applicative m => MonadCoroutine (Coroutine m) where
           go (Left kf) (Left ka) = Left $ par kf ka
        in go <$> resume mf <*> resume ma
   suspend = Coroutine . pure . Left
+
+instance (Semigroup w, Functor m, MonadCoroutine m) => MonadCoroutine (WriterT w m) where
+  suspend (WriterT m) = WriterT $ suspend m
+  par (WriterT mf) (WriterT ma) = WriterT $ par ((\(f, w) (a, w') -> (f a, w <> w')) <$> mf) ma

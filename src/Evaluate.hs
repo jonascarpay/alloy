@@ -9,6 +9,7 @@ module Evaluate (ValueF (..), Value, eval, Dependencies (..)) where
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
 import Control.Monad.Writer
+import Coroutine
 import Data.Foldable
 import Data.Hashable
 import Data.Map (Map)
@@ -97,17 +98,19 @@ step (Func args ret bodyExpr) = do
       VBlock deps body -> do
         unify_ retVar (body ^. blkType)
         name <- view $ ctx . ctxName . to (fromMaybe "fn")
-        body' <- typecheckFunction body
-        argsTys <- (traverse . traverse) getType argVars
-        retTy <- getType retVar
+        let getTypeVoid = getType (pure TVoid)
+        body' <- typecheckFunction getTypeVoid body
+        argsTys <- (traverse . traverse) getTypeVoid argVars
+        retTy <- getTypeVoid retVar
         let funDef = FunDef argsTys retTy name body'
         uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
       _ -> throwError "Function body did not evaluate to a block expression"
 
 typecheckFunction ::
+  (TypeVar -> Eval Type) ->
   RTBlock PreCall TypeVar ->
   Eval (RTBlock PreCall Type)
-typecheckFunction (Block lbl stmts typ) = do
+typecheckFunction getType (Block lbl stmts typ) = do
   stmts' <- (traverse . types) getType stmts
   typ' <- getType typ
   pure $ Block lbl stmts' typ'
@@ -179,48 +182,70 @@ mkFunction fresh recDepth transDeps funDef =
 genStmt ::
   [Stmt (Maybe Expr) Expr] ->
   RTEval [Stmt TypeVar (RTExpr PreCall TypeVar TypeVar)]
-genStmt (Return expr : r) = do
-  expr' <- rtFromExpr expr
-  r' <- genStmt r
-  view envFnStack >>= \case
-    (_, tv) : _ -> lift $ unify_ (rtInfo expr') tv
-    _ -> pure ()
-  pure (Return expr' : r')
+genStmt (Return expr : r) =
+  liftP2
+    (\e' r' -> Return e' : r')
+    ( do
+        expr' <- rtFromExpr expr
+        view envFnStack >>= \case
+          (_, tv) : _ -> lift $ unify_ (rtInfo expr') tv
+          _ -> pure ()
+        pure expr'
+    )
+    (genStmt r)
 genStmt (Break mname mexpr : r) = do
-  mexpr' <- traverse rtFromExpr mexpr
-  mlbl <- traverse resolveToBlockLabel mname
-  tv <- case mlbl of
-    Just (_, tv) -> pure tv
-    Nothing ->
-      view envBlockStack >>= \case
-        tv : _ -> pure tv
-        _ -> throwError "impossible empty block stack"
-  lift $ case mexpr' of
-    Just expr -> unify_ tv (rtInfo expr)
-    Nothing -> setType tv TVoid
-  r' <- genStmt r
-  pure (Break (fst <$> mlbl) mexpr' : r')
-genStmt (Continue mname : r) = do
-  r' <- genStmt r
-  mname' <- traverse resolveToBlockLabel mname
-  pure (Continue (fst <$> mname') : r')
-genStmt (Decl name typ expr : r) = do
-  typ' <- lift $ mapM evalType typ
-  expr' <- rtFromExpr expr
-  tv <- lift $ tvarMay typ'
-  lift $ unify_ tv (rtInfo expr')
-  r' <- local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r)
-  pure (Decl name tv expr' : r')
+  tv <- lift fresh
+  liftP3
+    (\ml' e' r' -> Break (fst <$> ml') e' : r')
+    ( do
+        mlbl <- traverse resolveToBlockLabel mname
+        case mlbl of
+          Just (_, ltv) -> lift $ unify_ tv ltv
+          Nothing ->
+            view envBlockStack >>= \case
+              ltv : _ -> lift $ unify_ tv ltv
+              _ -> throwError "impossible empty block stack"
+        pure mlbl
+    )
+    ( do
+        mexpr' <- traverse rtFromExpr mexpr
+        lift $ case mexpr' of
+          Just expr -> unify_ tv (rtInfo expr)
+          Nothing -> setType tv TVoid
+        pure mexpr'
+    )
+    (genStmt r)
+genStmt (Continue mname : r) =
+  liftP2
+    (\ml' r' -> Continue (fst <$> ml') : r')
+    (traverse resolveToBlockLabel mname)
+    (genStmt r)
+genStmt (Decl name mtypExpr expr : r) = do
+  tv <- lift fresh
+  liftP3
+    (\_ e' r' -> Decl name tv e' : r')
+    (lift $ forM_ mtypExpr (evalType >=> setType tv))
+    ( do
+        expr' <- rtFromExpr expr
+        lift $ unify_ tv (rtInfo expr')
+        pure expr'
+    )
+    (local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r))
 genStmt (Assign name expr : r) = do
   (name', tv) <- resolveToRuntimeVar name
-  expr' <- rtFromExpr expr
-  lift $ unify_ tv (rtInfo expr')
-  r' <- genStmt r
-  pure (Assign name' expr' : r')
-genStmt (ExprStmt expr : r) = do
-  expr' <- rtFromExpr expr
-  r' <- genStmt r
-  pure (ExprStmt expr' : r')
+  liftP2
+    (\e' r' -> Assign name' e' : r')
+    ( do
+        expr' <- rtFromExpr expr
+        lift $ unify_ tv (rtInfo expr')
+        pure expr'
+    )
+    (genStmt r)
+genStmt (ExprStmt expr : r) =
+  liftP2
+    (\e' r' -> ExprStmt e' : r')
+    (rtFromExpr expr)
+    (genStmt r)
 genStmt [] = pure []
 
 genBlock ::
@@ -237,20 +262,39 @@ genBlock tv (Block lbl stmts typ) = do
 deepEvalExpr :: Expr -> Eval Value
 deepEvalExpr = deferExpr >=> deepEval
 
+rtFromExprUnify ::
+  Expr ->
+  TypeVar ->
+  RTEval (RTExpr PreCall TypeVar TypeVar)
+rtFromExprUnify expr tv = do
+  expr' <- rtFromExpr expr
+  lift $ unify_ tv (rtInfo expr')
+  pure expr'
+
 rtFromExpr ::
   Expr ->
   RTEval (RTExpr PreCall TypeVar TypeVar)
 rtFromExpr (BinExpr (ArithOp op) a b) = do
-  rta <- rtFromExpr a
-  rtb <- rtFromExpr b
-  tv <- lift $ unify (rtInfo rta) (rtInfo rtb)
-  pure $ RTBin (ArithOp op) rta rtb tv
+  tv <- lift fresh
+  liftP2
+    (\a' b' -> RTBin (ArithOp op) a' b' tv)
+    (rtFromExprUnify a tv)
+    (rtFromExprUnify b tv)
 rtFromExpr (BinExpr (CompOp op) a b) = do
-  rta <- rtFromExpr a
-  rtb <- rtFromExpr b
-  lift $ unify_ (rtInfo rta) (rtInfo rtb)
-  tv <- lift $ tvar TBool
-  pure $ RTBin (CompOp op) rta rtb tv
+  tvRes <- lift $ tvar TBool
+  tvExp <- lift fresh
+  liftP2
+    (\a' b' -> RTBin (CompOp op) a' b' tvRes)
+    (rtFromExprUnify a tvExp)
+    (rtFromExprUnify b tvExp)
+rtFromExpr (Cond cond t f) = do
+  tvBranch <- lift fresh
+  tvCond <- lift $ tvar TBool
+  liftP3
+    (\cond' a' b' -> RTCond cond' a' b' tvBranch)
+    (rtFromExprUnify cond tvCond)
+    (rtFromExprUnify t tvBranch)
+    (rtFromExprUnify f tvBranch)
 rtFromExpr (Var n) =
   lookupVar
     n
@@ -259,6 +303,8 @@ rtFromExpr (Var n) =
     (const $ throwError "referencing block label as expressiong")
     (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
+  -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
+  -- parallel as it potentially could be. Let's first see a test case though.
   tf <- lift $ deferExpr f
   lift (force tf) >>= \case
     VFunc tdeps funId ->
@@ -287,13 +333,6 @@ rtFromExpr (App f x) = do
           pure $ RTCall (CallRec n) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
-rtFromExpr (Cond cond t f) = do
-  rtc <- rtFromExpr cond
-  lift $ setType (rtInfo rtc) TBool
-  rtt <- rtFromExpr t
-  rtf <- rtFromExpr f
-  tv <- lift $ unify (rtInfo rtt) (rtInfo rtf)
-  pure $ RTCond rtc rtt rtf tv
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -407,10 +446,13 @@ withBuiltins m = do
   local (ctx %~ bindThunk "builtins" tBuiltins) m
 
 typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
-typeOf (VRTVar _ tv) = VType <$> getType tv
-typeOf (VBlockLabel _ tv) = VType <$> getType tv
-typeOf (VBlock _ blk) = VType <$> getType (blk ^. blkType)
+typeOf (VRTVar _ tv) = VType <$> getTypeSuspend tv
+typeOf (VBlockLabel _ tv) = VType <$> getTypeSuspend tv
+typeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
 typeOf _ = throwError "Cannot get typeOf"
+
+getTypeSuspend :: TypeVar -> Eval Type
+getTypeSuspend tv = getType (suspend $ getTypeSuspend tv) tv
 
 struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 struct (VAttr m) = do

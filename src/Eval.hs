@@ -207,12 +207,12 @@ unify a b = a <$ unify_ a b
 unify_ :: TypeVar -> TypeVar -> Eval ()
 unify_ (TypeVar a) (TypeVar b) = liftIO $ UF.union' a b (\sa sb -> pure (sa <> sb))
 
-getType :: TypeVar -> Eval Type
-getType (TypeVar tv) = do
+getType :: Eval Type -> TypeVar -> Eval Type
+getType def (TypeVar tv) = do
   tys <- liftIO $ UF.descriptor tv
   case S.toList tys of
     [a] -> pure a
-    [] -> pure TVoid
+    [] -> def
     l -> throwError $ "Overdetermined: " <> show l
 
 deferVal :: ValueF ThunkID -> Eval ThunkID

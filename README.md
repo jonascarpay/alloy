@@ -1,6 +1,7 @@
 # alloy
 
 ## TODO
+- [ ] `typeOf` will infinitely retry
 - [ ] Revisit labeled blocks
   - [ ] Can return just be a macro?
   - [ ] unbreakable blocks?
