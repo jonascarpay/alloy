@@ -20,6 +20,7 @@ data Prim
   = PInt Int
   | PDouble Double
   | PBool Bool
+  | PString String
   deriving (Eq, Show, Generic)
 
 data Type

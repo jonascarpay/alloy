@@ -24,6 +24,7 @@ ppPrim :: Prim -> Doc ann
 ppPrim (PInt x) = pretty x
 ppPrim (PDouble x) = pretty x
 ppPrim (PBool x) = ppBool x
+ppPrim (PString str) = dquotes $ pretty str
 
 ppBool :: Bool -> Doc ann
 ppBool True = "true"

@@ -156,12 +156,14 @@ pLet = do
       pure (n, x)
 
 pPrim :: Parser Prim
-pPrim = choice [PBool <$> try pBool, PInt <$> pInt] <?> "primitive"
+pPrim = choice [PBool <$> try pBool, PInt <$> pInt, PString <$> pString] <?> "primitive"
   where
     pBool :: Parser Bool
     pBool = True <$ keyword "true" <|> False <$ keyword "false"
     pInt :: Parser Int
     pInt = lexeme Lex.decimal
+    pString :: Parser String
+    pString = lexeme (char '\"' *> manyTill Lex.charLiteral (char '\"')) <?> "string"
 
 pFunc :: Parser Expr
 pFunc = do
