@@ -359,11 +359,39 @@ rtTests =
               }
           |],
       saFunc
-        "struct literals"
+        "simple struct literal"
         [r| with builtins.types;
+            let str = builtins.struct { a: int, b: double };
+            in [] -> void {
+              var x: str = {a: 3, b: 2};
+            }
+        |],
+      negative $
+        saFunc
+          "struct member type error"
+          [r| with builtins.types;
+              let str = builtins.struct { a: bool };
+              in [] -> void {
+                var x: str = {a: 2};
+              }
+          |],
+      negative $
+        saFunc
+          "missing struct members"
+          [r| with builtins.types;
+              let str = builtins.struct { a: int, b: int };
+              in [] -> void {
+                var x: str = {a: 2};
+              }
+          |],
+      pending $
+        saFunc
+          "non-literal struct expression"
+          [r| with builtins.types;
               let str = builtins.struct { a: int, b: double };
               in [] -> void {
-                var x: str = {a: 3, b: 2};
+                var y: int = 2;
+                var x: str = {a: y, b: 2};
               }
           |]
     ]
