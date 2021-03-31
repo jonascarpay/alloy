@@ -240,7 +240,7 @@ rtTests =
         "simple conditional"
         [r| with builtins.types;
             [] -> int {
-              if true then {break 2;} else {break 2;};
+              if true then {break 2;} else {break 2;}
             }
         |],
       funcWithNDeps

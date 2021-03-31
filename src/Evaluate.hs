@@ -74,11 +74,11 @@ step (BlockExpr b) = fmap (uncurry VBlock) $ do
       Nothing -> fresh
   local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
     case b ^. blkLabel of
-      Nothing -> genBlock tv b
+      Nothing -> genBlock b
       Just lbl ->
         local
           (ctx . ctxBinds . at lbl ?~ BBlockLabel tv)
-          $ genBlock tv b
+          (genBlock b)
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -236,10 +236,10 @@ genStmt (ExprStmt expr : r) = do
 genStmt [] = pure []
 
 genBlock ::
-  TypeVar ->
   Block (Maybe Expr) Expr ->
   Eval (Dependencies, RTBlock PreCall TypeVar)
-genBlock tv (Block lbl stmts typ) = do
+genBlock (Block lbl stmts typ) = do
+  tv <- view envBlockVar >>= maybe (throwError "impossible") pure
   (stmts', deps) <- runWriterT $ genStmt stmts
   forM_ typ (evalType >=> setType tv) -- Note that you currently cannot actually give a type expression for a block yet
   pure (deps, Block lbl stmts' tv)
@@ -376,7 +376,8 @@ rtLitFromPrim (PBool b) = pure $ RTBool b
 
 rtFromVal :: Value -> RTEval (RTExpr PreCall TypeVar TypeVar)
 rtFromVal (Fix (VPrim p)) = do
-  tv <- lift fresh
+  tv <- askVar
+  typ <- lift $ getTypeSuspend tv
   lit <- rtLitFromPrim p
   pure $ RTLiteral lit tv
 rtFromVal (Fix (VAttr m)) = do
@@ -402,7 +403,7 @@ rtFromVal (Fix (VBlock deps b)) = do
 
 functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
 functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth fns _ _) =
-  EvalEnv (Context binds' name) depth' fns' (Just ret) Nothing
+  EvalEnv (Context binds' name) depth' fns' Nothing (Just ret)
   where
     depth' = depth + 1
     fns' = (snd <$> typedArgs, ret) : fns
