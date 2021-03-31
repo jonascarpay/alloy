@@ -433,6 +433,7 @@ withBuiltins m = do
   tStruct <- deferVal $ VClosure' (force >=> struct)
   tTypeOf <- deferVal $ VClosure' (force >=> typeOf)
   tMatchType <- deferVal $ VClosure' (force >=> matchType)
+  tError <- deferVal $ VClosure' (force >=> bError)
   tTypes <-
     deferAttrs
       [ ("int", VType TInt),
@@ -448,7 +449,8 @@ withBuiltins m = do
           ("types", tTypes),
           ("struct", tStruct),
           ("typeOf", tTypeOf),
-          ("matchType", tMatchType)
+          ("matchType", tMatchType),
+          ("error", tError)
         ]
   local (ctx %~ bindThunk "builtins" tBuiltins) m
 
@@ -457,6 +459,10 @@ typeOf (VRTVar _ tv) = VType <$> getTypeSuspend tv
 typeOf (VBlockLabel _ tv) = VType <$> getTypeSuspend tv
 typeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
 typeOf _ = throwError "Cannot get typeOf"
+
+bError :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bError (VPrim (PString msg)) = throwError $ "error: " <> msg
+bError _ = throwError "builtins.error was passed a non-string"
 
 getTypeSuspend :: TypeVar -> Eval Type
 getTypeSuspend tv = go retries
