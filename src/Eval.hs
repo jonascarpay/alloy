@@ -99,7 +99,8 @@ data EvalEnv = EvalEnv
   { _ctx :: Context,
     _envFnDepth :: Int,
     _envFnStack :: [([TypeVar], TypeVar)],
-    _envBlockStack :: [TypeVar]
+    _envBlockVar :: Maybe TypeVar,
+    _envExprVar :: Maybe TypeVar
   }
 
 makeLenses ''Context
@@ -138,7 +139,10 @@ runEval :: Eval a -> IO (Either String a)
 runEval (Eval m) =
   (fmap . fmap) fst $
     runExceptT $
-      evalRWST (runCoroutine m) (EvalEnv (Context mempty Nothing) 0 mempty mempty) (EvalState 0 mempty 0)
+      evalRWST (runCoroutine m) env0 st0
+  where
+    env0 = EvalEnv (Context mempty Nothing) 0 mempty Nothing Nothing
+    st0 = EvalState 0 mempty 0
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -185,17 +189,16 @@ mkThunk thunk = state $ \(EvalState n m t) -> (n, EvalState (n + 1) (M.insert n 
 deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
 deferM = mkThunk . Deferred
 
--- TODO: generalize to MonadIO?
-fresh :: Eval TypeVar
+fresh :: MonadIO m => m TypeVar
 fresh = liftIO $ TypeVar <$> UF.fresh mempty
 
-setType :: TypeVar -> Type -> Eval ()
+setType :: MonadIO m => TypeVar -> Type -> m ()
 setType (TypeVar tv) ty = liftIO $ UF.modifyDescriptor tv (S.insert ty)
 
-tvar :: Type -> Eval TypeVar
+tvar :: MonadIO m => Type -> m TypeVar
 tvar ty = fresh >>= \var -> var <$ setType var ty
 
-tvarMay :: Maybe Type -> Eval TypeVar
+tvarMay :: MonadIO m => Maybe Type -> m TypeVar
 tvarMay mty = do
   tv <- fresh
   forM_ mty $ setType tv
@@ -204,7 +207,7 @@ tvarMay mty = do
 unify :: TypeVar -> TypeVar -> Eval TypeVar
 unify a b = a <$ unify_ a b
 
-unify_ :: TypeVar -> TypeVar -> Eval ()
+unify_ :: MonadIO m => TypeVar -> TypeVar -> m ()
 unify_ (TypeVar a) (TypeVar b) = liftIO $ UF.union' a b (\sa sb -> pure (sa <> sb))
 
 getType :: Eval Type -> TypeVar -> Eval Type

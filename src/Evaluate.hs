@@ -68,8 +68,11 @@ step (Acc f em) =
         Just tid -> force tid
     _ -> throwError "Accessing field of not an attribute set"
 step (BlockExpr b) = fmap (uncurry VBlock) $ do
-  tv <- fresh
-  local (envBlockStack %~ (tv :)) $
+  tv <-
+    view envExprVar >>= \case
+      Just tv -> pure tv
+      Nothing -> fresh
+  local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
     case b ^. blkLabel of
       Nothing -> genBlock tv b
       Just lbl ->
@@ -183,35 +186,27 @@ genStmt ::
   [Stmt (Maybe Expr) Expr] ->
   RTEval [Stmt TypeVar (RTExpr PreCall TypeVar TypeVar)]
 genStmt (Return expr : r) = do
-  tv <- lift fresh
-  liftP3
-    (\_ e' r' -> Return e' : r')
-    ( view envFnStack >>= \case
-        (_, rtv) : _ -> lift $ unify_ rtv tv
-        _ -> throwError "impossible?"
-    )
-    (rtFromExprUnify expr tv)
+  tv <-
+    view envFnStack >>= \case
+      (_, rtv) : _ -> pure rtv
+      _ -> throwError "returning but no return type found?"
+  liftP2
+    (\e' r' -> Return e' : r')
+    (atVar tv $ rtFromExpr expr)
     (genStmt r)
 genStmt (Break mname mexpr : r) = do
-  tv <- lift fresh
-  liftP3
-    (\ml' e' r' -> Break (fst <$> ml') e' : r')
-    ( do
-        mlbl <- traverse resolveToBlockLabel mname
-        case mlbl of
-          Just (_, ltv) -> lift $ unify_ tv ltv
-          Nothing ->
-            view envBlockStack >>= \case
-              ltv : _ -> lift $ unify_ tv ltv
-              _ -> throwError "impossible empty block stack"
-        pure mlbl
-    )
-    ( do
-        mexpr' <- traverse rtFromExpr mexpr
-        lift $ case mexpr' of
-          Just expr -> unify_ tv (rtInfo expr)
-          Nothing -> setType tv TVoid
-        pure mexpr'
+  mlbl <- traverse resolveToBlockLabel mname
+  tv <- case mlbl of
+    Just (_, ltv) -> pure ltv
+    Nothing ->
+      view envBlockVar >>= \case
+        Just ltv -> pure ltv
+        _ -> throwError "No current block type variable?"
+  liftP2
+    (\e' r' -> Break (fst <$> mlbl) e' : r')
+    ( case mexpr of
+        Just expr -> Just <$> atVar tv (rtFromExpr expr)
+        Nothing -> Nothing <$ setType tv TVoid
     )
     (genStmt r)
 genStmt (Continue mname : r) =
@@ -224,26 +219,19 @@ genStmt (Decl name mtypExpr expr : r) = do
   liftP3
     (\_ e' r' -> Decl name tv e' : r')
     (lift $ forM_ mtypExpr (evalType >=> setType tv))
-    ( do
-        expr' <- rtFromExpr expr
-        lift $ unify_ tv (rtInfo expr')
-        pure expr'
-    )
+    (atVar tv $ rtFromExpr expr)
     (local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r))
 genStmt (Assign name expr : r) = do
   (name', tv) <- resolveToRuntimeVar name
   liftP2
     (\e' r' -> Assign name' e' : r')
-    ( do
-        expr' <- rtFromExpr expr
-        lift $ unify_ tv (rtInfo expr')
-        pure expr'
-    )
+    (atVar tv $ rtFromExpr expr)
     (genStmt r)
-genStmt (ExprStmt expr : r) =
+genStmt (ExprStmt expr : r) = do
+  tv <- fresh
   liftP2
     (\e' r' -> ExprStmt e' : r')
-    (rtFromExpr expr)
+    (atVar tv $ rtFromExpr expr)
     (genStmt r)
 genStmt [] = pure []
 
@@ -261,44 +249,52 @@ genBlock tv (Block lbl stmts typ) = do
 deepEvalExpr :: Expr -> Eval Value
 deepEvalExpr = deferExpr >=> deepEval
 
-rtFromExprUnify ::
-  Expr ->
-  TypeVar ->
-  RTEval (RTExpr PreCall TypeVar TypeVar)
-rtFromExprUnify expr tv = do
-  expr' <- rtFromExpr expr
-  lift $ unify_ tv (rtInfo expr')
-  pure expr'
+askVar :: (MonadError String m, MonadReader EvalEnv m) => m TypeVar
+askVar =
+  view envExprVar >>= \case
+    Nothing -> throwError "No type variable defined for the current expression"
+    Just tv -> pure tv
+
+setLocalType :: (MonadIO m, MonadError String m, MonadReader EvalEnv m) => Type -> m ()
+setLocalType typ = askVar >>= \tv -> setType tv typ
+
+atVar :: MonadReader EvalEnv m => TypeVar -> m a -> m a
+atVar tv = local (envExprVar ?~ tv)
+
+atType :: Type -> RTEval a -> RTEval a
+atType typ m = do
+  tv <- tvar typ
+  local (envExprVar ?~ tv) m
 
 rtFromExpr ::
   Expr ->
   RTEval (RTExpr PreCall TypeVar TypeVar)
-rtFromExpr (BinExpr (ArithOp op) a b) = do
-  tv <- lift fresh
-  liftP2
-    (\a' b' -> RTBin (ArithOp op) a' b' tv)
-    (rtFromExprUnify a tv)
-    (rtFromExprUnify b tv)
-rtFromExpr (BinExpr (CompOp op) a b) = do
-  tvRes <- lift $ tvar TBool
-  tvExp <- lift fresh
-  liftP2
-    (\a' b' -> RTBin (CompOp op) a' b' tvRes)
-    (rtFromExprUnify a tvExp)
-    (rtFromExprUnify b tvExp)
-rtFromExpr (Cond cond t f) = do
-  tvBranch <- lift fresh
-  tvCond <- lift $ tvar TBool
+rtFromExpr (BinExpr (ArithOp op) a b) =
   liftP3
-    (\cond' a' b' -> RTCond cond' a' b' tvBranch)
-    (rtFromExprUnify cond tvCond)
-    (rtFromExprUnify t tvBranch)
-    (rtFromExprUnify f tvBranch)
+    (RTBin (ArithOp op))
+    (rtFromExpr a)
+    (rtFromExpr b)
+    askVar
+rtFromExpr (BinExpr (CompOp op) a b) = do
+  setLocalType TBool
+  tvExp <- fresh
+  liftP3
+    (RTBin (CompOp op))
+    (atVar tvExp $ rtFromExpr a)
+    (atVar tvExp $ rtFromExpr b)
+    askVar
+rtFromExpr (Cond cond t f) =
+  liftP4
+    RTCond
+    (atType TBool $ rtFromExpr cond)
+    (rtFromExpr t)
+    (rtFromExpr f)
+    askVar
 rtFromExpr (Var n) =
   lookupVar
     n
     (lift . deepEval >=> rtFromVal)
-    (pure . RTVar n)
+    (\tv -> RTVar n tv <$ (askVar >>= unify_ tv))
     (const $ throwError "referencing block label as expressiong")
     (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
@@ -332,6 +328,7 @@ rtFromExpr (App f x) = do
           pure $ RTCall (CallRec n) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
+rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -339,7 +336,6 @@ rtFromExpr expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
 
 varsFromSig :: [Type] -> Type -> Eval ([TypeVar], TypeVar)
@@ -405,8 +401,8 @@ rtFromVal (Fix (VBlock deps b)) = do
   pure $ RTBlock b tv
 
 functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth fns _) =
-  EvalEnv (Context binds' name) depth' fns' []
+functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth fns _ _) =
+  EvalEnv (Context binds' name) depth' fns' (Just ret) Nothing
   where
     depth' = depth + 1
     fns' = (snd <$> typedArgs, ret) : fns

@@ -54,11 +54,17 @@ class MonadCoroutine m where
 runCoroutine :: Monad m => Coroutine m r -> m r
 runCoroutine (Coroutine m) = m >>= either runCoroutine pure
 
+{-# INLINE liftP2 #-}
 liftP2 :: (Functor m, MonadCoroutine m) => (a -> b -> c) -> m a -> m b -> m c
 liftP2 f a = par (f <$> a)
 
+{-# INLINE liftP3 #-}
 liftP3 :: (Functor m, MonadCoroutine m) => (a -> b -> c -> d) -> m a -> m b -> m c -> m d
 liftP3 f a b = par (liftP2 f a b)
+
+{-# INLINE liftP4 #-}
+liftP4 :: (Functor m, MonadCoroutine m) => (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
+liftP4 f a b c = par (liftP3 f a b c)
 
 instance Applicative m => MonadCoroutine (Coroutine m) where
   par mf ma =

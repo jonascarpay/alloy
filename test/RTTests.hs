@@ -236,8 +236,15 @@ rtTests =
                   )[];
                 }
           |],
-      funcWithNDeps
+      saFunc
         "simple conditional"
+        [r| with builtins.types;
+            [] -> int {
+              if true then {break 2;} else {break 2;};
+            }
+        |],
+      funcWithNDeps
+        "conditional evaluates both branches"
         2
         [r| with builtins.types;
             [] -> int {
@@ -302,6 +309,7 @@ rtTests =
               [] -> int {
                 var x: int = 4;
                 var z: bool = (x == 3);
+                return 3;
               }
           |],
       negative $
