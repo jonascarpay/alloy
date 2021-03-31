@@ -364,29 +364,41 @@ safeLookup 0 (a : _) = Just a
 safeLookup n' (_ : as) = safeLookup (n' -1) as
 safeLookup _ _ = Nothing
 
+-- TODO argument length mismatch tests
 safeZipWithM_ :: Applicative m => m () -> (a -> b -> m c) -> [a] -> [b] -> m ()
 safeZipWithM_ err f as bs
   | length as /= length bs = err
   | otherwise = zipWithM_ f as bs
 
-rtLitFromPrim :: Prim -> RTEval RTLiteral
-rtLitFromPrim (PInt n) = pure $ RTInt n
-rtLitFromPrim (PDouble n) = pure $ RTDouble n
-rtLitFromPrim (PBool b) = pure $ RTBool b
+rtLit :: Type -> Prim -> RTEval RTLiteral
+rtLit TInt (PInt n) = pure $ RTInt n
+rtLit TDouble (PInt n) = pure $ RTInt n
+rtLit TDouble (PDouble n) = pure $ RTDouble n
+rtLit TBool (PBool b) = pure $ RTBool b
+rtLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
 
+rtStruct :: Type -> Map Name Value -> RTEval (Map Name RTLiteral)
+rtStruct (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
+  case M.lookup fieldName attrs of
+    Just val ->
+      atType typ (rtFromVal val) >>= \case
+        RTLiteral lit _ -> pure lit
+        _ -> throwError "Expression did not evaluate to a literal"
+    _ -> throwError $ "Field " <> fieldName <> " not present in the supplied struct"
+rtStruct t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
+
+-- TODO this value can be lazy, that way structs only evaluate relevant members
 rtFromVal :: Value -> RTEval (RTExpr PreCall TypeVar TypeVar)
 rtFromVal (Fix (VPrim p)) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  lit <- rtLitFromPrim p
+  lit <- rtLit typ p
   pure $ RTLiteral lit tv
 rtFromVal (Fix (VAttr m)) = do
-  m' <- flip M.traverseWithKey m $ \key field ->
-    rtFromVal field >>= \case
-      RTLiteral l _ -> pure l
-      _ -> throwError $ "Field " <> key <> " did not evaluate to a literal"
-  tv <- lift fresh -- TODO appropriate type constraint
-  pure $ RTLiteral (RTStruct m') tv
+  tv <- askVar
+  typ <- lift $ getTypeSuspend tv
+  s <- rtStruct typ m
+  pure $ RTLiteral (RTStruct s) tv
 rtFromVal (Fix (VRTVar n tv)) = pure $ RTVar n tv -- TODO PROPER RT VARIABLE HANDLING
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"

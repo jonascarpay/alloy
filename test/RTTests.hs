@@ -56,9 +56,8 @@ rtTests =
       pending $
         saFunc "empty function" "with builtins.types; [] -> void { }",
       saFunc "trivial with" "with builtins.types; [] -> int { return 0; }",
-      pending $
-        expectFailBecause "Cannot construct void for nums" $
-          saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
+      expectFailBecause "Cannot construct void for nums" $
+        saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
       saFunc "simple recursion" "[] -> (builtins.types.int) { return self []; }",
       funcWithNDeps
         "mutual recursion"
@@ -345,7 +344,7 @@ rtTests =
         [r| with builtins.types;
             [] -> int {
               var x: int = 4;
-              var y: bool = 4;
+              var y: bool = true;
               var z = if y then x else x;
             }
         |],
@@ -357,6 +356,14 @@ rtTests =
                 var x: int = 4;
                 var y: int = 4;
                 var z = if y then x else x;
+              }
+          |],
+      saFunc
+        "struct literals"
+        [r| with builtins.types;
+              let str = builtins.struct { a: int, b: double };
+              in [] -> void {
+                var x: str = {a: 3, b: 2};
               }
           |]
     ]
