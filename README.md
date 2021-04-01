@@ -1,7 +1,7 @@
 # alloy
 
 ## TODO
-- [ ] `typeOf` will infinitely retry
+- [x] `typeOf` will infinitely retry
 - [ ] Revisit labeled blocks
   - [ ] Can return just be a macro?
   - [ ] unbreakable blocks?
@@ -12,7 +12,7 @@
   - [ ] type classes/traits?
   - [x] typeOf
   - [x] type equality
-  - [ ] pattern matching on types?
+  - [x] pattern matching on types?
   - [ ] are types just their encoding?
 - [x] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
 - [ ] check if functions properly return?
@@ -37,16 +37,16 @@
 - [ ] `builtins.trace`
   - could just use Haskell's `trace` for now
   - requires strings
-- [ ] literal conversions
+- [x] literal conversions
 - [ ] type holes
-- [ ] `printf` in Zig knows the types of its arguments at compile time -- do we want/need that?
+- [x] `printf` in Zig knows the types of its arguments at compile time -- do we want/need that?
 - [ ] comptime stack traces
-- [ ] `builtins.error`
+- [x] `builtins.error`
   - strings
 - [ ] negative lit
 - [ ] proper keyword parsing
   - [x] currently `truee` parses to `true e`
-- [ ] print `VClosure` using let-bindings?
+- [x] ~print `VClosure` using let-bindings?~ impossible for builtins
 - [ ] (key)word parsing backtracks too much
   - [ ] parsing in general kinda sucks
 - [ ] custom pretty-printing
@@ -69,7 +69,7 @@
   - it's not lists
 - [ ] rename stuff
   - [ ] lazy evaluation terminology
-- [ ] imports
+- [x] imports
   - [ ] check for unbound variables to avoid capture issues
 - [ ] warnings
 - [ ] have subcommands in the executable for the building and the repl
