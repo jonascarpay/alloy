@@ -332,9 +332,6 @@ rtFromExpr (App f x) = do
             argVars
           pure $ RTCall (CallRec n) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
-    VClosure arg body env -> do
-      tid <- lift $ deferExpr x
-      local (ctx .~ bindThunk arg tid env) (lift $ step body >>= traverse deepEval) >>= rtFromVal . Fix
     val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
