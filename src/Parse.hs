@@ -76,7 +76,7 @@ pAttrs = braces $ Attr . M.fromList <$> pAttrList
     -- inherit statements can have multiple import, but field declarations can
     -- only have one, so we need to do some marshalling
     pAttrList :: Parser [(Name, Expr)]
-    pAttrList = concat <$> sepEndBy (pInherit <|> pInheritFrom <|> (pure <$> pAttrField)) comma
+    pAttrList = concat <$> sepEndBy (try pInheritFrom <|> pInherit <|> (pure <$> pAttrField)) comma
     pAttrField = do
       name <- pName
       symbol ":"

@@ -52,6 +52,18 @@ evalTests =
            in b
         |],
       is9
+        "inherit from expression"
+        [r|
+          let inherit ({ a: builtins.undefined, b: 9 }) b;
+           in b
+        |],
+      is9
+        "attrs inherit from"
+        [r|
+          let attrs = { a: 9 };
+           in { inherit (attrs) a }.a
+        |],
+      is9
         "lazy attr inheritance test"
         [r| let diverge = builtins.undefined;
                 x = 9;
