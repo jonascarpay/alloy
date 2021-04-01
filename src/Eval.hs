@@ -96,7 +96,9 @@ data Context = Context
     _ctxFile :: FilePath
   }
 
--- | The Context is definition-local, the rest of the environmant is local to the evaluation site.
+-- | The Context is the static/lexical scope
+--   The rest is part of the dynamic scope
+--   TODO rename things
 data EvalEnv = EvalEnv
   { _ctx :: Context,
     _envFnDepth :: Int,
