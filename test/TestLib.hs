@@ -13,6 +13,7 @@ import Parse
 import Prettyprinter
 import Print
 import Program
+import System.Directory
 import Test.Tasty.HUnit
 import Text.Megaparsec qualified as MP
 
@@ -26,8 +27,9 @@ assertParse str = do
     Right res -> pure res
 
 assertEval :: HasCallStack => Expr -> IO Value
-assertEval expr =
-  evalInfo expr >>= \case
+assertEval expr = do
+  cwd <- getCurrentDirectory
+  evalInfo cwd expr >>= \case
     Left err -> assertFailure $ show err
     Right val -> pure val
 

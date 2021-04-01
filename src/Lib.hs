@@ -11,10 +11,11 @@ import Parse
 import Prettyprinter
 import Print
 import System.Console.Haskeline
+import System.Directory
 import Text.Megaparsec as MP
 
-evalInfo :: Expr -> IO (Either (Doc ann) Value)
-evalInfo expr = (fmap . first) f (eval expr)
+evalInfo :: FilePath -> Expr -> IO (Either (Doc ann) Value)
+evalInfo fp expr = (fmap . first) f (eval fp expr)
   where
     f err =
       vcat
@@ -25,14 +26,15 @@ evalInfo expr = (fmap . first) f (eval expr)
         ]
 
 repl :: IO ()
-repl = runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
-  where
-    loop =
-      getInputLine "> " >>= \case
-        Nothing -> outputStrLn "You're my favorite customer"
-        Just str ->
-          case parse pToplevel "" str of
-            Left err -> outputStrLn (errorBundlePretty err) >> loop
-            Right expr -> do
-              liftIO (evalInfo expr) >>= either (outputStrLn . show) (outputStrLn . show . ppVal)
-              loop
+repl = do
+  cwd <- getCurrentDirectory
+  let loop =
+        getInputLine "> " >>= \case
+          Nothing -> outputStrLn "You're my favorite customer"
+          Just str ->
+            case parse pToplevel "" str of
+              Left err -> outputStrLn (errorBundlePretty err) >> loop
+              Right expr -> do
+                liftIO (evalInfo cwd expr) >>= either (outputStrLn . show) (outputStrLn . show . ppVal)
+                loop
+  runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop

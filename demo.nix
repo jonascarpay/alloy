@@ -6,7 +6,7 @@ let
       comp = "${pkgs.hsPkgs.alloy.components.exes.alloy-exe}/bin/alloy-exe";
     in
     pkgs.writeShellScriptBin "alloy-demo" ''
-      ls *.ayy | ${entr} -c ${comp} -f syntax.ayy
+      ls *.ay | ${entr} -c ${comp} -f main.ay
     '';
 in
 pkgs.stdenv.mkDerivation {

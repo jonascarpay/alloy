@@ -92,9 +92,11 @@ type Env = Map Name Binding
 
 data Context = Context
   { _ctxBinds :: Map Name Binding,
-    _ctxName :: Maybe Name
+    _ctxName :: Maybe Name,
+    _ctxFile :: FilePath
   }
 
+-- | The Context is definition-local, the rest of the environmant is local to the evaluation site.
 data EvalEnv = EvalEnv
   { _ctx :: Context,
     _envFnDepth :: Int,
@@ -135,13 +137,13 @@ bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 bindRtvar :: Name -> TypeVar -> Env -> Env
 bindRtvar n tv = M.insert n (BRTVar tv)
 
-runEval :: Eval a -> IO (Either String a)
-runEval (Eval m) =
+runEval :: FilePath -> Eval a -> IO (Either String a)
+runEval fp (Eval m) =
   (fmap . fmap) fst $
     runExceptT $
       evalRWST (runCoroutine m) env0 st0
   where
-    env0 = EvalEnv (Context mempty Nothing) 0 mempty Nothing Nothing
+    env0 = EvalEnv (Context mempty Nothing fp) 0 mempty Nothing Nothing
     st0 = EvalState 0 mempty 0
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID

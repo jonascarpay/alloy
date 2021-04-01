@@ -393,5 +393,42 @@ rtTests =
                 var y: int = 2;
                 var x: str = {a: y, b: 2};
               }
-          |]
+          |],
+      saFunc
+        "inline while loop"
+        [r| with builtins.types;
+            [] -> int {
+              var x: int = 3;
+              loop@{
+                if {x < 3} then {break @loop;} else {
+                  {x = x + 1;};
+                  continue @loop;
+                };
+              };
+            }
+        |],
+      -- TODO this defaults to the default type on Evaluate.hs:L212 for some reason???
+      saFunc
+        "half-inlined while loop"
+        [r| with builtins.types;
+            [] -> int {
+              var x: int = 3;
+                (cond: loop@{
+                  if cond then {break @loop;} else {{ x = x + 1; }; continue @loop;};
+                }) {x < 3};
+            }
+        |],
+      saFunc
+        "while loop"
+        [r| with builtins.types;
+            let while = cond: body: loop@{
+                  if cond then {break @loop;} else {body; continue @loop;};
+                };
+            in [] -> int {
+              var x: int = 3;
+              while {x < 3} {
+                x = x + 1;
+              };
+            }
+        |]
     ]

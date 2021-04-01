@@ -16,7 +16,7 @@ runCommand (Evaluate fp) = do
   case MP.parse pToplevel fp input of
     Left err -> putStrLn $ MP.errorBundlePretty err
     Right expr -> do
-      evalInfo expr >>= either print (print . ppVal)
+      evalInfo fp expr >>= either print (print . ppVal)
 
 main :: IO ()
 main = execParser opts >>= runCommand

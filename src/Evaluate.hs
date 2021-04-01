@@ -18,13 +18,18 @@ import Data.Maybe
 import Eval
 import Expr
 import Lens.Micro.Platform
+import Parse (pToplevel)
 import Program
+import System.FilePath
+import Text.Megaparsec qualified as MP
 
-eval :: Expr -> IO (Either String Value)
-eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
+eval :: FilePath -> Expr -> IO (Either String Value)
+eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
 
 deferExpr :: Expr -> Eval ThunkID
-deferExpr expr = ask >>= \env -> deferM $ local (const env) (step expr)
+deferExpr expr = do
+  env <- view ctx
+  deferM $ local (ctx .~ env) (step expr)
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
 reduce :: ValueF ThunkID -> ThunkID -> Eval (ValueF ThunkID)
@@ -327,6 +332,9 @@ rtFromExpr (App f x) = do
             argVars
           pure $ RTCall (CallRec n) rtArgs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
+    VClosure arg body env -> do
+      tid <- lift $ deferExpr x
+      local (ctx .~ bindThunk arg tid env) (lift $ step body >>= traverse deepEval) >>= rtFromVal . Fix
     val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -414,8 +422,8 @@ rtFromVal (Fix (VBlock deps b)) = do
   pure $ RTBlock b tv
 
 functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs ret (EvalEnv (Context binds name) depth fns _ _) =
-  EvalEnv (Context binds' name) depth' fns' Nothing (Just ret)
+functionBodyEnv typedArgs ret (EvalEnv (Context binds name fp) depth fns _ _) =
+  EvalEnv (Context binds' name fp) depth' fns' Nothing (Just ret)
   where
     depth' = depth + 1
     fns' = (snd <$> typedArgs, ret) : fns
@@ -434,6 +442,7 @@ withBuiltins m = do
   tTypeOf <- deferVal $ VClosure' (force >=> typeOf)
   tMatchType <- deferVal $ VClosure' (force >=> matchType)
   tError <- deferVal $ VClosure' (force >=> bError)
+  tImport <- deferVal $ VClosure' (force >=> biImport)
   tTypes <-
     deferAttrs
       [ ("int", VType TInt),
@@ -450,9 +459,21 @@ withBuiltins m = do
           ("struct", tStruct),
           ("typeOf", tTypeOf),
           ("matchType", tMatchType),
-          ("error", tError)
+          ("error", tError),
+          ("import", tImport)
         ]
   local (ctx %~ bindThunk "builtins" tBuiltins) m
+
+-- TODO this could be lazier if VClosure' were lazier
+biImport :: ValueF ThunkID -> Eval (ValueF ThunkID)
+biImport (VPrim (PString rel)) = do
+  file <- view (ctx . ctxFile)
+  let file' = takeDirectory file </> rel
+  input <- liftIO $ readFile file'
+  case MP.parse pToplevel file' input of
+    Left err -> throwError $ MP.errorBundlePretty err
+    Right expr -> local (ctx . ctxFile .~ file') $ step expr
+biImport _ = throwError "import needs a filepath"
 
 typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
 typeOf (VRTVar _ tv) = VType <$> getTypeSuspend tv
