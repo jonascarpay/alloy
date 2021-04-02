@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Eval where
@@ -29,8 +30,8 @@ data ValueF val
   | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
-  | VRTVar TempID TypeVar -- TODO drop typevar?
-  | VBlockLabel TempID TypeVar -- TODO drop typevar? unify?
+  | VRTVar TempID
+  | VBlockLabel TempID
   | VSelf Int
   | VBlock Dependencies (RTBlock TempID TempID PreCall TypeVar)
   | VFunc Dependencies (Either TempID GUID)
@@ -135,6 +136,12 @@ envFnStack = dynamicEnv . dynFnStack
 envFile :: Lens' Environment FilePath
 envFile = staticEnv . statFile
 
+envRTVar :: TempID -> Lens' Environment (Maybe TypeVar)
+envRTVar tid = dynamicEnv . dynVars . at tid
+
+envRTLabel :: TempID -> Lens' Environment (Maybe TypeVar)
+envRTLabel tid = dynamicEnv . dynLabels . at tid
+
 withName :: Name -> Eval a -> Eval a
 withName name = local (envName ?~ name)
 
@@ -232,7 +239,10 @@ resolveToRuntimeVar name =
     err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
     kComp tid =
       force tid >>= \case
-        VRTVar v tv -> pure (v, tv)
+        VRTVar tpid ->
+          view (envRTVar tpid) >>= \case
+            Just tv -> pure (tpid, tv)
+            Nothing -> err
         _ -> err
 
 resolveToBlockLabel :: Name -> RTEval (TempID, TypeVar)
@@ -241,7 +251,10 @@ resolveToBlockLabel name = lift $ lookupVar name kComp (\_ _ -> err) (curry pure
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
     kComp tid =
       force tid >>= \case
-        VBlockLabel v tv -> pure (v, tv)
+        VBlockLabel tpid ->
+          view (envRTLabel tpid) >>= \case
+            Just tv -> pure (tpid, tv)
+            Nothing -> err
         _ -> err
 
 mkThunk :: Thunk -> Eval ThunkID

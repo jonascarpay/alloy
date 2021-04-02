@@ -54,8 +54,8 @@ step (Var x) =
   lookupVar
     x
     force
-    (\tid tv -> pure $ VRTVar tid tv)
-    (\tid tv -> pure $ VBlockLabel tid tv)
+    (\tid _ -> pure $ VRTVar tid)
+    (\tid _ -> pure $ VBlockLabel tid)
     (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view staticEnv
 step (Let binds body) = do
@@ -477,7 +477,10 @@ rtFromVal (Fix (VAttr m)) = do
   typ <- lift $ getTypeSuspend tv
   s <- rtStruct typ m
   pure $ RTLiteral (RTStruct s) tv
-rtFromVal (Fix (VRTVar n tv)) = pure $ RTVar n tv -- TODO PROPER RT VARIABLE HANDLING
+rtFromVal (Fix (VRTVar tpid)) =
+  view (envRTVar tpid) >>= \case
+    Nothing -> throwError "variable not in scope"
+    Just tv -> RTVar tpid tv <$ (askVar >>= unify_ tv) -- TODO Combine with Var handling as expr on line 375 somehow
 rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
 rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
 rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"
@@ -534,8 +537,14 @@ biImport (VPrim (PString rel)) = do
 biImport _ = throwError "import needs a filepath"
 
 typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
-typeOf (VRTVar _ tv) = VType <$> getTypeSuspend tv
-typeOf (VBlockLabel _ tv) = VType <$> getTypeSuspend tv
+typeOf (VRTVar tid) =
+  view (envRTVar tid) >>= \case
+    Just tv -> VType <$> getTypeSuspend tv
+    Nothing -> throwError "Cannot get typeOf"
+typeOf (VBlockLabel tid) =
+  view (envRTLabel tid) >>= \case
+    Just tv -> VType <$> getTypeSuspend tv
+    Nothing -> throwError "Cannot get typeOf"
 typeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
 typeOf _ = throwError "Cannot get typeOf"
 
