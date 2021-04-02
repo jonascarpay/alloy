@@ -98,7 +98,7 @@ step (Cond cond tr fl) = do
 step (Func args ret bodyExpr) = do
   argVars <- (traverse . traverse) (evalType >=> tvar) args
   retVar <- evalType ret >>= tvar
-  recDepth <- view envFnDepth
+  recDepth <- length <$> view envFnStack
   -- the scope of `local` here encompasses the construction of the final function,
   -- but the `localState` only contains the evaluation of the nested body
   -- TODO make `local` scope smaller
@@ -420,10 +420,10 @@ rtFromVal (Fix (VBlock deps b)) = do
   pure $ RTBlock b tv
 
 functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> Environment -> Environment
-functionBodyEnv typedArgs ret (Environment (StaticEnv binds name fp) (DynamicEnv depth fns _ _)) =
-  Environment (StaticEnv binds' name fp) (DynamicEnv depth' fns' Nothing (Just ret))
+functionBodyEnv typedArgs ret (Environment (StaticEnv binds name fp) (DynamicEnv fns _ _)) =
+  Environment (StaticEnv binds' name fp) (DynamicEnv fns' Nothing (Just ret))
   where
-    depth' = depth + 1
+    depth = length fns
     fns' = (snd <$> typedArgs, ret) : fns
     binds' =
       flip (foldr (uncurry bindRtvar)) typedArgs

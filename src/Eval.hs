@@ -97,8 +97,7 @@ data StaticEnv = StaticEnv
   }
 
 data DynamicEnv = DynamicEnv
-  { _dynFnDepth :: Int,
-    _dynFnStack :: [([TypeVar], TypeVar)],
+  { _dynFnStack :: [([TypeVar], TypeVar)],
     _dynBlockVar :: Maybe TypeVar,
     _dynExprVar :: Maybe TypeVar
   }
@@ -124,9 +123,6 @@ envExprVar = dynamicEnv . dynExprVar
 
 envBlockVar :: Lens' Environment (Maybe TypeVar)
 envBlockVar = dynamicEnv . dynBlockVar
-
-envFnDepth :: Lens' Environment Int
-envFnDepth = dynamicEnv . dynFnDepth
 
 envFnStack :: Lens' Environment [([TypeVar], TypeVar)]
 envFnStack = dynamicEnv . dynFnStack
@@ -168,7 +164,7 @@ runEval fp (Eval m) =
     runExceptT $
       evalRWST (runCoroutine m) env0 st0
   where
-    env0 = Environment (StaticEnv mempty Nothing fp) (DynamicEnv 0 mempty Nothing Nothing)
+    env0 = Environment (StaticEnv mempty Nothing fp) (DynamicEnv mempty Nothing Nothing)
     st0 = EvalState 0 mempty 0
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
