@@ -25,7 +25,7 @@ type ThunkID = Int
 
 data ValueF val
   = VPrim Prim
-  | VClosure Name Expr Context -- TODO benchmark if we can safely remove this
+  | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
   | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
@@ -61,14 +61,14 @@ newtype Eval a = Eval
   { _unLazyT ::
       Coroutine
         ( RWST
-            EvalEnv
+            Environment
             ()
             EvalState
             (ExceptT String IO)
         )
         a
   }
-  deriving (Functor, MonadIO, Applicative, Monad, MonadReader EvalEnv, MonadError String, MonadState EvalState, MonadCoroutine)
+  deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadState EvalState, MonadCoroutine)
 
 data EvalState = EvalState
   { _thunkSource :: Int,
@@ -90,32 +90,55 @@ isThunk _ = False
 
 type Env = Map Name Binding
 
-data Context = Context
-  { _ctxBinds :: Map Name Binding,
-    _ctxName :: Maybe Name,
-    _ctxFile :: FilePath
+data StaticEnv = StaticEnv
+  { _statBinds :: Map Name Binding,
+    _statName :: Maybe Name,
+    _statFile :: FilePath
   }
 
--- | The Context is the static/lexical scope
---   The rest is part of the dynamic scope
---   TODO rename things
-data EvalEnv = EvalEnv
-  { _ctx :: Context,
-    _envFnDepth :: Int,
-    _envFnStack :: [([TypeVar], TypeVar)],
-    _envBlockVar :: Maybe TypeVar,
-    _envExprVar :: Maybe TypeVar
+data DynamicEnv = DynamicEnv
+  { _dynFnDepth :: Int,
+    _dynFnStack :: [([TypeVar], TypeVar)],
+    _dynBlockVar :: Maybe TypeVar,
+    _dynExprVar :: Maybe TypeVar
   }
 
-makeLenses ''Context
-makeLenses ''EvalEnv
+data Environment = Environment
+  { _staticEnv :: StaticEnv,
+    _dynamicEnv :: DynamicEnv
+  }
+
+makeLenses ''StaticEnv
+makeLenses ''DynamicEnv
+makeLenses ''Environment
 makeLenses ''EvalState
 
+envBinds :: Lens' Environment (Map Name Binding)
+envBinds = staticEnv . statBinds
+
+envName :: Lens' Environment (Maybe Name)
+envName = staticEnv . statName
+
+envExprVar :: Lens' Environment (Maybe TypeVar)
+envExprVar = dynamicEnv . dynExprVar
+
+envBlockVar :: Lens' Environment (Maybe TypeVar)
+envBlockVar = dynamicEnv . dynBlockVar
+
+envFnDepth :: Lens' Environment Int
+envFnDepth = dynamicEnv . dynFnDepth
+
+envFnStack :: Lens' Environment [([TypeVar], TypeVar)]
+envFnStack = dynamicEnv . dynFnStack
+
+envFile :: Lens' Environment FilePath
+envFile = staticEnv . statFile
+
 withName :: Name -> Eval a -> Eval a
-withName name = local (ctx . ctxName ?~ name)
+withName name = local (envName ?~ name)
 
 lookupVar ::
-  (MonadReader EvalEnv m, MonadError String m) =>
+  (MonadReader Environment m, MonadError String m) =>
   Name ->
   (ThunkID -> m r) ->
   (TypeVar -> m r) ->
@@ -123,17 +146,17 @@ lookupVar ::
   (Int -> m r) ->
   m r
 lookupVar name kct krt klbl kself = do
-  view (ctx . ctxBinds . at name) >>= \case
+  view (envBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just (BThunk tid) -> kct tid
     Just (BRTVar tv) -> krt tv
     Just (BBlockLabel tv) -> klbl tv
     Just (BSelf n) -> kself n
 
-bindThunk :: Name -> ThunkID -> Context -> Context
-bindThunk name tid = ctxBinds . at name ?~ BThunk tid
+bindThunk :: Name -> ThunkID -> Environment -> Environment
+bindThunk name tid = envBinds . at name ?~ BThunk tid
 
-bindThunks :: [(Name, ThunkID)] -> Context -> Context
+bindThunks :: [(Name, ThunkID)] -> Environment -> Environment
 bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
 bindRtvar :: Name -> TypeVar -> Env -> Env
@@ -145,7 +168,7 @@ runEval fp (Eval m) =
     runExceptT $
       evalRWST (runCoroutine m) env0 st0
   where
-    env0 = EvalEnv (Context mempty Nothing fp) 0 mempty Nothing Nothing
+    env0 = Environment (StaticEnv mempty Nothing fp) (DynamicEnv 0 mempty Nothing Nothing)
     st0 = EvalState 0 mempty 0
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID

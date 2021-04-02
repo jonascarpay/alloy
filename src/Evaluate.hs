@@ -28,13 +28,14 @@ eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
 
 deferExpr :: Expr -> Eval ThunkID
 deferExpr expr = do
-  env <- view ctx
-  deferM $ local (ctx .~ env) (step expr)
+  env <- view staticEnv
+  deferM $ local (staticEnv .~ env) (step expr)
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
 reduce :: ValueF ThunkID -> ThunkID -> Eval (ValueF ThunkID)
 reduce (VClosure arg body env) tid = do
-  local (ctx .~ bindThunk arg tid env) (step body)
+  local (staticEnv .~ env) $
+    local (bindThunk arg tid) (step body)
 reduce (VClosure' m) tid = m tid -- FIXME this will eventually break since it does not properly handle the environment
 reduce _ _ = throwError "Calling a non-function"
 
@@ -45,11 +46,11 @@ step (App f x) = do
   tx <- deferExpr x
   reduce tf tx
 step (Var x) = lookupVar x force (pure . VRTVar x) (pure . VBlockLabel x) (pure . VSelf)
-step (Lam arg body) = VClosure arg body <$> view ctx
+step (Lam arg body) = VClosure arg body <$> view staticEnv
 step (Let binds body) = do
   n0 <- use thunkSource
   let predictedThunks = zip (fst <$> binds) [n0 ..]
-  local (ctx %~ bindThunks predictedThunks) $ do
+  local (bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
     step body
 step (BinExpr bop a b) = do
@@ -82,12 +83,12 @@ step (BlockExpr b) = fmap (uncurry VBlock) $ do
       Nothing -> genBlock b
       Just lbl ->
         local
-          (ctx . ctxBinds . at lbl ?~ BBlockLabel tv)
+          (envBinds . at lbl ?~ BBlockLabel tv)
           (genBlock b)
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
-    VAttr m -> local (ctx %~ bindThunks (M.toList m)) (step body)
+    VAttr m -> local (bindThunks (M.toList m)) (step body)
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 step (Cond cond tr fl) = do
   step cond >>= \case
@@ -105,7 +106,7 @@ step (Func args ret bodyExpr) = do
     localState (tempSource .~ 0) (step bodyExpr) >>= \case
       VBlock deps body -> do
         unify_ retVar (body ^. blkType)
-        name <- view $ ctx . ctxName . to (fromMaybe "fn")
+        name <- view $ envName . to (fromMaybe "fn")
         let getTypeVoid = getType (pure TVoid)
         body' <- typecheckFunction getTypeVoid body
         argsTys <- (traverse . traverse) getTypeVoid argVars
@@ -225,7 +226,7 @@ genStmt (Decl name mtypExpr expr : r) = do
     (\_ e' r' -> Decl name tv e' : r')
     (lift $ forM_ mtypExpr (evalType >=> setType tv))
     (atVar tv $ rtFromExpr expr)
-    (local (ctx . ctxBinds %~ bindRtvar name tv) (genStmt r))
+    (local (envBinds %~ bindRtvar name tv) (genStmt r))
 genStmt (Assign name expr : r) = do
   (name', tv) <- resolveToRuntimeVar name
   liftP2
@@ -254,16 +255,16 @@ genBlock (Block lbl stmts typ) = do
 deepEvalExpr :: Expr -> Eval Value
 deepEvalExpr = deferExpr >=> deepEval
 
-askVar :: (MonadError String m, MonadReader EvalEnv m) => m TypeVar
+askVar :: (MonadError String m, MonadReader Environment m) => m TypeVar
 askVar =
   view envExprVar >>= \case
     Nothing -> throwError "No type variable defined for the current expression"
     Just tv -> pure tv
 
-setLocalType :: (MonadIO m, MonadError String m, MonadReader EvalEnv m) => Type -> m ()
+setLocalType :: (MonadIO m, MonadError String m, MonadReader Environment m) => Type -> m ()
 setLocalType typ = askVar >>= \tv -> setType tv typ
 
-atVar :: MonadReader EvalEnv m => TypeVar -> m a -> m a
+atVar :: MonadReader Environment m => TypeVar -> m a -> m a
 atVar tv = local (envExprVar ?~ tv)
 
 atType :: Type -> RTEval a -> RTEval a
@@ -300,7 +301,7 @@ rtFromExpr (Var n) =
     n
     (lift . deepEval >=> rtFromVal)
     (\tv -> RTVar n tv <$ (askVar >>= unify_ tv))
-    (const $ throwError "referencing block label as expressiong")
+    (const $ throwError "referencing block label as expression")
     (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
   -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
@@ -418,9 +419,9 @@ rtFromVal (Fix (VBlock deps b)) = do
   tv <- lift fresh
   pure $ RTBlock b tv
 
-functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> EvalEnv -> EvalEnv
-functionBodyEnv typedArgs ret (EvalEnv (Context binds name fp) depth fns _ _) =
-  EvalEnv (Context binds' name fp) depth' fns' Nothing (Just ret)
+functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> Environment -> Environment
+functionBodyEnv typedArgs ret (Environment (StaticEnv binds name fp) (DynamicEnv depth fns _ _)) =
+  Environment (StaticEnv binds' name fp) (DynamicEnv depth' fns' Nothing (Just ret))
   where
     depth' = depth + 1
     fns' = (snd <$> typedArgs, ret) : fns
@@ -459,17 +460,17 @@ withBuiltins m = do
           ("error", tError),
           ("import", tImport)
         ]
-  local (ctx %~ bindThunk "builtins" tBuiltins) m
+  local (bindThunk "builtins" tBuiltins) m
 
 -- TODO this could be lazier if VClosure' were lazier
 biImport :: ValueF ThunkID -> Eval (ValueF ThunkID)
 biImport (VPrim (PString rel)) = do
-  file <- view (ctx . ctxFile)
+  file <- view envFile
   let file' = takeDirectory file </> rel
   input <- liftIO $ readFile file'
   case MP.parse pToplevel file' input of
     Left err -> throwError $ MP.errorBundlePretty err
-    Right expr -> local (ctx . ctxFile .~ file') $ step expr
+    Right expr -> local (envFile .~ file') $ step expr
 biImport _ = throwError "import needs a filepath"
 
 typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
@@ -498,7 +499,7 @@ struct (VAttr m) = do
           _ -> throwError "Struct member was not a type expression"
   types <- traverse forceType m
   pure $ VType $ TStruct types
-struct _ = throwError "Con/struct/ing a struct from s'thing other than an attr set"
+struct _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- TODO _is_ this a type? i.e. church-encode types?
 matchType :: ValueF ThunkID -> Eval (ValueF ThunkID)
