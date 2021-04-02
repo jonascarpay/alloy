@@ -188,7 +188,7 @@ mkFunction fresh recDepth transDeps funDef =
           use (_1 . at td) >>= \case
             Just slot -> pure slot
             Nothing -> state $ \(m, na, nd) ->
-              let slot = Local na
+              let slot = Argument na
                in (slot, (M.insert td slot m, na + 1, nd))
         decl :: TempID -> State (Map TempID Slot, Int, Int) Slot
         decl td =
