@@ -12,7 +12,7 @@ import GHC.Generics
 import Lens.Micro.Platform
 import Numeric (showHex)
 
-type RTBlock call typ = Block typ (RTExpr call typ typ)
+type RTBlock var lbl call typ = Block var lbl typ (RTExpr var lbl call typ typ)
 
 data RTLiteral
   = RTInt Int
@@ -23,61 +23,82 @@ data RTLiteral
 
 instance Hashable RTLiteral
 
-data RTExpr call typ a
-  = RTVar Name a
+data RTExpr var lbl call typ a
+  = RTVar var a
   | RTLiteral RTLiteral a
-  | RTBin BinOp (RTExpr call typ a) (RTExpr call typ a) a
-  | RTBlock (Block typ (RTExpr call typ a)) a
-  | RTCall call [RTExpr call typ a] a
-  | RTCond (RTExpr call typ a) (RTExpr call typ a) (RTExpr call typ a) a
+  | RTBin BinOp (RTExpr var lbl call typ a) (RTExpr var lbl call typ a) a
+  | RTBlock (Block var lbl typ (RTExpr var lbl call typ a)) a
+  | RTCall call [RTExpr var lbl call typ a] a
+  | RTCond (RTExpr var lbl call typ a) (RTExpr var lbl call typ a) (RTExpr var lbl call typ a) a
   deriving (Eq, Show, Generic)
 
-rtExprCalls :: Traversal (RTExpr call typ a) (RTExpr call' typ a) call call'
-rtExprCalls f = rtExprMasterTraversal f pure pure pure pure
+rtExprCalls :: Traversal (RTExpr var lbl call typ a) (RTExpr var lbl call' typ a) call call'
+rtExprCalls f = rtExprMasterTraversal pure pure f pure pure pure
 
-rtExprTypes :: Traversal (RTExpr call typ a) (RTExpr call typ' a) typ typ'
-rtExprTypes f = rtExprMasterTraversal pure f pure pure pure
+rtExprTypes :: Traversal (RTExpr var lbl call typ a) (RTExpr var lbl call typ' a) typ typ'
+rtExprTypes f = rtExprMasterTraversal pure pure pure f pure pure
 
-stmtExpr :: Traversal (Stmt typ expr) (Stmt typ expr') expr expr'
-stmtExpr f = stmtMasterTraversal f pure pure
+stmtExpr :: Traversal (Stmt var lbl typ expr) (Stmt var lbl typ expr') expr expr'
+stmtExpr = stmtMasterTraversal pure pure pure
+
+blkVars :: Traversal (RTBlock var1 lbl call typ) (RTBlock var2 lbl call typ) var1 var2
+blkVars f = blkStmts . traverse $ rtStmtMasterTraversal f pure pure pure pure pure
 
 {-# INLINE rtExprMasterTraversal #-}
 rtExprMasterTraversal ::
   Applicative f =>
+  (var -> f var') ->
+  (lbl -> f lbl') ->
   (call -> f call') ->
   (typ -> f typ') ->
   (info -> f info') ->
-  (Name -> f Name) ->
   (RTLiteral -> f RTLiteral) ->
-  (RTExpr call typ info -> f (RTExpr call' typ' info'))
-rtExprMasterTraversal fCall fTyp fInfo fName fLit = go
+  (RTExpr var lbl call typ info -> f (RTExpr var' lbl' call' typ' info'))
+rtExprMasterTraversal fVar fLbl fCall fTyp fInfo fLit = go
   where
-    go (RTVar nm i) = RTVar <$> fName nm <*> fInfo i
+    go (RTVar nm i) = RTVar <$> fVar nm <*> fInfo i
     go (RTLiteral lit i) = RTLiteral <$> fLit lit <*> fInfo i
     go (RTBin op l r i) = RTBin op <$> go l <*> go r <*> fInfo i
-    go (RTBlock (Block lbl blk typ) i) = RTBlock <$> (Block <$> traverse fName lbl <*> traverse (stmtMasterTraversal go fTyp fName) blk <*> fTyp typ) <*> fInfo i
+    go (RTBlock (Block lbl blk typ) i) =
+      RTBlock <$> (Block <$> traverse fLbl lbl <*> traverse (stmtMasterTraversal fVar fLbl fTyp go) blk <*> fTyp typ) <*> fInfo i
     go (RTCall cl args i) = RTCall <$> fCall cl <*> traverse go args <*> fInfo i
     go (RTCond cond tr fl i) = RTCond <$> go cond <*> go tr <*> go fl <*> fInfo i
 
 {-# INLINE stmtMasterTraversal #-}
 stmtMasterTraversal ::
   Applicative f =>
-  (expr -> f expr') ->
+  (var -> f var') ->
+  (lbl -> f lbl') ->
   (typ -> f typ') ->
-  (Name -> f Name) ->
-  (Stmt typ expr -> f (Stmt typ' expr'))
-stmtMasterTraversal fExpr fTyp fName = go
+  (expr -> f expr') ->
+  (Stmt var lbl typ expr -> f (Stmt var' lbl' typ' expr'))
+stmtMasterTraversal fVar fLbl fTyp fExpr = go
   where
     go (Return expr) = Return <$> fExpr expr
-    go (Break mname mexpr) = Break <$> traverse fName mname <*> traverse fExpr mexpr
-    go (Continue mname) = Continue <$> traverse fName mname
-    go (Decl nm typ expr) = Decl <$> fName nm <*> fTyp typ <*> fExpr expr
-    go (Assign nm expr) = Assign <$> fName nm <*> fExpr expr
+    go (Break mname mexpr) = Break <$> traverse fLbl mname <*> traverse fExpr mexpr
+    go (Continue mname) = Continue <$> traverse fLbl mname
+    go (Decl nm typ expr) = Decl <$> fVar nm <*> fTyp typ <*> fExpr expr
+    go (Assign nm expr) = Assign <$> fVar nm <*> fExpr expr
     go (ExprStmt expr) = ExprStmt <$> fExpr expr
 
-instance (Hashable typ, Hashable info, Hashable call) => Hashable (RTExpr call typ info)
+-- TODO combine with previous, there's probably some gains to be made and we only need this one I think
+{-# INLINE rtStmtMasterTraversal #-}
+rtStmtMasterTraversal ::
+  Applicative f =>
+  (var -> f var') ->
+  (lbl -> f lbl') ->
+  (call -> f call') ->
+  (typ -> f typ') ->
+  (info -> f info') ->
+  (RTLiteral -> f RTLiteral) ->
+  (Stmt var lbl typ (RTExpr var lbl call typ info) -> f (Stmt var' lbl' typ' (RTExpr var' lbl' call' typ' info')))
+rtStmtMasterTraversal fVar fLbl fCall fTyp fInfo fLit = stmtMasterTraversal fVar fLbl fTyp (rtExprMasterTraversal fVar fLbl fCall fTyp fInfo fLit)
 
-rtInfo :: RTExpr call typ a -> a
+instance
+  (Hashable typ, Hashable lbl, Hashable info, Hashable var, Hashable call) =>
+  Hashable (RTExpr var lbl call typ info)
+
+rtInfo :: RTExpr var lbl call typ a -> a
 rtInfo (RTVar _ a) = a
 rtInfo (RTBin _ _ _ a) = a
 rtInfo (RTBlock _ a) = a
@@ -93,8 +114,15 @@ instance Show GUID where
 
 type TempID = Int
 
+data Slot
+  = Argument Int
+  | Local Int
+  deriving (Eq, Show, Generic)
+
+instance Hashable Slot
+
 data Dependencies = Dependencies
-  { _depKnownFuncs :: Map GUID (FunDef GUID),
+  { _depKnownFuncs :: Map GUID (FunDef Slot Int GUID),
     _depTempFuncs :: Map TempID TempFunc
   }
   deriving (Eq, Show, Generic)
@@ -102,12 +130,12 @@ data Dependencies = Dependencies
 instance Hashable Dependencies
 
 data TempFunc = TempFunc
-  { _tempFunc :: FunDef PreCall,
+  { _tempFunc :: FunDef TempID TempID PreCall,
     _tempFuncDeps :: Map TempID TempFunc
   }
   deriving (Eq, Show, Generic)
 
-tempFuncs :: Traversal' TempFunc (FunDef PreCall)
+tempFuncs :: Traversal' TempFunc (FunDef TempID TempID PreCall)
 tempFuncs f = go
   where
     go (TempFunc fn deps) = TempFunc <$> f fn <*> traverse go deps
@@ -133,15 +161,15 @@ precallTemp f (CallTemp t) = CallTemp <$> f t
 precallTemp _ c = pure c
 
 -- TODO make FunType datatype
-data FunDef call = FunDef
-  { _fnArgs :: [(Name, Type)],
+data FunDef var lbl call = FunDef
+  { _fnArgs :: [(var, Type)],
     _fnRet :: Type,
     _fnName :: Name,
-    _fnBody :: RTBlock call Type
+    _fnBody :: RTBlock var lbl call Type
   }
   deriving (Eq, Show, Generic)
 
-instance Hashable call => Hashable (FunDef call) where
+instance (Hashable var, Hashable lbl, Hashable call) => Hashable (FunDef var lbl call) where
   hashWithSalt s (FunDef args ret _ body) = hashWithSalt s (args, ret, body)
 
 instance Semigroup Dependencies where
@@ -154,5 +182,5 @@ makeLenses ''FunDef
 makeLenses ''Dependencies
 makeLenses ''TempFunc
 
-funCalls :: Traversal (FunDef call) (FunDef call') call call'
+funCalls :: Traversal (FunDef var lbl call) (FunDef var lbl call') call call'
 funCalls = fnBody . blkStmts . traverse . stmtExpr . rtExprCalls

@@ -122,11 +122,10 @@ rtTests =
               return a[] + b[];
             }
          |],
-      pending $
-        funcWithNDeps
-          "semantic deduplication"
-          1
-          [r| with builtins.types;
+      funcWithNDeps
+        "semantic deduplication"
+        1
+        [r| with builtins.types;
             let
               a = [] -> int { var va: int = 4; va };
               b = [] -> int { var vb: int = 4; vb };
@@ -215,19 +214,11 @@ rtTests =
                 break @lbl x;
               }; }
           |],
-      -- currently, function scoping is handled by clearing all variables not
-      -- bound to thunks (i.e. variables, loop labels) before entering a
-      -- function body. The goal is to make sure we can't refer to any runtime things
-      -- not defined in the current function.
-      -- However, by adding a layer of indirection through a let-binding,
-      -- the variable is not actually cleared.
-      -- I can think of a number of ways to solve this, but I haven't decided on one yet.
-      pending $
-        expectFailBecause "runtime variables cannot escape their scope" $
-          funcWithNDeps
-            "runtime variables scoping"
-            1
-            [r| with builtins.types;
+      expectFailBecause "runtime variables cannot escape their scope" $
+        funcWithNDeps
+          "runtime variables scoping"
+          1
+          [r| with builtins.types;
                 [] -> int {
                   var x: int = 4;
                   ( let y = x;
@@ -430,5 +421,21 @@ rtTests =
                 x = x + 1;
               };
             }
-        |]
+        |],
+      saFunc
+        "closure type propagation"
+        [r| with builtins.types;
+            [] -> int {
+              var a: bool = true;
+              var x: int = (c: {if c then 3 else 4}) a;
+            }|],
+      negative $
+        saFunc
+          "closure type propagation (negative)"
+          [r| with builtins.types;
+              [] -> int {
+                var a: int = 3;
+                var x: int = (c: {if c then 3 else 4}) a;
+              }
+          |]
     ]

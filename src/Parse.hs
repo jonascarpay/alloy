@@ -199,7 +199,7 @@ pCond = do
   keyword "else"
   Cond cond eTrue <$> pExpr
 
-pBlock :: Parser (Block (Maybe Expr) Expr)
+pBlock :: Parser (Block Name Name (Maybe Expr) Expr)
 pBlock = do
   mname <- try $ optional $ pName <* symbol "@"
   braces $ do
@@ -209,7 +209,7 @@ pBlock = do
   where
     -- TODO `try` to avoid ambiguity with naked statement, remove
     -- TODO `try` for decl shouldn't be necessary?
-    pStatement :: Parser (Stmt (Maybe Expr) Expr)
+    pStatement :: Parser (Stmt Name Name (Maybe Expr) Expr)
     pStatement = choice [pReturn, pBreak, pContinue, try pDecl, try pAssign, pExprStmt]
     pReturn = Return <$> (keyword "return" *> pExpr <* semicolon)
     pBreak = do
@@ -233,7 +233,7 @@ pWith = do
   body <- pExpr
   pure (bind, body)
 
-pDecl :: Parser (Stmt (Maybe Expr) Expr)
+pDecl :: Parser (Stmt Name lbl (Maybe Expr) Expr)
 pDecl = do
   symbol "var"
   name <- pName
@@ -245,7 +245,7 @@ pDecl = do
   semicolon
   pure $ Decl name typ body
 
-pAssign :: Parser (Stmt a Expr)
+pAssign :: Parser (Stmt Name lbl typ Expr)
 pAssign = do
   name <- pName
   symbol "="

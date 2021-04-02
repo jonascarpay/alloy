@@ -49,7 +49,7 @@ data Expr
   | Attr (Map Name Expr)
   | Acc Name Expr
   | With Expr Expr
-  | BlockExpr (Block (Maybe Expr) Expr)
+  | BlockExpr (Block Name Name (Maybe Expr) Expr)
   | Cond Expr Expr Expr
   deriving (Eq, Show)
 
@@ -68,24 +68,28 @@ instance Hashable ArithOp
 
 instance Hashable CompOp
 
-data Block typ expr = Block
-  { _blkLabel :: Maybe Name,
-    _blkStmts :: [Stmt typ expr],
+data Block var lbl typ expr = Block
+  { _blkLabel :: Maybe lbl,
+    _blkStmts :: [Stmt var lbl typ expr],
     _blkType :: typ
   }
   deriving (Eq, Show, Generic)
 
-instance (Hashable typ, Hashable expr) => Hashable (Block typ expr)
+instance
+  (Hashable var, Hashable lbl, Hashable typ, Hashable expr) =>
+  Hashable (Block var lbl typ expr)
 
-data Stmt typ expr
+data Stmt var lbl typ expr
   = Return expr
-  | Decl Name typ expr -- TODO encode that this can only be a type for RTExpr
-  | Assign Name expr
+  | Decl var typ expr
+  | Assign var expr
   | ExprStmt expr
-  | Continue (Maybe Name)
-  | Break (Maybe Name) (Maybe expr)
+  | Continue (Maybe lbl) -- TODO Maybe lbl -> lbl
+  | Break (Maybe lbl) (Maybe expr) -- TODO Maybe lbl -> lbl
   deriving (Eq, Show, Generic)
 
-instance (Hashable expr, Hashable typ) => Hashable (Stmt typ expr)
+instance
+  (Hashable var, Hashable lbl, Hashable expr, Hashable typ) =>
+  Hashable (Stmt var lbl typ expr)
 
 makeLenses ''Block

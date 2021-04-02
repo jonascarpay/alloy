@@ -2,14 +2,19 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 
 module Evaluate (ValueF (..), Value, eval, Dependencies (..)) where
 
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
+import Control.Monad.State (State, evalState, evalStateT)
 import Control.Monad.Writer
 import Coroutine
+import Data.Bifunctor
+import Data.Bitraversable
 import Data.Foldable
 import Data.Hashable
 import Data.Map (Map)
@@ -45,7 +50,13 @@ step (App f x) = do
   tf <- step f
   tx <- deferExpr x
   reduce tf tx
-step (Var x) = lookupVar x force (pure . VRTVar x) (pure . VBlockLabel x) (pure . VSelf)
+step (Var x) =
+  lookupVar
+    x
+    force
+    (\tid tv -> pure $ VRTVar tid tv)
+    (\tid tv -> pure $ VBlockLabel tid tv)
+    (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view staticEnv
 step (Let binds body) = do
   n0 <- use thunkSource
@@ -73,18 +84,7 @@ step (Acc f em) =
         Nothing -> throwError $ "field " <> f <> " not present"
         Just tid -> force tid
     _ -> throwError "Accessing field of not an attribute set"
-step (BlockExpr b) = fmap (uncurry VBlock) $ do
-  tv <-
-    view envExprVar >>= \case
-      Just tv -> pure tv
-      Nothing -> fresh
-  local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
-    case b ^. blkLabel of
-      Nothing -> genBlock b
-      Just lbl ->
-        local
-          (envBinds . at lbl ?~ BBlockLabel tv)
-          (genBlock b)
+step (BlockExpr b) = uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -96,36 +96,55 @@ step (Cond cond tr fl) = do
     VPrim (PBool False) -> step fl
     _ -> throwError "Did not evaluate to a boolean"
 step (Func args ret bodyExpr) = do
-  argVars <- (traverse . traverse) (evalType >=> tvar) args
-  retVar <- evalType ret >>= tvar
+  args' <- forM args $ \(name, expr) -> do
+    typ <- evalType expr
+    tid <- freshTempId
+    tv <- tvar typ
+    pure (name, typ, tid, tv)
+  retType <- evalType ret
+  retVar <- tvar retType
   recDepth <- length <$> view envFnStack
-  -- the scope of `local` here encompasses the construction of the final function,
-  -- but the `localState` only contains the evaluation of the nested body
-  -- TODO make `local` scope smaller
-  local (functionBodyEnv argVars retVar) $ do
-    localState (tempSource .~ 0) (step bodyExpr) >>= \case
-      VBlock deps body -> do
-        unify_ retVar (body ^. blkType)
-        name <- view $ envName . to (fromMaybe "fn")
-        let getTypeVoid = getType (pure TVoid)
-        body' <- typecheckFunction getTypeVoid body
-        argsTys <- (traverse . traverse) getTypeVoid argVars
-        retTy <- getTypeVoid retVar
-        let funDef = FunDef argsTys retTy name body'
-        uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
-      _ -> throwError "Function body did not evaluate to a block expression"
+  name <- view $ envName . to (fromMaybe "fn")
+  (deps, blk) <-
+    local (functionBodyEnv args' retVar) $
+      step bodyExpr >>= \case
+        VBlock deps blk -> pure (deps, blk)
+        _ -> throwError "Function body did not evaluate to a block expression"
+  let getTypeVoid = getType (pure TVoid)
+  typedBlk <- typecheckFunction getTypeVoid blk
+  let farg (_, typ, tid, _) = (tid, typ)
+      funDef = FunDef (farg <$> args') retType name typedBlk
+  uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
+
+functionBodyEnv :: [(Name, typ, TempID, TypeVar)] -> TypeVar -> Environment -> Environment
+functionBodyEnv typedArgs ret env =
+  Environment
+    (StaticEnv ctx' ctxName fp)
+    (DynamicEnv fns' Nothing (Just ret) (M.fromList dyn) mempty)
+  where
+    Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _) = env
+    (stat, dyn, namedArgs) = unzip3 $ fmap f typedArgs
+    f (nm, _, tempid, tv) = ((nm, BRTVar tempid), (tempid, tv), (nm, tv))
+    depth = length fns
+    ctx' = ctx <> M.fromList stat <> M.singleton "self" (BSelf depth)
+    fns' = (namedArgs, ret) : fns
 
 typecheckFunction ::
   (TypeVar -> Eval Type) ->
-  RTBlock PreCall TypeVar ->
-  Eval (RTBlock PreCall Type)
+  RTBlock var lbl call TypeVar ->
+  Eval (RTBlock var lbl call Type)
 typecheckFunction getType (Block lbl stmts typ) = do
   stmts' <- (traverse . types) getType stmts
   typ' <- getType typ
   pure $ Block lbl stmts' typ'
   where
-    types :: Traversal (Stmt typ (RTExpr call typ typ)) (Stmt typ' (RTExpr call typ' typ')) typ typ'
-    types f = stmtMasterTraversal (rtExprMasterTraversal pure f f pure pure) f pure
+    types ::
+      Traversal
+        (Stmt var lbl typ1 (RTExpr var lbl call typ1 typ1))
+        (Stmt var lbl typ2 (RTExpr var lbl call typ2 typ2))
+        typ1
+        typ2
+    types f = stmtMasterTraversal pure pure f (rtExprMasterTraversal pure pure pure f f pure)
 
 evalType :: Expr -> Eval Type
 evalType expr =
@@ -138,7 +157,7 @@ mkFunction ::
   m TempID ->
   RecIndex ->
   Dependencies ->
-  FunDef PreCall ->
+  FunDef TempID TempID PreCall ->
   m (Dependencies, Either TempID GUID)
 mkFunction fresh recDepth transDeps funDef =
   case unresolvedCalls of
@@ -146,13 +165,38 @@ mkFunction fresh recDepth transDeps funDef =
     l | any (< recDepth) l -> mkTempFunction
     _ -> pure closeTempFunction
   where
+    mkClosedFunction :: (Dependencies, Either TempID GUID)
     mkClosedFunction =
       let unPreCall (CallKnown guid) = guid
           unPreCall _ = error "impossible" -- TODO throwError
-          funDef' = funDef & funCalls %~ unPreCall
+          funDef' :: FunDef Slot Int GUID
+          funDef' =
+            funDef & funCalls %~ unPreCall
+              & assignSlots
           guid = GUID $ hash funDef'
           deps = transDeps & depKnownFuncs . at guid ?~ funDef'
        in (deps, Right guid)
+
+    assignSlots :: FunDef TempID lbl call -> FunDef Slot lbl call
+    assignSlots (FunDef args ret nm body) = flip evalState (mempty, 0, 0) $ do
+      args' <- (traverse . _1) arg args
+      body' <- blkVars decl body
+      pure $ FunDef args' ret nm body'
+      where
+        arg :: TempID -> State (Map TempID Slot, Int, Int) Slot
+        arg td =
+          use (_1 . at td) >>= \case
+            Just slot -> pure slot
+            Nothing -> state $ \(m, na, nd) ->
+              let slot = Local na
+               in (slot, (M.insert td slot m, na + 1, nd))
+        decl :: TempID -> State (Map TempID Slot, Int, Int) Slot
+        decl td =
+          use (_1 . at td) >>= \case
+            Just slot -> pure slot
+            Nothing -> state $ \(m, na, nd) ->
+              let slot = Local nd
+               in (slot, (M.insert td slot m, na, nd + 1))
 
     mkTempFunction = do
       tempId <- fresh
@@ -161,36 +205,56 @@ mkFunction fresh recDepth transDeps funDef =
       pure (deps, Left tempId)
 
     closeTempFunction =
-      let (guid, deps) = close recDepth (TempFunc funDef (transDeps ^. depTempFuncs))
+      let callGraph = TempFunc funDef (transDeps ^. depTempFuncs)
+          (guid, deps) = close recDepth callGraph
        in (Dependencies (deps <> view depKnownFuncs transDeps) mempty, Right guid)
 
-    close :: RecIndex -> TempFunc -> (GUID, Map GUID (FunDef GUID))
-    close depth (TempFunc funDef deps) =
-      let guid = GUID $ hash (deps, funDef)
+    -- Renumber all temporary function call id's from 0 for deduplication purposes
+    normalize :: TempFunc -> TempFunc
+    normalize = flip evalState (mempty, 0) . tempCalls call
+      where
+        call :: TempID -> State (Map TempID Int, Int) Int
+        call old =
+          use (_1 . at old) >>= \case
+            Just new -> pure new
+            Nothing -> state $ \(m, new) -> (new, (M.insert old new m, new + 1))
+        mapWithKeys :: Ord k' => Applicative m => (k -> m k') -> (v -> m v') -> (Map k v -> m (Map k' v'))
+        mapWithKeys fk fv m = M.fromList <$> traverse (bitraverse fk fv) (M.toList m)
+        tempCalls :: Traversal' TempFunc Int
+        tempCalls f = go
+          where
+            go (TempFunc fn deps) = TempFunc <$> (funCalls . precallTemp) f fn <*> mapWithKeys f go deps
+
+    close :: RecIndex -> TempFunc -> (GUID, Map GUID (FunDef Slot Int GUID))
+    close depth tf@(TempFunc funDef deps) =
+      let guid = GUID $ hash (normalize tf)
           replaceSelf (CallRec n) | n == depth = CallKnown guid
           replaceSelf c = c
 
           deps' = over (traverse . tempFuncs . funCalls) replaceSelf deps
 
-          children :: Map TempID (GUID, Map GUID (FunDef GUID))
+          children :: Map TempID (GUID, Map GUID (FunDef Slot Int GUID))
           children = fmap (close (depth + 1)) deps'
 
-          funDef' = funDef & funCalls %~ replaceAll
+          funDef' :: FunDef Slot Int GUID
+          funDef' = assignSlots funDef & funCalls %~ replaceAll
 
+          replaceAll :: PreCall -> GUID
           replaceAll (CallRec n) | n == depth = guid
           replaceAll (CallTemp t) | Just (guid, _) <- M.lookup t children = guid
           replaceAll (CallKnown guid) = guid
           replaceAll _ = error "impossible" -- TODO throwError
+          transDeps :: Map GUID (FunDef Slot Int GUID)
           transDeps = fold (toListOf (traverse . _2) children)
        in (guid, transDeps & at guid ?~ funDef')
 
     unresolvedCalls = toListOf selfCalls funDef ++ toListOf (depTempFuncs . traverse . tempFuncs . selfCalls) transDeps
-    selfCalls :: Traversal' (FunDef PreCall) RecIndex
+    selfCalls :: Traversal' (FunDef TempID TempID PreCall) RecIndex
     selfCalls = funCalls . precallRec
 
 genStmt ::
-  [Stmt (Maybe Expr) Expr] ->
-  RTEval [Stmt TypeVar (RTExpr PreCall TypeVar TypeVar)]
+  [Stmt Name Name (Maybe Expr) Expr] ->
+  RTEval [Stmt TempID TempID TypeVar (RTExpr TempID TempID PreCall TypeVar TypeVar)]
 genStmt (Return expr : r) = do
   tv <-
     view envFnStack >>= \case
@@ -223,10 +287,10 @@ genStmt (Continue mname : r) =
 genStmt (Decl name mtypExpr expr : r) = do
   tv <- lift fresh
   liftP3
-    (\_ e' r' -> Decl name tv e' : r')
+    (\_ e' (tmpid, r') -> Decl tmpid tv e' : r')
     (lift $ forM_ mtypExpr (evalType >=> setType tv))
     (atVar tv $ rtFromExpr expr)
-    (local (envBinds %~ bindRtvar name tv) (genStmt r))
+    (bindRtvar name tv (genStmt r))
 genStmt (Assign name expr : r) = do
   (name', tv) <- resolveToRuntimeVar name
   liftP2
@@ -242,13 +306,21 @@ genStmt (ExprStmt expr : r) = do
 genStmt [] = pure []
 
 genBlock ::
-  Block (Maybe Expr) Expr ->
-  Eval (Dependencies, RTBlock PreCall TypeVar)
-genBlock (Block lbl stmts typ) = do
-  tv <- view envBlockVar >>= maybe (throwError "impossible") pure
-  (stmts', deps) <- runWriterT $ genStmt stmts
-  forM_ typ (evalType >=> setType tv) -- Note that you currently cannot actually give a type expression for a block yet
-  pure (deps, Block lbl stmts' tv)
+  Block Name Name (Maybe Expr) Expr ->
+  Eval (Dependencies, RTBlock TempID TempID PreCall TypeVar)
+genBlock (Block mlbl stmts typ) = do
+  tv <-
+    view envExprVar >>= \case
+      Just tv -> pure tv
+      Nothing -> fresh
+  forM_ typ (evalType >=> setType tv)
+  -- TODO the envExprVar shouldn't be necessary
+  ((mtid, stmts'), deps) <- runWriterT $
+    local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
+      case mlbl of
+        Nothing -> (Nothing,) <$> genStmt stmts
+        Just lbl -> bindLabel lbl tv $ \tid -> (Just tid,) <$> genStmt stmts
+  pure (deps, Block mtid stmts' tv)
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
@@ -274,7 +346,7 @@ atType typ m = do
 
 rtFromExpr ::
   Expr ->
-  RTEval (RTExpr PreCall TypeVar TypeVar)
+  RTEval (RTExpr TempID TempID PreCall TypeVar TypeVar)
 rtFromExpr (BinExpr (ArithOp op) a b) =
   liftP3
     (RTBin (ArithOp op))
@@ -300,8 +372,8 @@ rtFromExpr (Var n) =
   lookupVar
     n
     (lift . deepEval >=> rtFromVal)
-    (\tv -> RTVar n tv <$ (askVar >>= unify_ tv))
-    (const $ throwError "referencing block label as expression")
+    (\tpid tv -> RTVar tpid tv <$ (askVar >>= unify_ tv))
+    (\_ _ -> throwError "referencing block label as expression")
     (const $ throwError "referencing self variable as expression")
 rtFromExpr (App f x) = do
   -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
@@ -353,17 +425,17 @@ callSig deps (CallKnown guid) = do
   case deps ^. depKnownFuncs . at guid of
     Nothing -> error "impossible" -- TODO throwError
     Just fn -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
+callSig deps (CallTemp tid) =
+  case deps ^. depTempFuncs . at tid of
+    Nothing -> throwError "impossible"
+    Just (TempFunc fn _) -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
 callSig _ (CallRec n) = do
   -- TODO clean this up, views envFnStack many times
   depth <- view (envFnStack . to length)
   -- TODO not a fan of the (-1) here
   view (envFnStack . to (safeLookup (depth - n -1))) >>= \case
     Nothing -> throwError $ "impossible: " <> show (n, depth, depth - n)
-    Just t -> pure t
-callSig deps (CallTemp tid) =
-  case deps ^. depTempFuncs . at tid of
-    Nothing -> throwError "impossible"
-    Just (TempFunc fn _) -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
+    Just t -> pure (first (fmap snd) t)
 
 safeLookup :: Int -> [a] -> Maybe a
 safeLookup 0 (a : _) = Just a
@@ -394,7 +466,7 @@ rtStruct (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ
 rtStruct t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
-rtFromVal :: Value -> RTEval (RTExpr PreCall TypeVar TypeVar)
+rtFromVal :: Value -> RTEval (RTExpr TempID TempID PreCall TypeVar TypeVar)
 rtFromVal (Fix (VPrim p)) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
@@ -418,18 +490,6 @@ rtFromVal (Fix (VBlock deps b)) = do
   tell deps
   tv <- lift fresh
   pure $ RTBlock b tv
-
-functionBodyEnv :: [(Name, TypeVar)] -> TypeVar -> Environment -> Environment
-functionBodyEnv typedArgs ret (Environment (StaticEnv binds name fp) (DynamicEnv fns _ _)) =
-  Environment (StaticEnv binds' name fp) (DynamicEnv fns' Nothing (Just ret))
-  where
-    depth = length fns
-    fns' = (snd <$> typedArgs, ret) : fns
-    binds' =
-      flip (foldr (uncurry bindRtvar)) typedArgs
-        . (at "self" ?~ BSelf depth)
-        . M.filter isThunk
-        $ binds
 
 -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
 withBuiltins :: Eval a -> Eval a

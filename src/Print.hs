@@ -52,7 +52,7 @@ ppExpr (Prim n) = ppPrim n
 ppExpr (BinExpr op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
 ppExpr (Attr m) = ppAttrs pretty ppExpr m
 ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockExpr b) = ppBlock (maybe mempty (ppAnn ppExpr)) ppExpr b
+ppExpr (BlockExpr b) = ppBlock pretty pretty (maybe mempty (ppAnn ppExpr)) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
 ppExpr (Cond cond tr fl) = "if" <+> ppExpr cond <+> "then" <+> ppExpr tr <+> "else" <+> ppExpr fl
@@ -67,35 +67,39 @@ ppLabel (Just lbl) = pretty lbl <> "@"
 ppLabel Nothing = mempty
 
 -- TODO just take ppStatement
-ppBlock :: (typ -> Doc ann) -> (expr -> Doc ann) -> Block typ expr -> Doc ann
-ppBlock _ _ (Block mlbl [] _) = ppLabel mlbl <> "{}"
-ppBlock ft fe (Block lbl [stmt] _) = ppLabel lbl <> braces (ppStatement ft fe stmt)
-ppBlock ft fe (Block lbl stmts _) = ppLabel lbl <> braces' (align $ vcat (ppStatement ft fe <$> stmts))
+ppBlock :: (var -> Doc ann) -> (lbl -> Doc ann) -> (typ -> Doc ann) -> (expr -> Doc ann) -> Block var lbl typ expr -> Doc ann
+ppBlock _ ppLbl _ _ (Block mlbl [] _) = ppMLabel ppLbl mlbl <> "{}"
+ppBlock ppVar ppLbl ft fe (Block lbl [stmt] _) = ppMLabel ppLbl lbl <> braces (ppStatement ppVar ppLbl ft fe stmt)
+ppBlock ppVar ppLbl ft fe (Block lbl stmts _) = ppMLabel ppLbl lbl <> braces' (align $ vcat (ppStatement ppVar ppLbl ft fe <$> stmts))
 
-ppStatement :: (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt typ expr -> Doc ann
-ppStatement _ fe (Return expr) = "return" <+> fe expr <> ";"
-ppStatement ft fe (Decl name typ expr) = pretty name <+> ft typ <+> "=" <+> fe expr <> ";"
-ppStatement _ fe (Assign name expr) = pretty name <+> "=" <+> fe expr <> ";"
-ppStatement _ fe (ExprStmt expr) = fe expr <> ";"
-ppStatement _ fe (Break mlbl mexpr) = "break" <> mspace (("@" <>) . pretty) mlbl <> mspace fe mexpr <> ";"
-ppStatement _ _ (Continue mlbl) = "continue" <> mspace (("@" <>) . pretty) mlbl <> ";"
+ppStatement :: (var -> Doc ann) -> (lbl -> Doc ann) -> (typ -> Doc ann) -> (expr -> Doc ann) -> Stmt var lbl typ expr -> Doc ann
+ppStatement ppVar ppLbl _ fe (Return expr) = "return" <+> fe expr <> ";"
+ppStatement ppVar ppLbl ft fe (Decl name typ expr) = ppVar name <+> ft typ <+> "=" <+> fe expr <> ";"
+ppStatement ppVar ppLbl _ fe (Assign name expr) = ppVar name <+> "=" <+> fe expr <> ";"
+ppStatement ppVar ppLbl _ fe (ExprStmt expr) = fe expr <> ";"
+ppStatement ppVar ppLbl _ fe (Break mlbl mexpr) = "break" <> mspace (("@" <>) . ppLbl) mlbl <> mspace fe mexpr <> ";"
+ppStatement ppVar ppLbl _ _ (Continue mlbl) = "continue" <> mspace (("@" <>) . ppLbl) mlbl <> ";"
+
+ppMLabel :: (lbl -> Doc ann) -> (Maybe lbl -> Doc ann)
+ppMLabel f (Just lbl) = f lbl <> "@"
+ppMLabel f Nothing = mempty
 
 -- insert a space if Just, otherwise empty
 mspace :: (a -> Doc ann) -> Maybe a -> Doc ann
 mspace f (Just a) = " " <> f a
 mspace _ Nothing = mempty
 
-ppRTExpr :: Dependencies -> (call -> Doc ann) -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr call typ info -> Doc ann
-ppRTExpr deps ppCall pptyp ppinfo = go
+ppRTExpr :: Dependencies -> (var -> Doc ann) -> (lbl -> Doc ann) -> (call -> Doc ann) -> (typ -> Doc ann) -> (info -> Doc ann) -> RTExpr var lbl call typ info -> Doc ann
+ppRTExpr deps ppVar ppLbl ppCall pptyp ppinfo = go
   where
-    go (RTVar x _) = pretty x
+    go (RTVar x _) = ppVar x
     go (RTLiteral n _) = ppRTLit n
     go (RTBin op a b _) = go a <+> opSymbol op <+> go b
-    go (RTBlock b _) = ppBlock pptyp go b
+    go (RTBlock b _) = ppBlock ppVar ppLbl pptyp go b
     go (RTCall call args _) = ppCall call <> list (go <$> args)
     go (RTCond cond tr fl _) = "if" <+> go cond <+> "then" <+> go tr <+> "else" <+> go fl
 
-lookupFun :: Dependencies -> GUID -> FunDef GUID
+lookupFun :: Dependencies -> GUID -> FunDef Slot Int GUID
 lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
   where
     err = error "Referencing non-existing GUID, should be impossible"
@@ -142,20 +146,25 @@ ppWithDeps deps@(Dependencies fns temp) censor doc
   where
     fns' = maybe id M.delete censor fns
 
-guidsByNames :: Map GUID (FunDef GUID) -> [GUID]
+guidsByNames :: Map GUID (FunDef var lbl GUID) -> [GUID]
 guidsByNames m = snd <$> M.keys namedMap
   where
     namedMap =
       M.foldMapWithKey (\guid fn -> M.singleton (fn ^. fnName, guid) fn) m
 
-ppTypedBlock :: Dependencies -> Type -> Block Type (RTExpr GUID Type Type) -> Doc ann
+ppTypedBlock :: Dependencies -> Type -> RTBlock Slot Int GUID Type -> Doc ann
 ppTypedBlock deps typ block =
   ppWithDeps deps Nothing $
     ppType typ
       <> ppBlock
+        ppSlot
+        ppLabel'
         (ppAnn ppType)
-        (ppRTExpr deps ppGuid (ppAnn ppType) (ppAnn ppType))
+        (ppRTExpr deps ppSlot ppLabel' ppGuid (ppAnn ppType) (ppAnn ppType))
         block
+
+ppLabel' :: Int -> Doc ann
+ppLabel' n = "lbl_" <> pretty n
 
 ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
 ppAnn f t = ":" <+> f t
@@ -167,20 +176,28 @@ ppFunDef deps guid =
     Just (FunDef args ret name body) ->
       hsep
         [ ppFunctionName name guid,
-          list (uncurry (ppTyped pretty ppType) <$> args),
+          list (uncurry (ppTyped ppSlot ppType) <$> args),
           "->",
           ppType ret,
           -- TODO combine with ppTypedBlock
           ppBlock
+            ppSlot
+            ppLabel'
             (ppAnn ppType)
             ( ppRTExpr
                 deps
+                ppSlot
+                ppLabel'
                 (ppKnownGuid deps . CallKnown)
                 (ppAnn ppType)
                 (ppAnn ppType)
             )
             body
         ]
+
+ppSlot :: Slot -> Doc ann
+ppSlot (Argument n) = "arg_" <> pretty n
+ppSlot (Local n) = "var_" <> pretty n
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
@@ -206,8 +223,10 @@ ppVal (Fix (VBlock deps b)) =
     deps
     Nothing
     $ ppBlock
+      pretty
+      pretty
       (const "<var>")
-      (ppRTExpr deps (ppKnownGuid deps) (const "<var>") (const "<var>"))
+      (ppRTExpr deps pretty pretty (ppKnownGuid deps) (const "<var>") (const "<var>"))
       b
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
