@@ -450,7 +450,7 @@ safeZipWithM_ err f as bs
 
 rtLit :: Type -> Prim -> RTEval RTLiteral
 rtLit TInt (PInt n) = pure $ RTInt n
-rtLit TDouble (PInt n) = pure $ RTInt n
+rtLit TDouble (PInt n) = pure $ RTDouble (fromIntegral n)
 rtLit TDouble (PDouble n) = pure $ RTDouble n
 rtLit TBool (PBool b) = pure $ RTBool b
 rtLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
