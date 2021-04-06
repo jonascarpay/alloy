@@ -468,5 +468,25 @@ rtTests =
               var y = ([x: int] -> int { return x; })[x];
               return x;
             }
+        |],
+      funcWithNDeps
+        "argument parallel type inference"
+        1
+        [r| with builtins; with types;
+            let id = t: [a: t] -> t { return a; };
+            in [] -> void {
+              var y = 1;
+              var x: typeOf y = id int [y];
+            }
+        |],
+      funcWithNDeps
+        "argument parallel type inference"
+        1
+        [r| with builtins; with types;
+            let id = t: [a: t] -> t { return a; };
+            in [] -> void {
+              var y = 1;
+              var x: typeOf y = id int [{y + 2}];
+            }
         |]
     ]

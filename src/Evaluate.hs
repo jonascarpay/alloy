@@ -384,27 +384,27 @@ rtFromExpr (App f x) = do
     VFunc tdeps funId ->
       case x of
         List argExprs -> do
-          rtArgs <- traverse rtFromExpr (toList argExprs)
-          tell tdeps
           (argVars, retVar) <- lift $ callSig tdeps (either CallTemp CallKnown funId)
-          safeZipWithM_
-            (throwError "Argument length mismatch")
-            (\expr tv -> lift $ unify (rtInfo expr) tv)
-            rtArgs
-            argVars
-          pure $ RTCall (either CallTemp CallKnown funId) rtArgs retVar
+          tell tdeps
+          rtArgExprs <-
+            safeZipWithM
+              (throwError "Argument length mismatch")
+              (\expr tv -> local (envExprVar ?~ tv) $ rtFromExpr expr)
+              (toList argExprs)
+              argVars
+          pure $ RTCall (either CallTemp CallKnown funId) rtArgExprs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     VSelf n ->
       case x of
         List argExprs -> do
-          rtArgs <- traverse rtFromExpr (toList argExprs)
           (argVars, retVar) <- lift $ callSig mempty (CallRec n)
-          safeZipWithM_
-            (throwError "Argument length mismatch")
-            (\expr tv -> lift $ unify (rtInfo expr) tv)
-            rtArgs
-            argVars
-          pure $ RTCall (CallRec n) rtArgs retVar
+          rtArgExprs <-
+            safeZipWithM
+              (throwError "Argument length mismatch")
+              (\expr tv -> local (envExprVar ?~ tv) $ rtFromExpr expr)
+              (toList argExprs)
+              argVars
+          pure $ RTCall (CallRec n) rtArgExprs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
@@ -444,10 +444,10 @@ safeLookup n' (_ : as) = safeLookup (n' -1) as
 safeLookup _ _ = Nothing
 
 -- TODO argument length mismatch tests
-safeZipWithM_ :: Applicative m => m () -> (a -> b -> m c) -> [a] -> [b] -> m ()
-safeZipWithM_ err f as bs
+safeZipWithM :: Applicative m => m [c] -> (a -> b -> m c) -> [a] -> [b] -> m [c]
+safeZipWithM err f as bs
   | length as /= length bs = err
-  | otherwise = zipWithM_ f as bs
+  | otherwise = zipWithM f as bs
 
 rtLit :: Type -> Prim -> RTEval RTLiteral
 rtLit TInt (PInt n) = pure $ RTInt n
