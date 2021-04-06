@@ -437,5 +437,26 @@ rtTests =
                 var a: int = 3;
                 var x: int = (c: {if c then 3 else 4}) a;
               }
-          |]
+          |],
+      saFunc
+        "weird matchType bug"
+        [r| with builtins; with types;
+            [] -> int {
+              var x = 12;
+              var z
+                : matchType (typeOf x) { int: builtins.types.int }
+                = 234;
+              return x;
+            } |],
+      funcWithNDeps
+        "proper argument shadowing"
+        1
+        [r| with builtins;
+            with types;
+            [] -> int {
+              var x = 3;
+              var y = ([x: int] -> int { return x; })[x];
+              return x;
+            }
+        |]
     ]

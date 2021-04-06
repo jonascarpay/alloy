@@ -20,6 +20,7 @@ import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
+import Debug.Trace
 import Eval
 import Expr
 import Lens.Micro.Platform
@@ -123,10 +124,10 @@ functionBodyEnv typedArgs ret env =
     (DynamicEnv fns' Nothing (Just ret) (M.fromList dyn) mempty)
   where
     Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _) = env
-    (stat, dyn, namedArgs) = unzip3 $ fmap f typedArgs
+    (argBindings, dyn, namedArgs) = unzip3 $ fmap f typedArgs
     f (nm, _, tempid, tv) = ((nm, BRTVar tempid), (tempid, tv), (nm, tv))
     depth = length fns
-    ctx' = ctx <> M.fromList stat <> M.singleton "self" (BSelf depth)
+    ctx' = M.fromList argBindings <> M.singleton "self" (BSelf depth) <> ctx
     fns' = (namedArgs, ret) : fns
 
 typecheckFunction ::

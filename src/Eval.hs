@@ -84,6 +84,7 @@ data Binding
   | BRTVar TempID
   | BBlockLabel TempID
   | BSelf Int
+  deriving (Eq, Show)
 
 isThunk :: Binding -> Bool
 isThunk (BThunk _) = True
