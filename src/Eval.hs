@@ -9,6 +9,8 @@ module Eval where
 
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
+import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer
 import Coroutine
 import Data.Map (Map)
@@ -60,12 +62,10 @@ type Thunk = ThunkF Eval (ValueF ThunkID)
 -- TODO Eval is no longer a transformer, remove the m argument
 newtype Eval a = Eval
   { _unLazyT ::
-      Coroutine
-        ( RWST
-            Environment
-            ()
-            EvalState
-            (ExceptT String IO)
+      ReaderT
+        Environment
+        ( Coroutine
+            (StateT EvalState (ExceptT String IO))
         )
         a
   }
@@ -203,7 +203,9 @@ runEval :: FilePath -> Eval a -> IO (Either String a)
 runEval fp (Eval m) =
   (fmap . fmap) fst $
     runExceptT $
-      evalRWST (runCoroutine m) env0 st0
+      flip runStateT st0 $
+        runCoroutine $
+          runReaderT m env0
   where
     env0 =
       Environment

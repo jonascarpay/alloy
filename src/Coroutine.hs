@@ -7,6 +7,7 @@ module Coroutine where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.Bifunctor
 
@@ -79,3 +80,7 @@ instance Applicative m => MonadCoroutine (Coroutine m) where
 instance (Semigroup w, Functor m, MonadCoroutine m) => MonadCoroutine (WriterT w m) where
   suspend (WriterT m) = WriterT $ suspend m
   par (WriterT mf) (WriterT ma) = WriterT $ par ((\(f, w) (a, w') -> (f a, w <> w')) <$> mf) ma
+
+instance (MonadCoroutine m) => MonadCoroutine (ReaderT r m) where
+  suspend (ReaderT m) = ReaderT $ suspend . m
+  par (ReaderT mf) (ReaderT ma) = ReaderT $ \r -> par (mf r) (ma r)

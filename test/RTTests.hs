@@ -439,7 +439,17 @@ rtTests =
               }
           |],
       saFunc
-        "weird matchType bug"
+        "weird matchType bug (with annotation)"
+        [r| with builtins; with types;
+            [] -> int {
+              var x : int = 12;
+              var z
+                : matchType (typeOf x) { int: builtins.types.int }
+                = 234;
+              return x;
+            } |],
+      saFunc
+        "weird matchType bug (without annotation)"
         [r| with builtins; with types;
             [] -> int {
               var x = 12;
