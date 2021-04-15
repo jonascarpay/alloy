@@ -488,5 +488,13 @@ rtTests =
               var y = 1;
               var x: typeOf y = id int [{y + 2}];
             }
+        |],
+      negative $
+        funcWithNDeps
+          "function return type unification"
+          1
+          [r| with builtins.types;
+            let f = [] -> int { return 3; };
+            in [] -> int { var o: void = f[]; }
         |]
     ]
