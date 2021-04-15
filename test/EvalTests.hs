@@ -71,8 +71,7 @@ evalTests =
                   inherit x
                 }.x
         |],
-      is9 "simple builtin" "builtins.nine",
-      is9 "laziness ignores undefined" "with builtins; let x = undefined; y = nine; in y",
+      is9 "laziness ignores undefined" "with builtins; let x = error \"undefined\"; y = 9; in y",
       is9
         "y combinator"
         [r| let y = f: (x: f (x x)) (x: (f (x x)));
@@ -88,7 +87,7 @@ evalTests =
         [r| let a = 9; # comment"
              in a
         |],
-      is9 "with-expression" "with builtins; nine",
+      is9 "with-expression" "with builtins; 9",
       is9 "simple if true" "if true then 9 else 10",
       is9 "simple if false" "if false then 10 else 9",
       is9 "lazy if true" "if true then 9 else builtins.undefined",
@@ -111,5 +110,13 @@ evalTests =
               default: undefined
             }
         |],
-      is9 "matchType default" "builtins.matchType builtins.types.void { default: 9, }"
+      is9
+        "matchType default"
+        "builtins.matchType builtins.types.void { default: 9, }",
+      is9
+        "attrset string lookup"
+        [r| let attrs = { nine: 9 };
+                key = "nine";
+             in builtins.lookup attrs key
+        |]
     ]

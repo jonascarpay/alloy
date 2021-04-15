@@ -10,7 +10,7 @@ module Evaluate (ValueF (..), Value, eval, Dependencies (..)) where
 
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
-import Control.Monad.State (State, evalState, evalStateT)
+import Control.Monad.State (State, evalState)
 import Control.Monad.Writer
 import Coroutine
 import Data.Bifunctor
@@ -20,7 +20,7 @@ import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
-import Debug.Trace
+import Data.Sequence qualified as Seq
 import Eval
 import Expr
 import Lens.Micro.Platform
@@ -505,12 +505,13 @@ rtFromVal (Fix (VBlock deps b)) = do
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   tUndefined <- deferM $ throwError "undefined"
-  tNine <- deferVal . VPrim $ PInt 9
-  tStruct <- deferVal $ VClosure' (force >=> struct)
-  tTypeOf <- deferVal $ VClosure' (force >=> typeOf)
-  tMatchType <- deferVal $ VClosure' (force >=> matchType)
-  tError <- deferVal $ VClosure' (force >=> bError)
-  tImport <- deferVal $ VClosure' (force >=> biImport)
+  tStruct <- fn1 struct
+  tTypeOf <- fn1 typeOf
+  tMatchType <- fn2 matchType
+  tError <- fn1 bError
+  tImport <- fn1 biImport
+  tAttrNames <- fn1 attrNames
+  tLookup <- fn2 bLookup
   tTypes <-
     deferAttrs
       [ ("int", VType TInt),
@@ -522,15 +523,28 @@ withBuiltins m = do
     deferVal . VAttr $
       M.fromList
         [ ("undefined", tUndefined),
-          ("nine", tNine),
           ("types", tTypes),
           ("struct", tStruct),
           ("typeOf", tTypeOf),
           ("matchType", tMatchType),
           ("error", tError),
-          ("import", tImport)
+          ("import", tImport),
+          ("attrNames", tAttrNames),
+          ("lookup", tLookup)
         ]
   local (bindThunk "builtins" tBuiltins) m
+  where
+    fn1 :: (ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
+    fn1 f = deferVal $ VClosure' (force >=> f)
+    -- TODO express in terms of fn1
+    fn2 :: (ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
+    fn2 f = deferVal $
+      VClosure' $ \t1 ->
+        pure $
+          VClosure' $ \t2 -> do
+            v1 <- force t1
+            v2 <- force t2
+            f v1 v2
 
 -- TODO this could be lazier if VClosure' were lazier
 biImport :: ValueF ThunkID -> Eval (ValueF ThunkID)
@@ -578,26 +592,37 @@ struct (VAttr m) = do
 struct _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- TODO _is_ this a type? i.e. church-encode types?
-matchType :: ValueF ThunkID -> Eval (ValueF ThunkID)
-matchType (VType typ) =
-  pure $
-    VClosure' $
-      force >=> \case
-        VAttr attrs ->
-          let getAttr attr = case M.lookup attr attrs of
-                Just x -> pure x
-                Nothing -> case M.lookup "default" attrs of
-                  Nothing -> throwError $ "Attr " <> attr <> " not present, no default case"
-                  Just x -> pure x
-           in case typ of
-                TInt -> getAttr "int" >>= force
-                TDouble -> getAttr "double" >>= force
-                TVoid -> getAttr "void" >>= force
-                TBool -> getAttr "bool" >>= force
-                TStruct fields -> do
-                  k <- getAttr "struct" >>= force
-                  -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
-                  fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
-                  reduce k fields'
-        _ -> throwError "matchType did not get an attr of type matchers"
-matchType _ = throwError "matching on not-a-type"
+matchType :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
+matchType (VType typ) (VAttr attrs) =
+  let getAttr attr = case M.lookup attr attrs of
+        Just x -> pure x
+        Nothing -> case M.lookup "default" attrs of
+          Nothing -> throwError $ "Attr " <> attr <> " not present, no default case"
+          Just x -> pure x
+   in case typ of
+        TInt -> getAttr "int" >>= force
+        TDouble -> getAttr "double" >>= force
+        TVoid -> getAttr "void" >>= force
+        TBool -> getAttr "bool" >>= force
+        TStruct fields -> do
+          k <- getAttr "struct" >>= force
+          -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
+          fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
+          reduce k fields'
+matchType (VType _) _ = throwError "second argument to matchType was not an attr set"
+matchType _ _ = throwError "matching on not-a-type"
+
+attrNames :: ValueF ThunkID -> Eval (ValueF ThunkID)
+attrNames (VAttr attrs) = do
+  names <- traverse (deferVal . VPrim . PString) (M.keys attrs)
+  pure $ VList $ Seq.fromList names
+attrNames _ = throwError "attrNames on non-list"
+
+-- TODO combine with normal field accessor
+bLookup :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
+bLookup (VAttr attrs) (VPrim (PString str)) =
+  case M.lookup str attrs of
+    Nothing -> throwError "field doesn't exist"
+    Just v -> force v -- TODO this should be lazier
+bLookup (VAttr _) _ = throwError "second argument to stringField was not a string"
+bLookup _ _ = throwError "first argument to stringField was not an attr set"
