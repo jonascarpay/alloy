@@ -316,3 +316,11 @@ force tid =
       pure v
     Just (Computed x) -> pure x
     Nothing -> throwError "Looking up invalid thunk?"
+
+getTypeSuspend :: TypeVar -> Eval Type
+getTypeSuspend tv = go retries
+  where
+    retries = 10
+    go :: Int -> Eval Type
+    go 0 = throwError "Underdetermined type variable"
+    go n = getType (suspend $ go (n -1)) tv

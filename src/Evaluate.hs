@@ -8,6 +8,7 @@
 
 module Evaluate (ValueF (..), Value, eval, Dependencies (..)) where
 
+import Builtins
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
 import Control.Monad.State (State, evalState)
@@ -504,36 +505,30 @@ rtFromVal (Fix (VBlock deps b)) = do
 -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
-  tUndefined <- deferM $ throwError "undefined"
-  tStruct <- fn1 struct
-  tTypeOf <- fn1 typeOf
-  tMatchType <- fn2 matchType
-  tError <- fn1 bError
-  tImport <- fn1 biImport
-  tAttrNames <- fn1 attrNames
-  tLookup <- fn2 bLookup
-  tTypes <-
-    deferAttrs
-      [ ("int", VType TInt),
-        ("double", VType TDouble),
-        ("void", VType TVoid),
-        ("bool", VType TBool)
-      ]
-  tBuiltins <-
-    deferVal . VAttr $
-      M.fromList
-        [ ("undefined", tUndefined),
-          ("types", tTypes),
-          ("struct", tStruct),
-          ("typeOf", tTypeOf),
-          ("matchType", tMatchType),
-          ("error", tError),
-          ("import", tImport),
-          ("attrNames", tAttrNames),
-          ("lookup", tLookup)
-        ]
+  ts <- traverse sequenceA binds
+  tBuiltins <- deferVal . VAttr $ M.fromList ts
   local (bindThunk "builtins" tBuiltins) m
   where
+    types :: [(Name, Type)]
+    types =
+      [ ("int", TInt),
+        ("double", TDouble),
+        ("void", TVoid),
+        ("bool", TBool)
+      ]
+    binds :: [(Name, Eval ThunkID)]
+    binds =
+      [ ("types", deferAttrs (fmap VType <$> types)),
+        ("struct", fn1 bStruct),
+        ("typeOf", fn1 bTypeOf),
+        ("matchType", fn2 matchType),
+        ("error", fn1 bError),
+        ("import", fn1 (bImport step)),
+        ("attrNames", fn1 attrNames),
+        ("lookup", fn2 bLookup),
+        ("index", fn2 bIndex),
+        ("length", fn1 bLength)
+      ]
     fn1 :: (ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
     fn1 f = deferVal $ VClosure' (force >=> f)
     -- TODO express in terms of fn1
@@ -545,51 +540,6 @@ withBuiltins m = do
             v1 <- force t1
             v2 <- force t2
             f v1 v2
-
--- TODO this could be lazier if VClosure' were lazier
-biImport :: ValueF ThunkID -> Eval (ValueF ThunkID)
-biImport (VPrim (PString rel)) = do
-  file <- view envFile
-  let file' = takeDirectory file </> rel
-  input <- liftIO $ readFile file'
-  case MP.parse pToplevel file' input of
-    Left err -> throwError $ MP.errorBundlePretty err
-    Right expr -> local (envFile .~ file') $ step expr
-biImport _ = throwError "import needs a filepath"
-
-typeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
-typeOf (VRTVar tid) =
-  view (envRTVar tid) >>= \case
-    Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get typeOf"
-typeOf (VBlockLabel tid) =
-  view (envRTLabel tid) >>= \case
-    Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get typeOf"
-typeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
-typeOf _ = throwError "Cannot get typeOf"
-
-bError :: ValueF ThunkID -> Eval (ValueF ThunkID)
-bError (VPrim (PString msg)) = throwError $ "error: " <> msg
-bError _ = throwError "builtins.error was passed a non-string"
-
-getTypeSuspend :: TypeVar -> Eval Type
-getTypeSuspend tv = go retries
-  where
-    retries = 10
-    go :: Int -> Eval Type
-    go 0 = throwError "Underdetermined type variable"
-    go n = getType (suspend $ go (n -1)) tv
-
-struct :: ValueF ThunkID -> Eval (ValueF ThunkID)
-struct (VAttr m) = do
-  let forceType tid = do
-        force tid >>= \case
-          (VType t) -> pure t
-          _ -> throwError "Struct member was not a type expression"
-  types <- traverse forceType m
-  pure $ VType $ TStruct types
-struct _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- TODO _is_ this a type? i.e. church-encode types?
 matchType :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
@@ -611,18 +561,3 @@ matchType (VType typ) (VAttr attrs) =
           reduce k fields'
 matchType (VType _) _ = throwError "second argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"
-
-attrNames :: ValueF ThunkID -> Eval (ValueF ThunkID)
-attrNames (VAttr attrs) = do
-  names <- traverse (deferVal . VPrim . PString) (M.keys attrs)
-  pure $ VList $ Seq.fromList names
-attrNames _ = throwError "attrNames on non-list"
-
--- TODO combine with normal field accessor
-bLookup :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
-bLookup (VAttr attrs) (VPrim (PString str)) =
-  case M.lookup str attrs of
-    Nothing -> throwError "field doesn't exist"
-    Just v -> force v -- TODO this should be lazier
-bLookup (VAttr _) _ = throwError "second argument to stringField was not a string"
-bLookup _ _ = throwError "first argument to stringField was not an attr set"
