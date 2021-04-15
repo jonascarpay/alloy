@@ -60,8 +60,8 @@ step (Var x) =
     (pure . VSelf)
 step (Lam arg body) = VClosure arg body <$> view staticEnv
 step (Let binds body) = do
-  n0 <- use thunkSource
-  let predictedThunks = zip (fst <$> binds) [n0 ..]
+  n0 <- use idSource
+  let predictedThunks = zipWith (\name n -> (name, ThunkID n)) (fst <$> binds) [n0 ..]
   local (bindThunks predictedThunks) $ do
     forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
     step body
@@ -99,7 +99,7 @@ step (Cond cond tr fl) = do
 step (Func args ret bodyExpr) = do
   args' <- forM args $ \(name, expr) -> do
     typ <- evalType expr
-    tid <- freshTempId
+    tid <- freshVarId
     tv <- tvar typ
     pure (name, typ, tid, tv)
   retType <- evalType ret
@@ -115,9 +115,9 @@ step (Func args ret bodyExpr) = do
   typedBlk <- typecheckFunction getTypeVoid blk
   let farg (_, typ, tid, _) = (tid, typ)
       funDef = FunDef (farg <$> args') retType name typedBlk
-  uncurry VFunc <$> mkFunction freshTempId recDepth deps funDef
+  uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
-functionBodyEnv :: [(Name, typ, TempID, TypeVar)] -> TypeVar -> Environment -> Environment
+functionBodyEnv :: [(Name, typ, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
 functionBodyEnv typedArgs ret env =
   Environment
     (StaticEnv ctx' ctxName fp)
@@ -155,22 +155,22 @@ evalType expr =
 
 mkFunction ::
   Monad m =>
-  m TempID ->
+  m TempFuncID ->
   RecIndex ->
   Dependencies ->
-  FunDef TempID TempID PreCall ->
-  m (Dependencies, Either TempID GUID)
+  FunDef VarID LabelID PreCall ->
+  m (Dependencies, Either TempFuncID GUID)
 mkFunction fresh recDepth transDeps funDef =
   case unresolvedCalls of
     [] -> pure mkClosedFunction
     l | any (< recDepth) l -> mkTempFunction
     _ -> pure closeTempFunction
   where
-    mkClosedFunction :: (Dependencies, Either TempID GUID)
+    mkClosedFunction :: (Dependencies, Either TempFuncID GUID)
     mkClosedFunction =
       let unPreCall (CallKnown guid) = guid
           unPreCall _ = error "impossible" -- TODO throwError
-          funDef' :: FunDef Slot Int GUID
+          funDef' :: FunDef Slot LabelID GUID
           funDef' =
             funDef & funCalls %~ unPreCall
               & assignSlots
@@ -178,20 +178,20 @@ mkFunction fresh recDepth transDeps funDef =
           deps = transDeps & depKnownFuncs . at guid ?~ funDef'
        in (deps, Right guid)
 
-    assignSlots :: FunDef TempID lbl call -> FunDef Slot lbl call
+    assignSlots :: FunDef VarID lbl call -> FunDef Slot lbl call
     assignSlots (FunDef args ret nm body) = flip evalState (mempty, 0, 0) $ do
       args' <- (traverse . _1) arg args
       body' <- blkVars decl body
       pure $ FunDef args' ret nm body'
       where
-        arg :: TempID -> State (Map TempID Slot, Int, Int) Slot
+        arg :: VarID -> State (Map VarID Slot, Int, Int) Slot
         arg td =
           use (_1 . at td) >>= \case
             Just slot -> pure slot
             Nothing -> state $ \(m, na, nd) ->
               let slot = Argument na
                in (slot, (M.insert td slot m, na + 1, nd))
-        decl :: TempID -> State (Map TempID Slot, Int, Int) Slot
+        decl :: VarID -> State (Map VarID Slot, Int, Int) Slot
         decl td =
           use (_1 . at td) >>= \case
             Just slot -> pure slot
@@ -214,19 +214,19 @@ mkFunction fresh recDepth transDeps funDef =
     normalize :: TempFunc -> TempFunc
     normalize = flip evalState (mempty, 0) . tempCalls call
       where
-        call :: TempID -> State (Map TempID Int, Int) Int
+        call :: TempFuncID -> State (Map TempFuncID Int, Int) TempFuncID
         call old =
           use (_1 . at old) >>= \case
-            Just new -> pure new
-            Nothing -> state $ \(m, new) -> (new, (M.insert old new m, new + 1))
+            Just new -> pure $ TempFuncID new
+            Nothing -> state $ \(m, next) -> (TempFuncID next, (M.insert old next m, next + 1))
         mapWithKeys :: Ord k' => Applicative m => (k -> m k') -> (v -> m v') -> (Map k v -> m (Map k' v'))
         mapWithKeys fk fv m = M.fromList <$> traverse (bitraverse fk fv) (M.toList m)
-        tempCalls :: Traversal' TempFunc Int
+        tempCalls :: Traversal' TempFunc TempFuncID
         tempCalls f = go
           where
             go (TempFunc fn deps) = TempFunc <$> (funCalls . precallTemp) f fn <*> mapWithKeys f go deps
 
-    close :: RecIndex -> TempFunc -> (GUID, Map GUID (FunDef Slot Int GUID))
+    close :: RecIndex -> TempFunc -> (GUID, Map GUID (FunDef Slot LabelID GUID))
     close depth tf@(TempFunc funDef deps) =
       let guid = GUID $ hash (normalize tf)
           replaceSelf (CallRec n) | n == depth = CallKnown guid
@@ -234,10 +234,10 @@ mkFunction fresh recDepth transDeps funDef =
 
           deps' = over (traverse . tempFuncs . funCalls) replaceSelf deps
 
-          children :: Map TempID (GUID, Map GUID (FunDef Slot Int GUID))
+          children :: Map TempFuncID (GUID, Map GUID (FunDef Slot LabelID GUID))
           children = fmap (close (depth + 1)) deps'
 
-          funDef' :: FunDef Slot Int GUID
+          funDef' :: FunDef Slot LabelID GUID
           funDef' = assignSlots funDef & funCalls %~ replaceAll
 
           replaceAll :: PreCall -> GUID
@@ -245,17 +245,17 @@ mkFunction fresh recDepth transDeps funDef =
           replaceAll (CallTemp t) | Just (guid, _) <- M.lookup t children = guid
           replaceAll (CallKnown guid) = guid
           replaceAll _ = error "impossible" -- TODO throwError
-          transDeps :: Map GUID (FunDef Slot Int GUID)
+          transDeps :: Map GUID (FunDef Slot LabelID GUID)
           transDeps = fold (toListOf (traverse . _2) children)
        in (guid, transDeps & at guid ?~ funDef')
 
     unresolvedCalls = toListOf selfCalls funDef ++ toListOf (depTempFuncs . traverse . tempFuncs . selfCalls) transDeps
-    selfCalls :: Traversal' (FunDef TempID TempID PreCall) RecIndex
+    selfCalls :: Traversal' (FunDef VarID LabelID PreCall) RecIndex
     selfCalls = funCalls . precallRec
 
 genStmt ::
   [Stmt Name Name (Maybe Expr) Expr] ->
-  RTEval [Stmt TempID TempID TypeVar (RTExpr TempID TempID PreCall TypeVar TypeVar)]
+  RTEval [Stmt VarID LabelID TypeVar (RTExpr VarID LabelID PreCall TypeVar TypeVar)]
 genStmt (Return expr : r) = do
   tv <-
     view envFnStack >>= \case
@@ -308,7 +308,7 @@ genStmt [] = pure []
 
 genBlock ::
   Block Name Name (Maybe Expr) Expr ->
-  Eval (Dependencies, RTBlock TempID TempID PreCall TypeVar)
+  Eval (Dependencies, RTBlock VarID LabelID PreCall TypeVar)
 genBlock (Block mlbl stmts typ) = do
   tv <-
     view envExprVar >>= \case
@@ -347,7 +347,7 @@ atType typ m = do
 
 rtFromExpr ::
   Expr ->
-  RTEval (RTExpr TempID TempID PreCall TypeVar TypeVar)
+  RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
 rtFromExpr (BinExpr (ArithOp op) a b) =
   liftP3
     (RTBin (ArithOp op))
@@ -467,7 +467,7 @@ rtStruct (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ
 rtStruct t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
-rtFromVal :: Value -> RTEval (RTExpr TempID TempID PreCall TypeVar TypeVar)
+rtFromVal :: Value -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
 rtFromVal (Fix (VPrim p)) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv

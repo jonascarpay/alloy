@@ -24,19 +24,17 @@ import Expr
 import Lens.Micro.Platform
 import Program
 
-type ThunkID = Int
-
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
   | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
-  | VRTVar TempID
-  | VBlockLabel TempID
+  | VRTVar VarID
+  | VBlockLabel LabelID
   | VSelf Int
-  | VBlock Dependencies (RTBlock TempID TempID PreCall TypeVar)
-  | VFunc Dependencies (Either TempID GUID)
+  | VBlock Dependencies (RTBlock VarID LabelID PreCall TypeVar)
+  | VFunc Dependencies (Either TempFuncID GUID)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
@@ -59,6 +57,8 @@ data ThunkF m v = Deferred (m v) | Computed v
 
 type Thunk = ThunkF Eval (ValueF ThunkID)
 
+newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
+
 -- TODO Eval is no longer a transformer, remove the m argument
 newtype Eval a = Eval
   { _unLazyT ::
@@ -72,17 +72,16 @@ newtype Eval a = Eval
   deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadState EvalState, MonadCoroutine)
 
 data EvalState = EvalState
-  { _thunkSource :: ThunkID,
-    _thunks :: Map ThunkID Thunk,
-    _tempSource :: TempID
+  { _thunks :: Map ThunkID Thunk,
+    _idSource :: Int
   }
 
 newtype TypeVar = TypeVar (UF.Point (Set Type))
 
 data Binding
   = BThunk ThunkID
-  | BRTVar TempID
-  | BBlockLabel TempID
+  | BRTVar VarID
+  | BBlockLabel LabelID
   | BSelf Int
   deriving (Eq, Show)
 
@@ -105,8 +104,8 @@ data DynamicEnv = DynamicEnv
   { _dynFnStack :: [FunctionSig],
     _dynBlockVar :: Maybe TypeVar,
     _dynExprVar :: Maybe TypeVar,
-    _dynVars :: Map TempID TypeVar,
-    _dynLabels :: Map TempID TypeVar
+    _dynVars :: Map VarID TypeVar,
+    _dynLabels :: Map LabelID TypeVar
   }
 
 data Environment = Environment
@@ -137,10 +136,10 @@ envFnStack = dynamicEnv . dynFnStack
 envFile :: Lens' Environment FilePath
 envFile = staticEnv . statFile
 
-envRTVar :: TempID -> Lens' Environment (Maybe TypeVar)
+envRTVar :: VarID -> Lens' Environment (Maybe TypeVar)
 envRTVar tid = dynamicEnv . dynVars . at tid
 
-envRTLabel :: TempID -> Lens' Environment (Maybe TypeVar)
+envRTLabel :: LabelID -> Lens' Environment (Maybe TypeVar)
 envRTLabel tid = dynamicEnv . dynLabels . at tid
 
 withName :: Name -> Eval a -> Eval a
@@ -150,8 +149,8 @@ lookupVar ::
   (MonadReader Environment m, MonadError String m) =>
   Name ->
   (ThunkID -> m r) ->
-  (TempID -> TypeVar -> m r) ->
-  (TempID -> TypeVar -> m r) ->
+  (VarID -> TypeVar -> m r) ->
+  (LabelID -> TypeVar -> m r) ->
   (Int -> m r) ->
   m r
 lookupVar name kct krt klbl kself = do
@@ -179,9 +178,9 @@ bindRtvar ::
   Name ->
   TypeVar ->
   m a ->
-  m (TempID, a)
+  m (VarID, a)
 bindRtvar name tv k = do
-  tmpid <- freshTempId
+  tmpid <- freshVarId
   a <- flip local k $ \env ->
     env & dynamicEnv . dynVars . at tmpid ?~ tv
       & staticEnv . statBinds . at name ?~ BRTVar tmpid
@@ -191,10 +190,10 @@ bindLabel ::
   (MonadReader Environment m, MonadState EvalState m) =>
   Name ->
   TypeVar ->
-  (Int -> m a) ->
+  (LabelID -> m a) ->
   m a
 bindLabel name tv k = do
-  tmpid <- freshTempId
+  tmpid <- freshLblId
   flip local (k tmpid) $ \env ->
     env & dynamicEnv . dynLabels . at tmpid ?~ tv
       & staticEnv . statBinds . at name ?~ BBlockLabel tmpid
@@ -211,7 +210,7 @@ runEval fp (Eval m) =
       Environment
         (StaticEnv mempty Nothing fp)
         (DynamicEnv mempty Nothing Nothing mempty mempty)
-    st0 = EvalState 0 mempty 0
+    st0 = EvalState mempty 0
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
@@ -229,12 +228,21 @@ localState f m = do
   put s
   pure a
 
-freshTempId :: MonadState EvalState m => m TempID
-freshTempId = state (\(EvalState us un ts) -> (ts, EvalState us un (ts + 1)))
+freshId :: MonadState EvalState m => m Int
+freshId = state (\(EvalState ts n) -> (n, EvalState ts (n + 1)))
+
+freshVarId :: MonadState EvalState m => m VarID
+freshVarId = VarID <$> freshId
+
+freshLblId :: MonadState EvalState m => m LabelID
+freshLblId = LabelID <$> freshId
+
+freshFuncId :: MonadState EvalState m => m TempFuncID
+freshFuncId = TempFuncID <$> freshId
 
 type RTEval = WriterT Dependencies Eval -- TODO rename this
 
-resolveToRuntimeVar :: Name -> RTEval (TempID, TypeVar)
+resolveToRuntimeVar :: Name -> RTEval (VarID, TypeVar)
 resolveToRuntimeVar name =
   lift $
     lookupVar name kComp (curry pure) (\_ _ -> err) (const err)
@@ -248,7 +256,7 @@ resolveToRuntimeVar name =
             Nothing -> err
         _ -> err
 
-resolveToBlockLabel :: Name -> RTEval (TempID, TypeVar)
+resolveToBlockLabel :: Name -> RTEval (LabelID, TypeVar)
 resolveToBlockLabel name = lift $ lookupVar name kComp (\_ _ -> err) (curry pure) (const err)
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
@@ -261,7 +269,7 @@ resolveToBlockLabel name = lift $ lookupVar name kComp (\_ _ -> err) (curry pure
         _ -> err
 
 mkThunk :: Thunk -> Eval ThunkID
-mkThunk thunk = state $ \(EvalState n m t) -> (n, EvalState (n + 1) (M.insert n thunk m) t)
+mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
 
 deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
 deferM = mkThunk . Deferred

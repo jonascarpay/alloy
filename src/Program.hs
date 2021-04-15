@@ -14,6 +14,12 @@ import Numeric (showHex)
 
 type RTBlock var lbl call typ = Block var lbl typ (RTExpr var lbl call typ typ)
 
+newtype VarID = VarID Int deriving (Eq, Show, Ord, Hashable)
+
+newtype LabelID = LabelID Int deriving (Eq, Show, Ord, Hashable)
+
+newtype TempFuncID = TempFuncID Int deriving (Eq, Show, Ord, Hashable)
+
 data RTLiteral
   = RTInt Int
   | RTDouble Double
@@ -112,8 +118,6 @@ newtype GUID = GUID {unGUID :: Int}
 instance Show GUID where
   show (GUID hash) = showHex (fromIntegral hash :: Word) ""
 
-type TempID = Int
-
 data Slot
   = Argument Int
   | Local Int
@@ -122,20 +126,20 @@ data Slot
 instance Hashable Slot
 
 data Dependencies = Dependencies
-  { _depKnownFuncs :: Map GUID (FunDef Slot Int GUID),
-    _depTempFuncs :: Map TempID TempFunc
+  { _depKnownFuncs :: Map GUID (FunDef Slot LabelID GUID),
+    _depTempFuncs :: Map TempFuncID TempFunc
   }
   deriving (Eq, Show, Generic)
 
 instance Hashable Dependencies
 
 data TempFunc = TempFunc
-  { _tempFunc :: FunDef TempID TempID PreCall,
-    _tempFuncDeps :: Map TempID TempFunc
+  { _tempFunc :: FunDef VarID LabelID PreCall,
+    _tempFuncDeps :: Map TempFuncID TempFunc
   }
   deriving (Eq, Show, Generic)
 
-tempFuncs :: Traversal' TempFunc (FunDef TempID TempID PreCall)
+tempFuncs :: Traversal' TempFunc (FunDef VarID LabelID PreCall)
 tempFuncs f = go
   where
     go (TempFunc fn deps) = TempFunc <$> f fn <*> traverse go deps
@@ -147,7 +151,7 @@ type RecIndex = Int
 data PreCall
   = CallRec RecIndex
   | CallKnown GUID
-  | CallTemp TempID
+  | CallTemp TempFuncID
   deriving (Eq, Show, Generic)
 
 instance Hashable PreCall
@@ -156,7 +160,7 @@ precallRec :: Traversal' PreCall RecIndex
 precallRec f (CallRec n) = CallRec <$> f n
 precallRec _ c = pure c
 
-precallTemp :: Traversal' PreCall TempID
+precallTemp :: Traversal' PreCall TempFuncID
 precallTemp f (CallTemp t) = CallTemp <$> f t
 precallTemp _ c = pure c
 

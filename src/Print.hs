@@ -10,7 +10,6 @@ import Data.Maybe
 import Eval
 import Expr
 import Lens.Micro.Platform
-import Numeric
 import Prettyprinter
 import Program
 
@@ -99,7 +98,7 @@ ppRTExpr deps ppVar ppLbl ppCall pptyp ppinfo = go
     go (RTCall call args _) = ppCall call <> list (go <$> args)
     go (RTCond cond tr fl _) = "if" <+> go cond <+> "then" <+> go tr <+> "else" <+> go fl
 
-lookupFun :: Dependencies -> GUID -> FunDef Slot Int GUID
+lookupFun :: Dependencies -> GUID -> FunDef Slot LabelID GUID
 lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
   where
     err = error "Referencing non-existing GUID, should be impossible"
@@ -152,7 +151,7 @@ guidsByNames m = snd <$> M.keys namedMap
     namedMap =
       M.foldMapWithKey (\guid fn -> M.singleton (fn ^. fnName, guid) fn) m
 
-ppTypedBlock :: Dependencies -> Type -> RTBlock Slot Int GUID Type -> Doc ann
+ppTypedBlock :: Dependencies -> Type -> RTBlock Slot LabelID GUID Type -> Doc ann
 ppTypedBlock deps typ block =
   ppWithDeps deps Nothing $
     ppType typ
@@ -163,8 +162,8 @@ ppTypedBlock deps typ block =
         (ppRTExpr deps ppSlot ppLabel' ppGuid (ppAnn ppType) (ppAnn ppType))
         block
 
-ppLabel' :: Int -> Doc ann
-ppLabel' n = "lbl_" <> pretty n
+ppLabel' :: LabelID -> Doc ann
+ppLabel' (LabelID n) = "lbl_" <> pretty n
 
 ppAnn :: (typ -> Doc ann) -> (typ -> Doc ann)
 ppAnn f t = ":" <+> f t
@@ -219,15 +218,17 @@ ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
 ppVal (Fix (VBlock deps b)) =
-  ppWithDeps
-    deps
-    Nothing
-    $ ppBlock
-      pretty
-      pretty
-      (const "<var>")
-      (ppRTExpr deps pretty pretty (ppKnownGuid deps) (const "<var>") (const "<var>"))
-      b
+  let pvar (VarID n) = angles $ "var" <> pretty n
+      plbl (LabelID n) = angles $ "lbl" <> pretty n
+   in ppWithDeps
+        deps
+        Nothing
+        $ ppBlock
+          pvar
+          plbl
+          (const "<var>")
+          (ppRTExpr deps pvar plbl (ppKnownGuid deps) (const "<var>") (const "<var>"))
+          b
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
   ppWithDeps deps (Just guid) $ ppFunDef deps guid
