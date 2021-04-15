@@ -39,6 +39,15 @@ keyword kw = try $ do
     then pure ()
     else fail $ "expected " <> kw
 
+operator :: String -> Parser ()
+operator op = try $ do
+  chars <- lexeme $ many (oneOf opChars)
+  if chars == op
+    then pure ()
+    else fail $ "expected " <> op
+  where
+    opChars = "+-*<=>"
+
 parens :: Parser p -> Parser p
 parens = between (symbol "(") (symbol ")")
 
@@ -115,13 +124,14 @@ pExpr =
         [InfixL (pure App)],
         [arith "*" Mul],
         [arith "+" Add, arith "-" Sub],
+        [InfixL (BinExpr Concat <$ operator "++")],
         [bool "==" Eq, bool "/=" Neq, bool "<" Lt, bool ">" Gt, bool "<=" Leq, bool ">=" Geq]
       ]
       where
         arith :: String -> ArithOp -> Operator Parser Expr
-        arith sym op = InfixL (BinExpr (ArithOp op) <$ symbol sym)
+        arith sym op = InfixL (BinExpr (ArithOp op) <$ operator sym)
         bool :: String -> CompOp -> Operator Parser Expr
-        bool sym op = InfixN (BinExpr (CompOp op) <$ symbol sym)
+        bool sym op = InfixN (BinExpr (CompOp op) <$ operator sym)
         repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
         repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
 

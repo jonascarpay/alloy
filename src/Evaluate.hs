@@ -21,14 +21,10 @@ import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
-import Data.Sequence qualified as Seq
 import Eval
 import Expr
 import Lens.Micro.Platform
-import Parse (pToplevel)
 import Program
-import System.FilePath
-import Text.Megaparsec qualified as MP
 
 eval :: FilePath -> Expr -> IO (Either String Value)
 eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
@@ -78,6 +74,9 @@ step (BinExpr bop a b) = do
     (CompOp Eq, VType ta, VType tb) -> pure . VPrim . PBool $ ta == tb
     (CompOp Neq, VType ta, VType tb) -> pure . VPrim . PBool $ ta /= tb
     (CompOp _, _, _) -> throwError "Cannot compare the thing you're trying to compare"
+    (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
+    (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
+    (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
 step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
 step (Acc f em) =
   step em >>= \case
@@ -363,6 +362,7 @@ rtFromExpr (BinExpr (CompOp op) a b) = do
     (atVar tvExp $ rtFromExpr a)
     (atVar tvExp $ rtFromExpr b)
     askVar
+rtFromExpr (BinExpr Concat _ _) = throwError "concatenation doesn't work for runtime expressions"
 rtFromExpr (Cond cond t f) =
   liftP4
     RTCond

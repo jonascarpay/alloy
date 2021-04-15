@@ -16,6 +16,7 @@ newtype Fix f = Fix {unFix :: f (Fix f)}
 
 type Name = String
 
+-- TODO Strings aren't prim
 data Prim
   = PInt Int
   | PDouble Double
@@ -53,7 +54,7 @@ data Expr
   | Cond Expr Expr Expr
   deriving (Eq, Show)
 
-data BinOp = ArithOp ArithOp | CompOp CompOp
+data BinOp = ArithOp ArithOp | CompOp CompOp | Concat
   deriving (Eq, Show, Generic)
 
 data ArithOp = Add | Sub | Mul
