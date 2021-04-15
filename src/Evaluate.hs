@@ -518,6 +518,7 @@ withBuiltins m = do
         ("error", fn1 bError),
         ("import", fn1 (bImport step)),
         ("attrNames", fn1 attrNames),
+        ("listToAttrs", fn1 bListToAttrs),
         ("lookup", fn2 bLookup),
         ("index", fn2 bIndex),
         ("length", fn1 bLength)
