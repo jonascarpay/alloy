@@ -120,5 +120,6 @@ evalTests =
              in builtins.lookup attrs key
         |],
       is9 "list indexing" "builtins.index [1, 3, 9, 27] 2",
-      is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]"
+      is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]",
+      is9 "string length" "builtins.length \"123456789\""
     ]

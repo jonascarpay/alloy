@@ -509,13 +509,6 @@ withBuiltins m = do
   tBuiltins <- deferVal . VAttr $ M.fromList ts
   local (bindThunk "builtins" tBuiltins) m
   where
-    types :: [(Name, Type)]
-    types =
-      [ ("int", TInt),
-        ("double", TDouble),
-        ("void", TVoid),
-        ("bool", TBool)
-      ]
     binds :: [(Name, Eval ThunkID)]
     binds =
       [ ("types", deferAttrs (fmap VType <$> types)),
@@ -528,6 +521,13 @@ withBuiltins m = do
         ("lookup", fn2 bLookup),
         ("index", fn2 bIndex),
         ("length", fn1 bLength)
+      ]
+    types :: [(Name, Type)]
+    types =
+      [ ("int", TInt),
+        ("double", TDouble),
+        ("void", TVoid),
+        ("bool", TBool)
       ]
     fn1 :: (ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
     fn1 f = deferVal $ VClosure' (force >=> f)

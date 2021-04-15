@@ -57,7 +57,8 @@ bIndex _ _ = throwError "builtins.index called with not a list"
 
 bLength :: ValueF ThunkID -> Eval (ValueF ThunkID)
 bLength (VList xs) = pure $ VPrim $ PInt $ Seq.length xs
-bLength _ = throwError "builtins.length called with not a list"
+bLength (VPrim (PString s)) = pure $ VPrim $ PInt $ length s
+bLength _ = throwError "builtins.length called with not a list or string"
 
 bStruct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 bStruct (VAttr m) = do
