@@ -385,6 +385,9 @@ rtFromExpr (App f x) = do
       case x of
         List argExprs -> do
           (argVars, retVar) <- lift $ callSig tdeps (either CallTemp CallKnown funId)
+          view envExprVar >>= \case
+            Nothing -> error "not in an expr" -- TODO
+            Just var -> unify_ var retVar
           tell tdeps
           rtArgExprs <-
             safeZipWithM
@@ -398,6 +401,9 @@ rtFromExpr (App f x) = do
       case x of
         List argExprs -> do
           (argVars, retVar) <- lift $ callSig mempty (CallRec n)
+          view envExprVar >>= \case
+            Nothing -> error "not in an expr" -- TODO
+            Just var -> unify_ var retVar
           rtArgExprs <-
             safeZipWithM
               (throwError "Argument length mismatch")
