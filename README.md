@@ -1,136 +1,72 @@
 # alloy
 
-## TODO
-- [x] `typeOf` will infinitely retry
-- [ ] Revisit labeled blocks
-  - [ ] Can return just be a macro?
-  - [ ] unbreakable blocks?
-    - maybe you can only break with a label, and then hiding labels from scope makes block unbreakable
-    - [ ] censored blocks?
-  - [ ] regular continue/break behavior?
-- [ ] type-based machinery
-  - [ ] type classes/traits?
-  - [x] typeOf
-  - [x] type equality
-  - [x] pattern matching on types?
-  - [ ] are types just their encoding?
-- [x] no clear distinction between what checks happen at evaluation time, and what happen at type check time. Essentially shotgun validation.
-- [ ] check if functions properly return?
-  - removed/put on ice because break/return complicates things
-  - maybe _every_ block has to end with a LLVM-style terminator
-- [ ] RTExpr values/syntax?
-  - in `plusEqual = l: r: {l = l+r;}` `r` should be able to be an expression without this having to be a bona fide function
-  - maybe it's just a matter of making syntax slightly more explicit
-    - `fn @comptimeArg (rta + rtb)`?
-  - [x] blocks _are_ RTExpr values
-    - we can already do this with `plusEqual x {break 3 + 4;}`, so making the block expression syntax lighter (i.e. rust-style `{3+4}`) might be sufficient
-- [ ] booleans, enums, atoms
-  - [ ] unscoped/global atoms?
-    - would mean the compiler collects them and assigns unique int ids to them
-      - for this to work across modules, it could/would need to be a hash of its name
-      - not sure if that's a good idea though
-    - similar to how zig does error values
-  - [ ] are enums just namespaced atoms?
-    - _would_ be numbered in ascending order
-    - still need global atoms?
-  - [ ] are booleans just enums?
-- [ ] `builtins.trace`
-  - could just use Haskell's `trace` for now
-  - requires strings
-- [x] literal conversions
-- [ ] type holes
-- [x] `printf` in Zig knows the types of its arguments at compile time -- do we want/need that?
-- [ ] comptime stack traces
-- [x] `builtins.error`
-  - strings
-- [ ] negative lit
-- [ ] proper keyword parsing
-  - [x] currently `truee` parses to `true e`
-- [x] ~print `VClosure` using let-bindings?~ impossible for builtins
-- [ ] (key)word parsing backtracks too much
-  - [ ] parsing in general kinda sucks
-- [ ] custom pretty-printing
-  - [ ] own type class
-    - multi-line, single line
-- [x] turn the test cases into test cases so we can focus them
-- [x] list builtins
-  - [x] concatenation
-  - [x] destructing
-  - [x] does map need to be a builtin?
-- [ ] nix-style `{ foo.bar: 4 }`?
-- [ ] proper megaparsec errors for unexpected keywords
-  - highlight the entire word, say what was expected, etc.
-- [ ] think about runtime function call syntax
-  - it's not lists
-- [ ] rename stuff
-  - especially terminology in the eval module
-- [x] imports
-  - [ ] check for unbound variables to avoid capture issues
-- [ ] warnings
-- [ ] have subcommands in the executable for the building and the repl
-- [ ] have inherit from-expressions evaluate the attr set only once
-- [ ] benchmarks
-  - [ ] use Text instead of String
-- [x] inherit from set, inherit multiple
-- [ ] `where` expressions?
-- [x] ~remove microlens dependency?~ no
+Alloy[^1] is a programming language experiment that combines the fine-grained control of a systems programming language with the expressivity of a functional programming language.
+It is best thought of as a combination of two small sublanguages: a high-level declarative macro language, and a low-level imperative runtime language.
 
-## DONE
-- [x] step 1
-  - [x] Closure scope contains ThunkIDs instead of values
-  - [x] arithmetic expressions
-  - [x] attribute sets
-  - [x] field accessor parsing
-  - [x] bugs:
-    - [x] `let id = x:x; x = 4 in id x` diverges
-    - [x] `let x = 4; in {a = x;}` gives unbound variable, `let x=4; in x` works
-  - [x] let bindings
-  - [x] syntax rework
-  - [x] remove lens dependency?
-- [x] step 2
-  - [x] figure out step 2
-  - [x] (!) syntax issue with braces for function calls, f(x) has different meaning in rt and ct. spaces?
-    - related to the unsolved issue about RTExprs as values
-  - [x] recursion
-  - [x] builtins
-  - [x] runtime functions POC
-  - [x] fix precedence issue (`builtins.fix (self: 0)` fails)
-- [x] step 3
-  - [x] figure out step 3
-  - [x] recursion but properly
-    - implementation should be pretty easy, but it would require turning `let` into more than syntactic sugar
-  - [x] types
-  - [x] type checking
-  - [x] structs
-- [x] step 4
-  - [ ] hashing/GUIDs
-    - [x] functions
-    - [ ] types?
-  - [x] simple function naming
-  - [x] annotate functions with their stack trace/closest binding
-  - [x] var type inference
-    - [x] fix printing
-  - [x] `with` syntax
-  - [x] function body is an expression
-    - [x] Fix the infinite recursion in recursive RT functions
-  - [x] black holes
-- [x] step 5
-  - [x] structured goto
-    - [x] break
-    - [x] continue
-  - [x] function naming and deduplication
-    - ideally `let someFn = [..]: {..}` would actually get the `someFn` symbol, but that might become tricky if it's behind a ct argument
-    - Zig has memoization, but our functions can come from weirder places, and can be anonymous
-    - maybe we perform a pass before evaluation where we find every function expression and name it after it's place in the expression
-      - if it's behind arguments, include the applied arguments in the function name
-    - the easy way out would be hashing function definitions
-- [x] step 6
-  - [x] conditionals
-    - [x] host
-    - [x] target
-    - [x] comparators
-    - [ ] inversion
-    - [x] if-then-else
-      - [x] should also be ternary
-- [x] step 7
-  - terminator expressions
+| Language A | Language B |
+| --- | --- |
+| High-level | Low-level |
+| Declarative | Imperative |
+| Functional | Procedural |
+| Compile time | Runtime |
+| Lazy | Strict |
+| Pure | Impure |
+| Dynamic typing | Static typing |
+| Static scoping | Dynamic scoping |
+| Garbage-collected | Manual memory management |
+
+This project is still in very early development.
+The syntax is very preliminary, there are no syscalls, and there is no codegen beyond the internal intermediate representation.
+
+### Types example
+
+This following example shows off how to write type-based machinery in the compile-time language.
+- `V3` is a function that takes a type as its argument and returns a three-dimensional vector struct
+- `Vert` is a struct consisting of three vectors
+- `sizeOf` is a manual implementation of C's `sizeof`, it takes a type and gives its size
+- `zero` takes a type and gives a value for it, consisting entirely of zeroes.
+- The final value is a function definition that takes no arguments and returns the size of `x` as an integer
+
+```
+with builtins;
+with types;
+with (import "lib/lib.ay");
+
+let
+
+  V3 t = struct { x: t, y: t, z: t };
+
+  Vert = struct {
+    pos: V3 double,
+    nor: V3 double,
+    tex: V3 int,
+  };
+
+  sizeOf t = matchType t {
+    int: 4,
+    double: 8,
+    void: 0,
+    struct: fields: sum (map sizeOf (attrValues fields)),
+  };
+
+  zero t = matchType t {
+    int: 0,
+    double: 0,
+    struct: fields: mapAttrs zero fields,
+  };
+
+in
+[] -> int {
+  var x: Vert = zero Vert;
+  var y: int = sizeOf (typeOf x);
+  return y;
+}
+```
+
+### Recursion example
+
+### Control flow example
+
+### Continuation example
+
+[^1] working title, suggestions are welcome
