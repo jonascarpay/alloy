@@ -53,22 +53,17 @@
   - [ ] own type class
     - multi-line, single line
 - [x] turn the test cases into test cases so we can focus them
-- [ ] list builtins
-  - [ ] concatenation
-  - [ ] destructing
-  - [ ] does map need to be a builtin?
+- [x] list builtins
+  - [x] concatenation
+  - [x] destructing
+  - [x] does map need to be a builtin?
 - [ ] nix-style `{ foo.bar: 4 }`?
 - [ ] proper megaparsec errors for unexpected keywords
   - highlight the entire word, say what was expected, etc.
-- [ ] Does an attribute set of programs share RT stuff between itself?
-  - may be just a question of naming them well
-    - if functions are hashed this is free
-- [ ] check whether all rejected words are actually keywords
-  - at a later point just make sure we didn't leave anything in there that we don't use
 - [ ] think about runtime function call syntax
   - it's not lists
 - [ ] rename stuff
-  - [ ] lazy evaluation terminology
+  - especially terminology in the eval module
 - [x] imports
   - [ ] check for unbound variables to avoid capture issues
 - [ ] warnings
