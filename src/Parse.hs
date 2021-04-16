@@ -161,9 +161,11 @@ pLet = do
     pFields = pInheritFrom <|> (pure <$> pField)
     pField = do
       n <- pName
+      args <- many pName
       symbol "="
-      x <- pExpr
-      pure (n, x)
+      body <- pExpr
+      let expr = foldr Lam body args
+      pure (n, expr)
 
 pPrim :: Parser Prim
 pPrim = choice [PBool <$> try pBool, PInt <$> pInt, PString <$> pString] <?> "primitive"

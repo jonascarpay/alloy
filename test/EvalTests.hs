@@ -123,5 +123,7 @@ evalTests =
       is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]",
       is9 "string length" "builtins.length \"123456789\"",
       is9 "list concat" "builtins.index ([] ++ [9] ++ []) 0",
-      is9 "listToAttrs" "(builtins.listToAttrs [{ key: \"nine\", value: 9 }]).nine"
+      is9 "listToAttrs" "(builtins.listToAttrs [{ key: \"nine\", value: 9 }]).nine",
+      is9 "haskell function syntax 1" "let id x = x; in id 9",
+      is9 "haskell function syntax 2" "let const x y = x; in const 9 10"
     ]
