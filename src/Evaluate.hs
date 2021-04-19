@@ -343,7 +343,7 @@ atVar tv = local (envExprVar ?~ tv)
 atType :: Type -> RTEval a -> RTEval a
 atType typ m = do
   tv <- tvar typ
-  local (envExprVar ?~ tv) m
+  atVar tv m
 
 rtFromExpr ::
   Expr ->
@@ -393,7 +393,7 @@ rtFromExpr (App f x) = do
           rtArgExprs <-
             safeZipWithM
               (throwError "Argument length mismatch")
-              (\expr tv -> local (envExprVar ?~ tv) $ rtFromExpr expr)
+              (\expr tv -> atVar tv $ rtFromExpr expr)
               (toList argExprs)
               argVars
           pure $ RTCall (either CallTemp CallKnown funId) rtArgExprs retVar
@@ -408,7 +408,7 @@ rtFromExpr (App f x) = do
           rtArgExprs <-
             safeZipWithM
               (throwError "Argument length mismatch")
-              (\expr tv -> local (envExprVar ?~ tv) $ rtFromExpr expr)
+              (\expr tv -> atVar tv $ rtFromExpr expr)
               (toList argExprs)
               argVars
           pure $ RTCall (CallRec n) rtArgExprs retVar
@@ -419,7 +419,7 @@ rtFromExpr (Acc field attrExpr) = do
   structType <- fresh
   -- TODO when rtFromVal is lazier, don't evaluate this as deeply
   -- TODO unify type stuff for fieldType and structType
-  rtExpr <- local (envExprVar ?~ structType) (rtFromExpr attrExpr)
+  rtExpr <- atVar structType (rtFromExpr attrExpr)
   lift (getTypeSuspend structType) >>= \case
     TStruct fieldTypes ->
       case M.lookup field fieldTypes of
