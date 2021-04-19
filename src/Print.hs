@@ -92,6 +92,7 @@ ppRTExpr :: Dependencies -> (var -> Doc ann) -> (lbl -> Doc ann) -> (call -> Doc
 ppRTExpr deps ppVar ppLbl ppCall pptyp ppinfo = go
   where
     go (RTVar x _) = ppVar x
+    go (RTAccessor expr field _) = go expr <> "." <> pretty field
     go (RTLiteral n _) = ppRTLit n
     go (RTBin op a b _) = go a <+> opSymbol op <+> go b
     go (RTBlock b _) = ppBlock ppVar ppLbl pptyp go b
@@ -126,6 +127,7 @@ opSymbol (CompOp op) = comp op
     comp Neq = "/="
     comp Leq = "<="
     comp Geq = ">="
+opSymbol Concat = "++"
 
 ppFunctionName :: Name -> GUID -> Doc ann
 ppFunctionName name guid = pretty name <> "_" <> ppGuid guid
@@ -200,10 +202,6 @@ ppSlot (Local n) = "var_" <> pretty n
 
 ppTyped :: (name -> Doc ann) -> (typ -> Doc ann) -> name -> typ -> Doc ann
 ppTyped fname ftype name typ = fname name <> ":" <+> ftype typ
-
-ppMaybeType :: Maybe Type -> Doc ann
-ppMaybeType Nothing = "_"
-ppMaybeType (Just typ) = ppType typ
 
 ppKnownGuid :: Dependencies -> PreCall -> Doc ann
 ppKnownGuid deps (CallKnown guid) =

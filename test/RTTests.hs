@@ -496,5 +496,24 @@ rtTests =
           [r| with builtins.types;
             let f = [] -> int { return 3; };
             in [] -> int { var o: void = f[]; }
+        |],
+      saFunc
+        "simple RT field accessor"
+        [r| with builtins.types;
+            [] -> int {
+              var v: builtins.struct {x: int} = { x: 0 };
+              return v.x;
+            }
+        |],
+      saFunc
+        "nested RT field accessor"
+        [r| with builtins.types;
+            let
+              nestedStruct = builtins.struct {x: int};
+              str = builtins.struct {nest: nestedStruct};
+            in [] -> int {
+              var v: str = { nest: {x: 0} };
+              return v.nest.x;
+            }
         |]
     ]

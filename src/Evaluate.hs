@@ -84,7 +84,7 @@ step (Acc f em) =
       case M.lookup f m of
         Nothing -> throwError $ "field " <> f <> " not present"
         Just tid -> force tid
-    _ -> throwError "Accessing field of not an attribute set"
+    _ -> throwError $ unwords ["Accessing field", show f, "of not an attribute set"]
 step (BlockExpr b) = uncurry VBlock <$> genBlock b
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
@@ -414,9 +414,20 @@ rtFromExpr (App f x) = do
           pure $ RTCall (CallRec n) rtArgExprs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
     val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
+rtFromExpr (Acc field attrExpr) = do
+  fieldType <- askVar
+  structType <- fresh
+  -- TODO when rtFromVal is lazier, don't evaluate this as deeply
+  -- TODO unify type stuff for fieldType and structType
+  rtExpr <- local (envExprVar ?~ structType) (rtFromExpr attrExpr)
+  lift (getTypeSuspend structType) >>= \case
+    TStruct fieldTypes ->
+      case M.lookup field fieldTypes of
+        Nothing -> throwError $ "struct type did not contain field " <> field
+        Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
+    _ -> throwError "accessing field of something that's not a struct"
 rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Acc {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal
 rtFromExpr expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal
