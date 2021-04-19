@@ -544,7 +544,7 @@ withBuiltins m = do
 
 -- TODO _is_ this a type? i.e. church-encode types?
 matchType :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
-matchType (VType typ) (VAttr attrs) =
+matchType (VAttr attrs) (VType typ) =
   let getAttr attr = case M.lookup attr attrs of
         Just x -> pure x
         Nothing -> case M.lookup "default" attrs of
@@ -560,5 +560,5 @@ matchType (VType typ) (VAttr attrs) =
           -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
           fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
           reduce k fields'
-matchType (VType _) _ = throwError "second argument to matchType was not an attr set"
+matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"

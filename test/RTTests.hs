@@ -444,7 +444,7 @@ rtTests =
             [] -> int {
               var x : int = 12;
               var z
-                : matchType (typeOf x) { int: builtins.types.int }
+                : matchType { int: builtins.types.int } (typeOf x)
                 = 234;
               return x;
             } |],
@@ -454,7 +454,7 @@ rtTests =
             [] -> int {
               var x = 12;
               var z
-                : matchType (typeOf x) { int: builtins.types.int }
+                : matchType { int: builtins.types.int } (typeOf x)
                 = 234;
               return x;
             } |],
