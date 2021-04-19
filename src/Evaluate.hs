@@ -431,13 +431,9 @@ rtFromExpr (Attr fields) = do
   typ <- lift $ getTypeSuspend tv
   rtFields <- rtStruct rtFromExpr typ fields
   pure $ RTStruct rtFields tv
-rtFromExpr expr@BlockExpr {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@With {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@Lam {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@Prim {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@Let {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@List {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@Func {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@Prim {} = lift (step expr) >>= rtFromVal -- TODO remove the step here, keep things runtime
+rtFromExpr expr@BlockExpr {} = lift (step expr) >>= rtFromVal -- TODO remove the step here, keep things runtime
+rtFromExpr _ = throwError "invalid runtime expression"
 
 varsFromSig :: [Type] -> Type -> Eval ([TypeVar], TypeVar)
 varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
