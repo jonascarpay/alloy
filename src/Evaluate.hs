@@ -426,12 +426,16 @@ rtFromExpr (Acc field attrExpr) = do
         Nothing -> throwError $ "struct type did not contain field " <> field
         Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
     _ -> throwError "accessing field of something that's not a struct"
+rtFromExpr (Attr fields) = do
+  tv <- askVar
+  typ <- lift $ getTypeSuspend tv
+  rtFields <- rtStruct rtFromExpr typ fields
+  pure $ RTStruct rtFields tv
 rtFromExpr expr@BlockExpr {} = lift (step expr) >>= rtFromVal
 rtFromExpr expr@With {} = lift (step expr) >>= rtFromVal
 rtFromExpr expr@Lam {} = lift (step expr) >>= rtFromVal
 rtFromExpr expr@Prim {} = lift (step expr) >>= rtFromVal
 rtFromExpr expr@Let {} = lift (step expr) >>= rtFromVal
-rtFromExpr expr@Attr {} = lift (step expr) >>= rtFromVal
 rtFromExpr expr@List {} = lift (step expr) >>= rtFromVal
 rtFromExpr expr@Func {} = lift (step expr) >>= rtFromVal
 
@@ -474,12 +478,12 @@ rtLit TDouble (PDouble n) = pure $ RTDouble n
 rtLit TBool (PBool b) = pure $ RTBool b
 rtLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
 
-rtStruct :: Type -> Map Name ThunkID -> RTEval (Map Name (RTExpr VarID LabelID PreCall TypeVar TypeVar))
-rtStruct (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
+rtStruct :: (a -> RTEval b) -> Type -> Map Name a -> RTEval (Map Name b)
+rtStruct f (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
   case M.lookup fieldName attrs of
-    Just val -> atType typ (lift (force val) >>= rtFromVal)
+    Just val -> atType typ (f val)
     _ -> throwError $ "Field " <> fieldName <> " not present in the supplied struct"
-rtStruct t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
+rtStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
 rtFromVal :: ValueF ThunkID -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
@@ -491,7 +495,7 @@ rtFromVal (VPrim p) = do
 rtFromVal (VAttr m) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  s <- rtStruct typ m
+  s <- rtStruct (\tid -> lift (force tid) >>= rtFromVal) typ m
   pure $ RTStruct s tv
 rtFromVal (VRTVar tpid) =
   view (envRTVar tpid) >>= \case

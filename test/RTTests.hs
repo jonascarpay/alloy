@@ -523,5 +523,15 @@ rtTests =
             in [] -> void {
               var x: v = {x: {0}};
             }
+        |],
+      saFunc
+        "struct fields are _runtime_ expressions"
+        [r| with builtins.types;
+            let
+              v = builtins.struct {x: int};
+            in [] -> void {
+              var x: v = {x: 0};
+              # var y: v = {x: x.x};
+            }
         |]
     ]
