@@ -98,6 +98,7 @@ ppRTExpr deps ppVar ppLbl ppCall pptyp ppinfo = go
     go (RTBlock b _) = ppBlock ppVar ppLbl pptyp go b
     go (RTCall call args _) = ppCall call <> list (go <$> args)
     go (RTCond cond tr fl _) = "if" <+> go cond <+> "then" <+> go tr <+> "else" <+> go fl
+    go (RTStruct m _) = ppAttrs pretty go m
 
 lookupFun :: Dependencies -> GUID -> FunDef Slot LabelID GUID
 lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
@@ -110,7 +111,6 @@ ppGuid g = pretty $ take 5 $ show g
 ppRTLit :: RTLiteral -> Doc ann
 ppRTLit (RTInt n) = pretty n
 ppRTLit (RTDouble n) = pretty n
-ppRTLit (RTStruct m) = ppAttrs pretty ppRTLit m
 ppRTLit (RTBool b) = bool "false" "true" b
 
 opSymbol :: BinOp -> Doc ann

@@ -375,16 +375,15 @@ rtTests =
                 var x: str = {a: 2};
               }
           |],
-      pending $
-        saFunc
-          "non-literal struct expression"
-          [r| with builtins.types;
-              let str = builtins.struct { a: int, b: double };
-              in [] -> void {
-                var y: int = 2;
-                var x: str = {a: y, b: 2};
-              }
-          |],
+      saFunc
+        "non-literal struct expression"
+        [r| with builtins.types;
+            let str = builtins.struct { a: int, b: double };
+            in [] -> void {
+              var y: int = 2;
+              var x: str = {a: y, b: 2};
+            }
+        |],
       saFunc
         "inline while loop"
         [r| with builtins.types;
@@ -514,6 +513,15 @@ rtTests =
             in [] -> int {
               var v: str = { nest: {x: 0} };
               return v.nest.x;
+            }
+        |],
+      saFunc
+        "struct field type inference"
+        [r| with builtins.types;
+            let
+              v = builtins.struct {x: int};
+            in [] -> void {
+              var x: v = {x: {0}};
             }
         |]
     ]

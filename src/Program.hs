@@ -24,7 +24,6 @@ data RTLiteral
   = RTInt Int
   | RTDouble Double
   | RTBool Bool
-  | RTStruct (Map Name RTLiteral) -- TODO promote to full expr
   deriving (Eq, Show, Generic)
 
 instance Hashable RTLiteral
@@ -32,6 +31,7 @@ instance Hashable RTLiteral
 data RTExpr var lbl call typ a
   = RTVar var a
   | RTAccessor (RTExpr var lbl call typ a) Name a
+  | RTStruct (Map Name (RTExpr var lbl call typ a)) a
   | RTLiteral RTLiteral a
   | RTBin BinOp (RTExpr var lbl call typ a) (RTExpr var lbl call typ a) a
   | RTBlock (Block var lbl typ (RTExpr var lbl call typ a)) a
@@ -65,6 +65,7 @@ rtExprMasterTraversal fVar fLbl fCall fTyp fInfo fLit = go
   where
     go (RTVar nm i) = RTVar <$> fVar nm <*> fInfo i
     go (RTAccessor str field i) = RTAccessor <$> go str <*> pure field <*> fInfo i
+    go (RTStruct str i) = RTStruct <$> traverse go str <*> fInfo i
     go (RTLiteral lit i) = RTLiteral <$> fLit lit <*> fInfo i
     go (RTBin op l r i) = RTBin op <$> go l <*> go r <*> fInfo i
     go (RTBlock (Block lbl blk typ) i) =

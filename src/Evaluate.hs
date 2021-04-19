@@ -373,7 +373,7 @@ rtFromExpr (Cond cond t f) =
 rtFromExpr (Var n) =
   lookupVar
     n
-    (lift . deepEval >=> rtFromVal)
+    (\tid -> lift (force tid) >>= rtFromVal)
     (\tpid tv -> RTVar tpid tv <$ (askVar >>= unify_ tv))
     (\_ _ -> throwError "referencing block label as expression")
     (const $ throwError "referencing self variable as expression")
@@ -413,7 +413,7 @@ rtFromExpr (App f x) = do
               argVars
           pure $ RTCall (CallRec n) rtArgExprs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
-    val -> lift (deferExpr x >>= reduce val >>= traverse deepEval) >>= rtFromVal . Fix -- TODO a little ugly
+    val -> lift (deferExpr x >>= reduce val) >>= rtFromVal
 rtFromExpr (Acc field attrExpr) = do
   fieldType <- askVar
   structType <- fresh
@@ -426,14 +426,14 @@ rtFromExpr (Acc field attrExpr) = do
         Nothing -> throwError $ "struct type did not contain field " <> field
         Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
     _ -> throwError "accessing field of something that's not a struct"
-rtFromExpr expr@BlockExpr {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@With {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Lam {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Prim {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Let {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Attr {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@List {} = lift (deepEvalExpr expr) >>= rtFromVal
-rtFromExpr expr@Func {} = lift (deepEvalExpr expr) >>= rtFromVal
+rtFromExpr expr@BlockExpr {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@With {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@Lam {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@Prim {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@Let {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@Attr {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@List {} = lift (step expr) >>= rtFromVal
+rtFromExpr expr@Func {} = lift (step expr) >>= rtFromVal
 
 varsFromSig :: [Type] -> Type -> Eval ([TypeVar], TypeVar)
 varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
@@ -474,40 +474,37 @@ rtLit TDouble (PDouble n) = pure $ RTDouble n
 rtLit TBool (PBool b) = pure $ RTBool b
 rtLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
 
-rtStruct :: Type -> Map Name Value -> RTEval (Map Name RTLiteral)
+rtStruct :: Type -> Map Name ThunkID -> RTEval (Map Name (RTExpr VarID LabelID PreCall TypeVar TypeVar))
 rtStruct (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
   case M.lookup fieldName attrs of
-    Just val ->
-      atType typ (rtFromVal val) >>= \case
-        RTLiteral lit _ -> pure lit
-        _ -> throwError "Expression did not evaluate to a literal"
+    Just val -> atType typ (lift (force val) >>= rtFromVal)
     _ -> throwError $ "Field " <> fieldName <> " not present in the supplied struct"
 rtStruct t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
-rtFromVal :: Value -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
-rtFromVal (Fix (VPrim p)) = do
+rtFromVal :: ValueF ThunkID -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
+rtFromVal (VPrim p) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
   lit <- rtLit typ p
   pure $ RTLiteral lit tv
-rtFromVal (Fix (VAttr m)) = do
+rtFromVal (VAttr m) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
   s <- rtStruct typ m
-  pure $ RTLiteral (RTStruct s) tv
-rtFromVal (Fix (VRTVar tpid)) =
+  pure $ RTStruct s tv
+rtFromVal (VRTVar tpid) =
   view (envRTVar tpid) >>= \case
     Nothing -> throwError "variable not in scope"
     Just tv -> RTVar tpid tv <$ (askVar >>= unify_ tv) -- TODO Combine with Var handling as expr on line 375 somehow
-rtFromVal (Fix VClosure {}) = throwError "partially applied closure in runtime expression"
-rtFromVal (Fix VClosure' {}) = throwError "partially applied closure' in runtime expression"
-rtFromVal (Fix VSelf {}) = throwError "naked `self` in runtime expression"
-rtFromVal (Fix VList {}) = throwError "can't handle list values yet"
-rtFromVal (Fix VType {}) = throwError "can't handle type"
-rtFromVal (Fix VFunc {}) = throwError "Function values don't make sense here"
-rtFromVal (Fix VBlockLabel {}) = throwError "Block labels don't make sense here"
-rtFromVal (Fix (VBlock deps b)) = do
+rtFromVal VClosure {} = throwError "partially applied closure in runtime expression"
+rtFromVal VClosure' {} = throwError "partially applied closure' in runtime expression"
+rtFromVal VSelf {} = throwError "naked `self` in runtime expression"
+rtFromVal VList {} = throwError "can't handle list values yet"
+rtFromVal VType {} = throwError "can't handle type"
+rtFromVal VFunc {} = throwError "Function values don't make sense here"
+rtFromVal VBlockLabel {} = throwError "Block labels don't make sense here"
+rtFromVal (VBlock deps b) = do
   -- TODO block typevar
   tell deps
   tv <- lift fresh
