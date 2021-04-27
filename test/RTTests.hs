@@ -533,5 +533,16 @@ rtTests =
               var x: v = {x: 0};
               # var y: v = {x: x.x};
             }
-        |]
+        |],
+      negative $
+        saFunc
+          "unify types of blockExprs"
+          [r| with (builtins.types);
+              let
+                zeroExpr = {var res: int = 0; break res;};
+              in [] -> int {
+                var a: int = zeroExpr; # this should succeed
+                var b: double = zeroExpr;
+              }
+          |]
     ]
