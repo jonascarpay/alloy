@@ -538,6 +538,14 @@ rtTests =
         saFunc
           "unify types of blockExprs"
           [r| with (builtins.types);
+              [] -> int {
+                var b: double = {var res: int = 0; res};
+              }
+          |],
+      negative $
+        saFunc
+          "unify types of blockExprs"
+          [r| with (builtins.types);
               let
                 zeroExpr = {var res: int = 0; break res;};
               in [] -> int {
