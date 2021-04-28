@@ -552,5 +552,17 @@ rtTests =
                 var a: int = zeroExpr; # this should succeed
                 var b: double = zeroExpr;
               }
-          |]
+          |],
+      saFunc
+        "block types are not evaluated"
+        [r| with (builtins.types);
+            let
+              zeroExpr = {var res = 0; break res;};
+              zeroExpr2 = {var res = 0; break res;};
+            in [] -> int {
+              var a: int = zeroExpr;
+              var b: double = zeroExpr;
+              # var b: double = zeroExpr2; # This works, referential transparency broken
+            }
+        |]
     ]
