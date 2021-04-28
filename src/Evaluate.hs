@@ -505,9 +505,9 @@ rtFromVal VType {} = throwError "can't handle type"
 rtFromVal VFunc {} = throwError "Function values don't make sense here"
 rtFromVal VBlockLabel {} = throwError "Block labels don't make sense here"
 rtFromVal (VBlock deps b) = do
-  -- TODO block typevar
   tell deps
-  tv <- lift fresh
+  tv <- askVar
+  unify_ tv (b ^. blkType)
   pure $ RTBlock b tv
 
 -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
