@@ -108,10 +108,10 @@ step (Func args ret bodyExpr) = do
   retVar <- tvar retType
   recDepth <- length <$> view envFnStack
   name <- view $ envName . to (fromMaybe "fn")
-  (deps, blk) <-
+  (blk, deps) <-
     local (functionBodyEnv args' retVar) $
       step bodyExpr >>= \case
-        VBlock env blk -> local (staticEnv .~ env) $ genBlock blk
+        VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ genBlock blk
         _ -> throwError "Function body did not evaluate to a block expression"
   let getTypeVoid = getType (pure TVoid)
   typedBlk <- typecheckFunction getTypeVoid blk
@@ -310,20 +310,20 @@ genStmt [] = pure []
 
 genBlock ::
   Block Name Name (Maybe Expr) Expr ->
-  Eval (Dependencies, RTBlock VarID LabelID PreCall TypeVar)
+  RTEval (RTBlock VarID LabelID PreCall TypeVar)
 genBlock (Block mlbl stmts typ) = do
   tv <-
     view envExprVar >>= \case
       Just tv -> pure tv
       Nothing -> fresh
-  forM_ typ (evalType >=> setType tv)
+  forM_ typ (lift . evalType >=> setType tv)
   -- TODO the envExprVar shouldn't be necessary
-  ((mtid, stmts'), deps) <- runWriterT $
+  (mtid, stmts') <-
     local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
       case mlbl of
         Nothing -> (Nothing,) <$> genStmt stmts
         Just lbl -> bindLabel lbl tv $ \tid -> (Just tid,) <$> genStmt stmts
-  pure (deps, Block mtid stmts' tv)
+  pure (Block mtid stmts' tv)
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
@@ -507,8 +507,7 @@ rtFromVal VType {} = throwError "can't handle type"
 rtFromVal VFunc {} = throwError "Function values don't make sense here"
 rtFromVal VBlockLabel {} = throwError "Block labels don't make sense here"
 rtFromVal (VBlock env blk) = do
-  (deps, blk') <- lift $ local (staticEnv .~ env) $ genBlock blk
-  tell deps
+  blk' <- local (staticEnv .~ env) $ genBlock blk
   tv <- askVar
   unify_ tv (blk' ^. blkType)
   pure $ RTBlock blk' tv
