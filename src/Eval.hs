@@ -33,7 +33,7 @@ data ValueF val
   | VRTVar VarID
   | VBlockLabel LabelID
   | VSelf Int
-  | VBlock Dependencies (RTBlock VarID LabelID PreCall TypeVar)
+  | VBlock StaticEnv (Block Name Name (Maybe Expr) Expr)
   | VFunc Dependencies (Either TempFuncID GUID)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)

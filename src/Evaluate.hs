@@ -85,7 +85,9 @@ step (Acc f em) =
         Nothing -> throwError $ "field " <> f <> " not present"
         Just tid -> force tid
     _ -> throwError $ unwords ["Accessing field", show f, "of not an attribute set"]
-step (BlockExpr b) = uncurry VBlock <$> genBlock b
+step (BlockExpr b) = do
+  env <- view staticEnv
+  pure $ VBlock env b
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -109,7 +111,7 @@ step (Func args ret bodyExpr) = do
   (deps, blk) <-
     local (functionBodyEnv args' retVar) $
       step bodyExpr >>= \case
-        VBlock deps blk -> pure (deps, blk)
+        VBlock env blk -> local (staticEnv .~ env) $ genBlock blk
         _ -> throwError "Function body did not evaluate to a block expression"
   let getTypeVoid = getType (pure TVoid)
   typedBlk <- typecheckFunction getTypeVoid blk
@@ -504,11 +506,12 @@ rtFromVal VList {} = throwError "can't handle list values yet"
 rtFromVal VType {} = throwError "can't handle type"
 rtFromVal VFunc {} = throwError "Function values don't make sense here"
 rtFromVal VBlockLabel {} = throwError "Block labels don't make sense here"
-rtFromVal (VBlock deps b) = do
+rtFromVal (VBlock env blk) = do
+  (deps, blk') <- lift $ local (staticEnv .~ env) $ genBlock blk
   tell deps
   tv <- askVar
-  unify_ tv (b ^. blkType)
-  pure $ RTBlock b tv
+  unify_ tv (blk' ^. blkType)
+  pure $ RTBlock blk' tv
 
 -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
 withBuiltins :: Eval a -> Eval a

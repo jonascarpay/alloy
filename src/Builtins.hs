@@ -26,7 +26,7 @@ bTypeOf (VBlockLabel tid) =
   view (envRTLabel tid) >>= \case
     Just tv -> VType <$> getTypeSuspend tv
     Nothing -> throwError "Cannot get bTypeOf"
-bTypeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
+-- bTypeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
 bTypeOf _ = throwError "Cannot get bTypeOf"
 
 bError :: ValueF ThunkID -> Eval (ValueF ThunkID)

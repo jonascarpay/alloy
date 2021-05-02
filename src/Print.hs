@@ -215,18 +215,7 @@ ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
-ppVal (Fix (VBlock deps b)) =
-  let pvar (VarID n) = angles $ "var" <> pretty n
-      plbl (LabelID n) = angles $ "lbl" <> pretty n
-   in ppWithDeps
-        deps
-        Nothing
-        $ ppBlock
-          pvar
-          plbl
-          (const "<var>")
-          (ppRTExpr deps pvar plbl (ppKnownGuid deps) (const "<var>") (const "<var>"))
-          b
+ppVal (Fix (VBlock deps b)) = "<<body expression>>"
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
   ppWithDeps deps (Just guid) $ ppFunDef deps guid
