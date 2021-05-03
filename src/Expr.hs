@@ -65,21 +65,21 @@ data Expr
   | Func [(Name, Expr)] Expr Expr
   | List (Seq Expr)
   | BinExpr BinOp Expr Expr
-  | Attr (Map Name Expr)
-  | Acc Name Expr
+  | Attr (Map Expr Expr)
+  | Acc Expr Expr
   | With Expr Expr
   | BlockExpr (Block Name Name (Maybe Expr) Expr)
   | Cond Expr Expr Expr
-  deriving (Eq, Show)
+  deriving (Ord, Eq, Show)
 
 data BinOp = ArithOp ArithOp | CompOp CompOp | Concat
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
 
 data ArithOp = Add | Sub | Mul
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
 
 data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
 
 instance Hashable BinOp
 
@@ -92,7 +92,7 @@ data Block var lbl typ expr = Block
     _blkStmts :: [Stmt var lbl typ expr],
     _blkType :: typ
   }
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
 
 instance
   (Hashable var, Hashable lbl, Hashable typ, Hashable expr) =>
@@ -105,7 +105,7 @@ data Stmt var lbl typ expr
   | ExprStmt expr
   | Continue (Maybe lbl) -- TODO Maybe lbl -> lbl
   | Break (Maybe lbl) (Maybe expr) -- TODO Maybe lbl -> lbl
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
 
 instance
   (Hashable var, Hashable lbl, Hashable expr, Hashable typ) =>

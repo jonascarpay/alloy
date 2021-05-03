@@ -2,6 +2,7 @@ module Parse (pToplevel) where
 
 import Control.Monad
 import Control.Monad.Combinators.Expr
+import Data.Bifunctor (first)
 import Data.Functor.Identity
 import Data.Map qualified as M
 import Data.Sequence qualified as Seq
@@ -54,6 +55,9 @@ parens = between (symbol "(") (symbol ")")
 braces :: Parser p -> Parser p
 braces = between (symbol "{") (symbol "}")
 
+brackets :: Parser p -> Parser p
+brackets = between (symbol "[") (symbol "]")
+
 list :: Parser a -> Parser [a]
 list = between (symbol "[") (symbol "]") . flip sepEndBy comma
 
@@ -84,10 +88,20 @@ pAttrs = braces $ Attr . M.fromList <$> pAttrList
   where
     -- inherit statements can have multiple import, but field declarations can
     -- only have one, so we need to do some marshalling
-    pAttrList :: Parser [(Name, Expr)]
-    pAttrList = concat <$> sepEndBy (try pInheritFrom <|> pInherit <|> (pure <$> pAttrField)) comma
+    pAttrList :: Parser [(Expr, Expr)]
+    pAttrList =
+      concat
+        <$> sepEndBy
+          ( try (toStringExpr <$> pInheritFrom)
+              <|> (toStringExpr <$> pInherit)
+              <|> (pure <$> pAttrField)
+          )
+          comma
+    toStringExpr :: [(Name, a)] -> [(Expr, a)]
+    toStringExpr = fmap (first (Prim . PString))
+    pAttrField :: Parser (Expr, Expr)
     pAttrField = do
-      name <- pName
+      name <- (Prim . PString <$> pName) <|> brackets pExpr
       symbol ":"
       expr <- pExpr
       pure (name, expr)
@@ -97,7 +111,8 @@ pInheritFrom = do
   keyword "inherit"
   attr <- parens pExpr
   names <- some pName
-  pure $ (\name -> (name, Acc name attr)) <$> names
+  -- TODO this will construct and re-evaluate a separate expression for every inherit-from, they should share the struct between branches
+  pure $ (\name -> (name, Acc (Prim $ PString name) attr)) <$> names
 
 pInherit :: Parser [(Name, Expr)]
 pInherit = do
@@ -148,7 +163,7 @@ pTerm =
     <?> "term"
 
 pFieldAcc :: Parser (Expr -> Expr)
-pFieldAcc = symbol "." *> (Acc <$> pName)
+pFieldAcc = symbol "." *> (Acc <$> (Prim . PString <$> pName <|> brackets pExpr))
 
 pLet :: Parser Expr
 pLet = do

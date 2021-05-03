@@ -79,16 +79,19 @@ step (BinExpr bop a b) = do
     (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
 step (Attr m) = do
   m' <- forM (M.toList m) $ \(key, expr) -> do
-    tid <- withName key $ deferExpr expr
-    pure (ordValueString key, tid)
+    key' <- deepEvalExpr key >>= mkOrdValue
+    -- TODO name the context after the key (withName)
+    tid <- deferExpr expr
+    pure (key', tid)
   pure $ VAttr (M.fromList m')
-step (Acc f em) =
+step (Acc key em) = do
+  key' <- deepEvalExpr key >>= mkOrdValue
   step em >>= \case
     VAttr m ->
-      case M.lookup (ordValueString f) m of
-        Nothing -> throwError $ "field " <> f <> " not present"
+      case M.lookup key' m of
+        Nothing -> throwError "field not present" -- TODO show what field, if possible
         Just tid -> force tid
-    _ -> throwError $ unwords ["Accessing field", show f, "of not an attribute set"]
+    _ -> throwError $ unwords ["Accessing field of not an attribute set"]
 step (BlockExpr b) = do
   env <- view staticEnv
   pure $ VBlock env b
@@ -423,14 +426,18 @@ compileExpr (App f x) = do
 compileExpr (Acc field attrExpr) = do
   fieldType <- askVar
   structType <- fresh
+  field' <-
+    lift (step field) >>= \case
+      VPrim (PString f) -> pure f
+      _ -> throwError "accessing not a string"
   -- TODO when compileVal is lazier, don't evaluate this as deeply
   -- TODO unify type stuff for fieldType and structType
   rtExpr <- atVar structType (compileExpr attrExpr)
   lift (typeRep <$> getTypeSuspend structType) >>= \case
     RStruct fieldTypes ->
-      case M.lookup field fieldTypes of
-        Nothing -> throwError $ "struct type did not contain field " <> field
-        Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
+      case M.lookup field' fieldTypes of
+        Nothing -> throwError $ "struct type did not contain field " <> field'
+        Just t -> RTAccessor rtExpr field' fieldType <$ setType fieldType t
     _ -> throwError "accessing field of something that's not a struct"
 compileExpr (Attr fields) = do
   tv <- askVar

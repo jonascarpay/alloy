@@ -53,8 +53,8 @@ ppExpr (Let args body) =
     ]
 ppExpr (Prim n) = ppPrim n
 ppExpr (BinExpr op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
-ppExpr (Attr m) = ppAttrs pretty ppExpr m
-ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
+ppExpr (Attr m) = ppAttrs ppExpr ppExpr m
+ppExpr (Acc a m) = ppExpr m <> "." <> brackets (ppExpr a)
 ppExpr (BlockExpr b) = ppBlock pretty pretty (maybe mempty (ppAnn ppExpr)) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
