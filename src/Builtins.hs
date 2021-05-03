@@ -17,18 +17,6 @@ import Parse
 import System.FilePath
 import Text.Megaparsec qualified as MP
 
-bTypeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
-bTypeOf (VRTVar tid) =
-  view (envRTVar tid) >>= \case
-    Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get bTypeOf"
-bTypeOf (VBlockLabel tid) =
-  view (envRTLabel tid) >>= \case
-    Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get bTypeOf"
--- bTypeOf (VBlock _ blk) = VType <$> getTypeSuspend (blk ^. blkType)
-bTypeOf _ = throwError "Cannot get bTypeOf"
-
 bError :: ValueF ThunkID -> Eval (ValueF ThunkID)
 bError (VPrim (PString msg)) = throwError $ "error: " <> msg
 bError _ = throwError "builtins.error was passed a non-string"

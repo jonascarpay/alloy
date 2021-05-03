@@ -572,3 +572,18 @@ matchType (VAttr attrs) (VType typ) =
           reduce k fields'
 matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"
+
+bTypeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bTypeOf (VRTVar tid) =
+  view (envRTVar tid) >>= \case
+    Just tv -> VType <$> getTypeSuspend tv
+    Nothing -> throwError "Cannot get bTypeOf"
+bTypeOf (VBlockLabel tid) =
+  view (envRTLabel tid) >>= \case
+    Just tv -> VType <$> getTypeSuspend tv
+    Nothing -> throwError "Cannot get bTypeOf"
+bTypeOf (VBlock env blk) = do
+  (blk', _) <- local (staticEnv .~ env) $ runWriterT $ genBlock blk
+  let tv = blk' ^. blkType
+  VType <$> getTypeSuspend tv
+bTypeOf _ = throwError "Cannot get bTypeOf"
