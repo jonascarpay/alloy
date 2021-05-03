@@ -111,7 +111,7 @@ step (Func args ret bodyExpr) = do
   (blk, deps) <-
     local (functionBodyEnv args' retVar) $
       step bodyExpr >>= \case
-        VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ genBlock blk
+        VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ compileBlock blk
         _ -> throwError "Function body did not evaluate to a block expression"
   let getTypeVoid = getType (pure TVoid)
   typedBlk <- typecheckFunction getTypeVoid blk
@@ -255,19 +255,19 @@ mkFunction fresh recDepth transDeps funDef =
     selfCalls :: Traversal' (FunDef VarID LabelID PreCall) RecIndex
     selfCalls = funCalls . precallRec
 
-genStmt ::
+compileStmt ::
   [Stmt Name Name (Maybe Expr) Expr] ->
   RTEval [Stmt VarID LabelID TypeVar (RTExpr VarID LabelID PreCall TypeVar TypeVar)]
-genStmt (Return expr : r) = do
+compileStmt (Return expr : r) = do
   tv <-
     view envFnStack >>= \case
       (_, rtv) : _ -> pure rtv
       _ -> throwError "returning but no return type found?"
   liftP2
     (\e' r' -> Return e' : r')
-    (atVar tv $ rtFromExpr expr)
-    (genStmt r)
-genStmt (Break mname mexpr : r) = do
+    (atVar tv $ compileExpr expr)
+    (compileStmt r)
+compileStmt (Break mname mexpr : r) = do
   mlbl <- traverse resolveToBlockLabel mname
   tv <- case mlbl of
     Just (_, ltv) -> pure ltv
@@ -278,40 +278,40 @@ genStmt (Break mname mexpr : r) = do
   liftP2
     (\e' r' -> Break (fst <$> mlbl) e' : r')
     ( case mexpr of
-        Just expr -> Just <$> atVar tv (rtFromExpr expr)
+        Just expr -> Just <$> atVar tv (compileExpr expr)
         Nothing -> Nothing <$ setType tv TVoid
     )
-    (genStmt r)
-genStmt (Continue mname : r) =
+    (compileStmt r)
+compileStmt (Continue mname : r) =
   liftP2
     (\ml' r' -> Continue (fst <$> ml') : r')
     (traverse resolveToBlockLabel mname)
-    (genStmt r)
-genStmt (Decl name mtypExpr expr : r) = do
+    (compileStmt r)
+compileStmt (Decl name mtypExpr expr : r) = do
   tv <- lift fresh
   liftP3
     (\_ e' (tmpid, r') -> Decl tmpid tv e' : r')
     (lift $ forM_ mtypExpr (evalType >=> setType tv))
-    (atVar tv $ rtFromExpr expr)
-    (bindRtvar name tv (genStmt r))
-genStmt (Assign name expr : r) = do
+    (atVar tv $ compileExpr expr)
+    (bindRtvar name tv (compileStmt r))
+compileStmt (Assign name expr : r) = do
   (name', tv) <- resolveToRuntimeVar name
   liftP2
     (\e' r' -> Assign name' e' : r')
-    (atVar tv $ rtFromExpr expr)
-    (genStmt r)
-genStmt (ExprStmt expr : r) = do
+    (atVar tv $ compileExpr expr)
+    (compileStmt r)
+compileStmt (ExprStmt expr : r) = do
   tv <- fresh
   liftP2
     (\e' r' -> ExprStmt e' : r')
-    (atVar tv $ rtFromExpr expr)
-    (genStmt r)
-genStmt [] = pure []
+    (atVar tv $ compileExpr expr)
+    (compileStmt r)
+compileStmt [] = pure []
 
-genBlock ::
+compileBlock ::
   Block Name Name (Maybe Expr) Expr ->
   RTEval (RTBlock VarID LabelID PreCall TypeVar)
-genBlock (Block mlbl stmts typ) = do
+compileBlock (Block mlbl stmts typ) = do
   tv <-
     view envExprVar >>= \case
       Just tv -> pure tv
@@ -321,8 +321,8 @@ genBlock (Block mlbl stmts typ) = do
   (mtid, stmts') <-
     local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
       case mlbl of
-        Nothing -> (Nothing,) <$> genStmt stmts
-        Just lbl -> bindLabel lbl tv $ \tid -> (Just tid,) <$> genStmt stmts
+        Nothing -> (Nothing,) <$> compileStmt stmts
+        Just lbl -> bindLabel lbl tv $ \tid -> (Just tid,) <$> compileStmt stmts
   pure (Block mtid stmts' tv)
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
@@ -347,39 +347,39 @@ atType typ m = do
   tv <- tvar typ
   atVar tv m
 
-rtFromExpr ::
+compileExpr ::
   Expr ->
   RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
-rtFromExpr (BinExpr (ArithOp op) a b) =
+compileExpr (BinExpr (ArithOp op) a b) =
   liftP3
     (RTBin (ArithOp op))
-    (rtFromExpr a)
-    (rtFromExpr b)
+    (compileExpr a)
+    (compileExpr b)
     askVar
-rtFromExpr (BinExpr (CompOp op) a b) = do
+compileExpr (BinExpr (CompOp op) a b) = do
   setLocalType TBool
   tvExp <- fresh
   liftP3
     (RTBin (CompOp op))
-    (atVar tvExp $ rtFromExpr a)
-    (atVar tvExp $ rtFromExpr b)
+    (atVar tvExp $ compileExpr a)
+    (atVar tvExp $ compileExpr b)
     askVar
-rtFromExpr (BinExpr Concat _ _) = throwError "concatenation doesn't work for runtime expressions"
-rtFromExpr (Cond cond t f) =
+compileExpr (BinExpr Concat _ _) = throwError "concatenation doesn't work for runtime expressions"
+compileExpr (Cond cond t f) =
   liftP4
     RTCond
-    (atType TBool $ rtFromExpr cond)
-    (rtFromExpr t)
-    (rtFromExpr f)
+    (atType TBool $ compileExpr cond)
+    (compileExpr t)
+    (compileExpr f)
     askVar
-rtFromExpr (Var n) =
+compileExpr (Var n) =
   lookupVar
     n
-    (\tid -> lift (force tid) >>= rtFromVal)
+    (\tid -> lift (force tid) >>= compileVal)
     (\tpid tv -> RTVar tpid tv <$ (askVar >>= unify_ tv))
     (\_ _ -> throwError "referencing block label as expression")
     (const $ throwError "referencing self variable as expression")
-rtFromExpr (App f x) = do
+compileExpr (App f x) = do
   -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
   -- parallel as it potentially could be. Let's first see a test case though.
   tf <- lift $ deferExpr f
@@ -395,7 +395,7 @@ rtFromExpr (App f x) = do
           rtArgExprs <-
             safeZipWithM
               (throwError "Argument length mismatch")
-              (\expr tv -> atVar tv $ rtFromExpr expr)
+              (\expr tv -> atVar tv $ compileExpr expr)
               (toList argExprs)
               argVars
           pure $ RTCall (either CallTemp CallKnown funId) rtArgExprs retVar
@@ -410,32 +410,32 @@ rtFromExpr (App f x) = do
           rtArgExprs <-
             safeZipWithM
               (throwError "Argument length mismatch")
-              (\expr tv -> atVar tv $ rtFromExpr expr)
+              (\expr tv -> atVar tv $ compileExpr expr)
               (toList argExprs)
               argVars
           pure $ RTCall (CallRec n) rtArgExprs retVar
         _ -> throwError "Trying to call a function with a non-list-like-thing"
-    val -> lift (deferExpr x >>= reduce val) >>= rtFromVal
-rtFromExpr (Acc field attrExpr) = do
+    val -> lift (deferExpr x >>= reduce val) >>= compileVal
+compileExpr (Acc field attrExpr) = do
   fieldType <- askVar
   structType <- fresh
-  -- TODO when rtFromVal is lazier, don't evaluate this as deeply
+  -- TODO when compileVal is lazier, don't evaluate this as deeply
   -- TODO unify type stuff for fieldType and structType
-  rtExpr <- atVar structType (rtFromExpr attrExpr)
+  rtExpr <- atVar structType (compileExpr attrExpr)
   lift (getTypeSuspend structType) >>= \case
     TStruct fieldTypes ->
       case M.lookup field fieldTypes of
         Nothing -> throwError $ "struct type did not contain field " <> field
         Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
     _ -> throwError "accessing field of something that's not a struct"
-rtFromExpr (Attr fields) = do
+compileExpr (Attr fields) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  rtFields <- rtStruct rtFromExpr typ fields
+  rtFields <- mkStruct compileExpr typ fields
   pure $ RTStruct rtFields tv
-rtFromExpr expr@Prim {} = lift (step expr) >>= rtFromVal -- TODO remove the step here, keep things runtime
-rtFromExpr expr@BlockExpr {} = lift (step expr) >>= rtFromVal -- TODO remove the step here, keep things runtime
-rtFromExpr _ = throwError "invalid runtime expression"
+compileExpr expr@Prim {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
+compileExpr expr@BlockExpr {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
+compileExpr _ = throwError "invalid runtime expression"
 
 varsFromSig :: [Type] -> Type -> Eval ([TypeVar], TypeVar)
 varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
@@ -469,45 +469,45 @@ safeZipWithM err f as bs
   | length as /= length bs = err
   | otherwise = zipWithM f as bs
 
-rtLit :: Type -> Prim -> RTEval RTLiteral
-rtLit TInt (PInt n) = pure $ RTInt n
-rtLit TDouble (PInt n) = pure $ RTDouble (fromIntegral n)
-rtLit TDouble (PDouble n) = pure $ RTDouble n
-rtLit TBool (PBool b) = pure $ RTBool b
-rtLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
+mkLit :: Type -> Prim -> RTEval RTLiteral
+mkLit TInt (PInt n) = pure $ RTInt n
+mkLit TDouble (PInt n) = pure $ RTDouble (fromIntegral n)
+mkLit TDouble (PDouble n) = pure $ RTDouble n
+mkLit TBool (PBool b) = pure $ RTBool b
+mkLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
 
-rtStruct :: (a -> RTEval b) -> Type -> Map Name a -> RTEval (Map Name b)
-rtStruct f (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
+mkStruct :: (a -> RTEval b) -> Type -> Map Name a -> RTEval (Map Name b)
+mkStruct f (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
   case M.lookup fieldName attrs of
     Just val -> atType typ (f val)
     _ -> throwError $ "Field " <> fieldName <> " not present in the supplied struct"
-rtStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
+mkStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
-rtFromVal :: ValueF ThunkID -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
-rtFromVal (VPrim p) = do
+compileVal :: ValueF ThunkID -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
+compileVal (VPrim p) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  lit <- rtLit typ p
+  lit <- mkLit typ p
   pure $ RTLiteral lit tv
-rtFromVal (VAttr m) = do
+compileVal (VAttr m) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  s <- rtStruct (\tid -> lift (force tid) >>= rtFromVal) typ m
+  s <- mkStruct (\tid -> lift (force tid) >>= compileVal) typ m
   pure $ RTStruct s tv
-rtFromVal (VRTVar tpid) =
+compileVal (VRTVar tpid) =
   view (envRTVar tpid) >>= \case
     Nothing -> throwError "variable not in scope"
     Just tv -> RTVar tpid tv <$ (askVar >>= unify_ tv) -- TODO Combine with Var handling as expr on line 375 somehow
-rtFromVal VClosure {} = throwError "partially applied closure in runtime expression"
-rtFromVal VClosure' {} = throwError "partially applied closure' in runtime expression"
-rtFromVal VSelf {} = throwError "naked `self` in runtime expression"
-rtFromVal VList {} = throwError "can't handle list values yet"
-rtFromVal VType {} = throwError "can't handle type"
-rtFromVal VFunc {} = throwError "Function values don't make sense here"
-rtFromVal VBlockLabel {} = throwError "Block labels don't make sense here"
-rtFromVal (VBlock env blk) = do
-  blk' <- local (staticEnv .~ env) $ genBlock blk
+compileVal VClosure {} = throwError "partially applied closure in runtime expression"
+compileVal VClosure' {} = throwError "partially applied closure' in runtime expression"
+compileVal VSelf {} = throwError "naked `self` in runtime expression"
+compileVal VList {} = throwError "can't handle list values yet"
+compileVal VType {} = throwError "can't handle type"
+compileVal VFunc {} = throwError "Function values don't make sense here"
+compileVal VBlockLabel {} = throwError "Block labels don't make sense here"
+compileVal (VBlock env blk) = do
+  blk' <- local (staticEnv .~ env) $ compileBlock blk
   tv <- askVar
   unify_ tv (blk' ^. blkType)
   pure $ RTBlock blk' tv
@@ -583,7 +583,7 @@ bTypeOf (VBlockLabel tid) =
     Just tv -> VType <$> getTypeSuspend tv
     Nothing -> throwError "Cannot get bTypeOf"
 bTypeOf (VBlock env blk) = do
-  (blk', _) <- local (staticEnv .~ env) $ runWriterT $ genBlock blk
+  (blk', _) <- local (staticEnv .~ env) $ runWriterT $ compileBlock blk
   let tv = blk' ^. blkType
   VType <$> getTypeSuspend tv
 bTypeOf _ = throwError "Cannot get bTypeOf"
