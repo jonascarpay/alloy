@@ -29,12 +29,16 @@ ppBool :: Bool -> Doc ann
 ppBool True = "true"
 ppBool False = "false"
 
+ppRepr :: Repr -> Doc ann
+ppRepr RInt = "<int>"
+ppRepr RDouble = "<double>"
+ppRepr RVoid = "<void>"
+ppRepr RBool = "<bool>"
+ppRepr (RStruct m) = angles $ "struct" <> ppAttrs pretty ppType m
+
 ppType :: Type -> Doc ann
-ppType TInt = "<int>"
-ppType TDouble = "<double>"
-ppType TVoid = "<void>"
-ppType TBool = "<bool>"
-ppType (TStruct m) = angles $ "struct" <> ppAttrs pretty ppType m
+ppType (TRepr rep) = ppRepr rep
+ppType (TUser tid t) = angles $ "user_" <> pretty tid <> ppType t
 
 ppExpr :: Expr -> Doc ann
 ppExpr (Var x) = pretty x
@@ -211,7 +215,7 @@ ppKnownGuid deps (CallKnown guid) =
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
-ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
+ppVal (Fix (VAttr attrs)) = ppAttrs (ppVal . fromOrdValue) ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO

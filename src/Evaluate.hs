@@ -77,11 +77,15 @@ step (BinExpr bop a b) = do
     (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
     (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
-step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
+step (Attr m) = do
+  m' <- forM (M.toList m) $ \(key, expr) -> do
+    tid <- withName key $ deferExpr expr
+    pure (ordValueString key, tid)
+  pure $ VAttr (M.fromList m')
 step (Acc f em) =
   step em >>= \case
     VAttr m ->
-      case M.lookup f m of
+      case M.lookup (ordValueString f) m of
         Nothing -> throwError $ "field " <> f <> " not present"
         Just tid -> force tid
     _ -> throwError $ unwords ["Accessing field", show f, "of not an attribute set"]
@@ -91,7 +95,7 @@ step (BlockExpr b) = do
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
-    VAttr m -> local (bindThunks (M.toList m)) (step body)
+    VAttr m -> local (bindThunks (M.toList $ namedAttrs m)) (step body) -- TODO namedAttrs constructs a map only to have it turned back into a list
     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 step (Cond cond tr fl) = do
   step cond >>= \case
@@ -113,7 +117,7 @@ step (Func args ret bodyExpr) = do
       step bodyExpr >>= \case
         VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ compileBlock blk
         _ -> throwError "Function body did not evaluate to a block expression"
-  let getTypeVoid = getType (pure TVoid)
+  let getTypeVoid = getType (pure tVoid)
   typedBlk <- typecheckFunction getTypeVoid blk
   let farg (_, typ, tid, _) = (tid, typ)
       funDef = FunDef (farg <$> args') retType name typedBlk
@@ -279,7 +283,7 @@ compileStmt (Break mname mexpr : r) = do
     (\e' r' -> Break (fst <$> mlbl) e' : r')
     ( case mexpr of
         Just expr -> Just <$> atVar tv (compileExpr expr)
-        Nothing -> Nothing <$ setType tv TVoid
+        Nothing -> Nothing <$ setType tv tVoid
     )
     (compileStmt r)
 compileStmt (Continue mname : r) =
@@ -357,7 +361,7 @@ compileExpr (BinExpr (ArithOp op) a b) =
     (compileExpr b)
     askVar
 compileExpr (BinExpr (CompOp op) a b) = do
-  setLocalType TBool
+  setLocalType tBool
   tvExp <- fresh
   liftP3
     (RTBin (CompOp op))
@@ -368,7 +372,7 @@ compileExpr (BinExpr Concat _ _) = throwError "concatenation doesn't work for ru
 compileExpr (Cond cond t f) =
   liftP4
     RTCond
-    (atType TBool $ compileExpr cond)
+    (atType tBool $ compileExpr cond)
     (compileExpr t)
     (compileExpr f)
     askVar
@@ -422,8 +426,8 @@ compileExpr (Acc field attrExpr) = do
   -- TODO when compileVal is lazier, don't evaluate this as deeply
   -- TODO unify type stuff for fieldType and structType
   rtExpr <- atVar structType (compileExpr attrExpr)
-  lift (getTypeSuspend structType) >>= \case
-    TStruct fieldTypes ->
+  lift (typeRep <$> getTypeSuspend structType) >>= \case
+    RStruct fieldTypes ->
       case M.lookup field fieldTypes of
         Nothing -> throwError $ "struct type did not contain field " <> field
         Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
@@ -431,7 +435,7 @@ compileExpr (Acc field attrExpr) = do
 compileExpr (Attr fields) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  rtFields <- mkStruct compileExpr typ fields
+  rtFields <- mkStruct compileExpr (typeRep typ) (M.mapKeys ordValueString fields)
   pure $ RTStruct rtFields tv
 compileExpr expr@Prim {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
 compileExpr expr@BlockExpr {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
@@ -469,16 +473,16 @@ safeZipWithM err f as bs
   | length as /= length bs = err
   | otherwise = zipWithM f as bs
 
-mkLit :: Type -> Prim -> RTEval RTLiteral
-mkLit TInt (PInt n) = pure $ RTInt n
-mkLit TDouble (PInt n) = pure $ RTDouble (fromIntegral n)
-mkLit TDouble (PDouble n) = pure $ RTDouble n
-mkLit TBool (PBool b) = pure $ RTBool b
+mkLit :: Repr -> Prim -> RTEval RTLiteral
+mkLit RInt (PInt n) = pure $ RTInt n
+mkLit RDouble (PInt n) = pure $ RTDouble (fromIntegral n)
+mkLit RDouble (PDouble n) = pure $ RTDouble n
+mkLit RBool (PBool b) = pure $ RTBool b
 mkLit t p = throwError $ "Cannot instantiate literal " <> show p <> " at type " <> show t
 
-mkStruct :: (a -> RTEval b) -> Type -> Map Name a -> RTEval (Map Name b)
-mkStruct f (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
-  case M.lookup fieldName attrs of
+mkStruct :: (a -> RTEval b) -> Repr -> Map OrdValue a -> RTEval (Map Name b)
+mkStruct f (RStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
+  case M.lookup (ordValueString fieldName) attrs of
     Just val -> atType typ (f val)
     _ -> throwError $ "Field " <> fieldName <> " not present in the supplied struct"
 mkStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
@@ -488,12 +492,12 @@ compileVal :: ValueF ThunkID -> RTEval (RTExpr VarID LabelID PreCall TypeVar Typ
 compileVal (VPrim p) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  lit <- mkLit typ p
+  lit <- mkLit (typeRep typ) p
   pure $ RTLiteral lit tv
 compileVal (VAttr m) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  s <- mkStruct (\tid -> lift (force tid) >>= compileVal) typ m
+  s <- mkStruct (\tid -> lift (force tid) >>= compileVal) (typeRep typ) m
   pure $ RTStruct s tv
 compileVal (VRTVar tpid) =
   view (envRTVar tpid) >>= \case
@@ -516,7 +520,7 @@ compileVal (VBlock env blk) = do
 withBuiltins :: Eval a -> Eval a
 withBuiltins m = do
   ts <- traverse sequenceA binds
-  tBuiltins <- deferVal . VAttr $ M.fromList ts
+  tBuiltins <- deferVal . VAttr $ M.mapKeys ordValueString $ M.fromList ts -- TODO don't construct a map twice
   local (bindThunk "builtins" tBuiltins) m
   where
     binds :: [(Name, Eval ThunkID)]
@@ -535,10 +539,10 @@ withBuiltins m = do
       ]
     types :: [(Name, Type)]
     types =
-      [ ("int", TInt),
-        ("double", TDouble),
-        ("void", TVoid),
-        ("bool", TBool)
+      [ ("int", tInt),
+        ("double", tDouble),
+        ("void", tVoid),
+        ("bool", tBool)
       ]
     fn1 :: (ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
     fn1 f = deferVal $ VClosure' (force >=> f)
@@ -555,20 +559,20 @@ withBuiltins m = do
 -- TODO _is_ this a type? i.e. church-encode types?
 matchType :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
 matchType (VAttr attrs) (VType typ) =
-  let getAttr attr = case M.lookup attr attrs of
+  let getAttr attr = case M.lookup (ordValueString attr) attrs of
         Just x -> pure x
-        Nothing -> case M.lookup "default" attrs of
+        Nothing -> case M.lookup (ordValueString "default") attrs of
           Nothing -> throwError $ "Attr " <> attr <> " not present, no default case"
           Just x -> pure x
-   in case typ of
-        TInt -> getAttr "int" >>= force
-        TDouble -> getAttr "double" >>= force
-        TVoid -> getAttr "void" >>= force
-        TBool -> getAttr "bool" >>= force
-        TStruct fields -> do
+   in case typeRep typ of
+        RInt -> getAttr "int" >>= force
+        RDouble -> getAttr "double" >>= force
+        RVoid -> getAttr "void" >>= force
+        RBool -> getAttr "bool" >>= force
+        RStruct fields -> do
           k <- getAttr "struct" >>= force
           -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
-          fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
+          fields' <- traverse (deferVal . VType) (M.mapKeys ordValueString fields) >>= deferVal . VAttr
           reduce k fields'
 matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"

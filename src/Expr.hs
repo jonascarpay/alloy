@@ -22,19 +22,37 @@ data Prim
   | PDouble Double
   | PBool Bool
   | PString String
-  deriving (Eq, Show, Generic)
+  deriving (Ord, Eq, Show, Generic)
+
+-- | Runtime type representation
+data Repr
+  = RInt
+  | RDouble
+  | RBool
+  | RVoid
+  | RStruct (Map Name Type)
+  deriving (Eq, Show, Ord, Generic)
 
 data Type
-  = TInt
-  | TDouble
-  | TBool
-  | TVoid
-  | TStruct (Map Name Type)
+  = TRepr Repr
+  | TUser Int Type
   deriving (Eq, Show, Ord, Generic)
+
+tInt, tDouble, tBool, tVoid :: Type
+tInt = TRepr RInt
+tVoid = TRepr RVoid
+tDouble = TRepr RDouble
+tBool = TRepr RBool
+
+typeRep :: Type -> Repr
+typeRep (TRepr rep) = rep
+typeRep (TUser _ t) = typeRep t
 
 -- TODO move to orphan module
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
   hashWithSalt salt m = hashWithSalt salt (M.toList m)
+
+instance Hashable Repr
 
 instance Hashable Type
 

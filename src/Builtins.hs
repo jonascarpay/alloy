@@ -23,14 +23,14 @@ bError _ = throwError "builtins.error was passed a non-string"
 
 attrNames :: ValueF ThunkID -> Eval (ValueF ThunkID)
 attrNames (VAttr attrs) = do
-  names <- traverse (deferVal . VPrim . PString) (M.keys attrs)
+  names <- traverse (deferStrictVal . fromOrdValue) (M.keys attrs)
   pure $ VList $ Seq.fromList names
 attrNames _ = throwError "attrNames on non-list"
 
 -- TODO combine with normal field accessor
 bLookup :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
 bLookup (VAttr attrs) (VPrim (PString str)) =
-  case M.lookup str attrs of
+  case M.lookup (OrdValue (VPrim (PString str))) attrs of
     Nothing -> throwError "field doesn't exist"
     Just v -> force v -- TODO this should be lazier
 bLookup (VAttr _) _ = throwError "second argument to stringField was not a string"
@@ -51,12 +51,13 @@ bLength _ = throwError "builtins.length called with not a list or string"
 
 bStruct :: ValueF ThunkID -> Eval (ValueF ThunkID)
 bStruct (VAttr m) = do
-  let forceType tid = do
+  let forceType (OrdValue (VPrim (PString field)), tid) = do
         force tid >>= \case
-          (VType t) -> pure t
+          (VType t) -> pure (field, t)
           _ -> throwError "Struct member was not a type expression"
-  types <- traverse forceType m
-  pure $ VType $ TStruct types
+      forceType _ = throwError "Defining a struct field with a non-string name"
+  types <- forM (M.toList m) forceType
+  pure $ VType $ TRepr $ RStruct (M.fromList types)
 bStruct _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- TODO this could be lazier if VClosure' were lazier
@@ -75,11 +76,10 @@ bListToAttrs (VList xs) = do
   pairs <- forM (toList xs) $ \tid ->
     force tid >>= \case
       VAttr attrs ->
-        case (M.lookup "key" attrs, M.lookup "value" attrs) of
-          (Just tkey, Just tval) ->
-            force tkey >>= \case
-              VPrim (PString key) -> pure (key, tval)
-              _ -> throwError "builtins.listToAttrs: key was not a string"
+        case (M.lookup (ordValueString "key") attrs, M.lookup (ordValueString "value") attrs) of
+          (Just tkey, Just tval) -> do
+            key <- deepEval tkey >>= mkOrdValue
+            pure (key, tval)
           _ -> throwError "builtins.listToAttrs: attr set did not contain key and value attributes"
       _ -> throwError "builtins.listToAttrs: list had a non-attribute set"
   pure $ VAttr $ M.fromList pairs

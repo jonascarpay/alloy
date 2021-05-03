@@ -15,6 +15,7 @@ import Control.Monad.Writer
 import Coroutine
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Set qualified as S
@@ -26,17 +27,77 @@ import Program
 
 data ValueF val
   = VPrim Prim
-  | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
-  | VAttr (Map Name val)
+  | VAttr (Map OrdValue val)
   | VRTVar VarID
   | VBlockLabel LabelID
-  | VSelf Int
-  | VBlock StaticEnv (Block Name Name (Maybe Expr) Expr)
-  | VFunc Dependencies (Either TempFuncID GUID)
   | VList (Seq val)
+  | -- non-orderables
+    VBlock StaticEnv (Block Name Name (Maybe Expr) Expr)
+  | VSelf Int
+  | VFunc Dependencies (Either TempFuncID GUID)
+  | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
+  | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
   deriving (Functor, Foldable, Traversable)
+
+newtype OrdValue = OrdValue {unOrdValue :: ValueF OrdValue}
+
+instance Eq OrdValue where
+  OrdValue (VPrim p) == OrdValue (VPrim q) = p == q
+  OrdValue (VPrim _) == _ = False
+  OrdValue (VType p) == OrdValue (VType q) = p == q
+  OrdValue (VType _) == _ = False
+  OrdValue (VAttr p) == OrdValue (VAttr q) = p == q
+  OrdValue (VAttr _) == _ = False
+  OrdValue (VRTVar p) == OrdValue (VRTVar q) = p == q
+  OrdValue (VRTVar _) == _ = False
+  OrdValue (VBlockLabel p) == OrdValue (VBlockLabel q) = p == q
+  OrdValue (VBlockLabel _) == _ = False
+  OrdValue (VList p) == OrdValue (VList q) = p == q
+  OrdValue (VList _) == _ = False
+  OrdValue VClosure {} == _ = error "impossible"
+  OrdValue VClosure' {} == _ = error "impossible"
+  OrdValue VBlock {} == _ = error "impossible"
+  OrdValue VFunc {} == _ = error "impossible"
+  OrdValue VSelf {} == _ = error "impossible"
+
+instance Ord OrdValue where
+  OrdValue (VPrim p) `compare` OrdValue (VPrim q) = p `compare` q
+  OrdValue (VPrim _) `compare` _ = LT
+  OrdValue (VType p) `compare` OrdValue (VType q) = p `compare` q
+  OrdValue (VType _) `compare` _ = LT
+  OrdValue (VAttr p) `compare` OrdValue (VAttr q) = p `compare` q
+  OrdValue (VAttr _) `compare` _ = LT
+  OrdValue (VRTVar p) `compare` OrdValue (VRTVar q) = p `compare` q
+  OrdValue (VRTVar _) `compare` _ = LT
+  OrdValue (VBlockLabel p) `compare` OrdValue (VBlockLabel q) = p `compare` q
+  OrdValue (VBlockLabel _) `compare` _ = LT
+  OrdValue (VList p) `compare` OrdValue (VList q) = p `compare` q
+  OrdValue (VList _) `compare` _ = LT
+  OrdValue VClosure {} `compare` _ = error "impossible"
+  OrdValue VClosure' {} `compare` _ = error "impossible"
+  OrdValue VBlock {} `compare` _ = error "impossible"
+  OrdValue VFunc {} `compare` _ = error "impossible"
+  OrdValue VSelf {} `compare` _ = error "impossible"
+
+mkOrdValue :: MonadError String m => Value -> m OrdValue
+mkOrdValue (Fix (VPrim v)) = pure $ OrdValue $ VPrim v
+mkOrdValue (Fix (VType v)) = pure $ OrdValue $ VType v
+mkOrdValue (Fix (VAttr v)) = OrdValue . VAttr <$> traverse mkOrdValue v
+mkOrdValue (Fix (VRTVar v)) = pure $ OrdValue $ VRTVar v
+mkOrdValue (Fix (VBlockLabel v)) = pure $ OrdValue $ VBlockLabel v
+mkOrdValue (Fix (VList v)) = OrdValue . VList <$> traverse mkOrdValue v
+mkOrdValue (Fix VBlock {}) = throwError "block expression cannot be used as a field accessor"
+mkOrdValue (Fix VSelf {}) = throwError "self call cannot be used as a field accessor"
+mkOrdValue (Fix VFunc {}) = throwError "function cannot be used as a field accessor"
+mkOrdValue (Fix VClosure {}) = throwError "runtime closure cannot be used as a field accessor"
+mkOrdValue (Fix VClosure' {}) = throwError "runtime closure cannot be used as a field accessor"
+
+fromOrdValue :: OrdValue -> Value
+fromOrdValue = Fix . fmap fromOrdValue . unOrdValue
+
+ordValueString :: String -> OrdValue
+ordValueString = OrdValue . VPrim . PString
 
 arith :: Num n => ArithOp -> n -> n -> n
 arith Add = (+)
@@ -145,6 +206,12 @@ envRTLabel tid = dynamicEnv . dynLabels . at tid
 withName :: Name -> Eval a -> Eval a
 withName name = local (envName ?~ name)
 
+namedAttrs :: Map OrdValue a -> Map Name a
+namedAttrs = M.fromList . mapMaybe toName . M.toList
+  where
+    toName (OrdValue (VPrim (PString name)), a) = Just (name, a)
+    toName _ = Nothing
+
 lookupVar ::
   (MonadReader Environment m, MonadError String m) =>
   Name ->
@@ -214,7 +281,9 @@ runEval fp (Eval m) =
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
-  attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
+  attrs' <- forM attrs $ \(name, val) -> do
+    tid <- deferVal (fmap absurd val)
+    pure (ordValueString name, tid)
   deferVal $ VAttr $ M.fromList attrs'
 
 deepEval :: ThunkID -> Eval Value
@@ -305,6 +374,11 @@ getType def (TypeVar tv) = do
 
 deferVal :: ValueF ThunkID -> Eval ThunkID
 deferVal = mkThunk . Computed
+
+deferStrictVal :: Value -> Eval ThunkID
+deferStrictVal (Fix v) = do
+  v' <- traverse deferStrictVal v
+  deferVal v'
 
 force :: ThunkID -> Eval (ValueF ThunkID)
 force tid =
