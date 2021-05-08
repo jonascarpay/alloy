@@ -45,6 +45,13 @@ common common-options
 library
   import:          common-options
   hs-source-dirs:  src
+  build-tools:     alex -any
+
+  -- array is a dep of alex-generated modueles
+  build-depends:
+    , array
+    , bytestring
+
   exposed-modules:
     Builtins
     Coroutine
@@ -52,7 +59,7 @@ library
     Evaluate
     Expr
     Lib
-    Parse
+    Parser.Lexer
     Print
     Program
 

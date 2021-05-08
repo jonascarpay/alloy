@@ -19,5 +19,5 @@ hsPkgs.shellFor {
     hlint = "latest";
   };
   buildInputs = [ ormolu-wrapped ];
-  exactDeps = true;
+  # exactDeps = true; # disabled for alex/happy, see https://github.com/input-output-hk/haskell.nix/issues/798
 }
