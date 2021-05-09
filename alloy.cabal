@@ -45,7 +45,7 @@ common common-options
 library
   import:          common-options
   hs-source-dirs:  src
-  build-tools:     alex -any
+  build-tools:     alex -any, happy -any
 
   -- array is a dep of alex-generated modueles
   build-depends:
@@ -59,7 +59,9 @@ library
     Evaluate
     Expr
     Lib
+    Parser
     Parser.Lexer
+    Parser.Parser
     Print
     Program
 
