@@ -37,6 +37,7 @@ tokens :-
   continue	{ tok Continue }
   var		{ tok Var }
 
+  -- TODO can these be written with single quotes to match with the Parser module?
   "+"		{ tok Add }
   \-		{ tok Sub }
   \*		{ tok Mul }
@@ -47,11 +48,13 @@ tokens :-
   >		{ tok Gt }
   \<=		{ tok Leq }
   >=		{ tok Geq }
+  "++"		{ tok Cat }
+  "."		{ tok Dot }
 
   ";"		{ tok Semicolon }
   :		{ tok Colon }
   ","		{ tok Comma }
-  =		{ tok Equals }
+  =		{ tok Assign }
   @		{ tok At }
 
   "("		{ tok LParen }
@@ -98,12 +101,14 @@ data Token
   | Gt
   | Leq
   | Geq
+  | Cat
+  | Dot
 
   -- Punctuation
   | Semicolon
   | Colon
   | Comma
-  | Equals
+  | Assign
   | At
 
   -- Braces
