@@ -117,7 +117,8 @@ ListItemsRev
   | ListItemsRev ',' Exp	{ $3 : $1 }
 
 Binding
-  : id NameList '=' Exp			{ Binding $1 $2 $4 }
+  : id '=' Exp			{ Binding $1 [] $3 }
+  | id id NameList '=' Exp			{ Binding $1 ($2 : $3) $5 }
   | inherit id				{ Inherit $2 }
   | inherit '(' Exp ')' NameList	{ InheritFrom $3 $5 }
 
@@ -125,8 +126,9 @@ Bindings	: BindingsRev			{ reverse $1 }
 BindingsRev	: {- empty -}			{ [] }
 		| BindingsRev Binding ';'	{ $2 : $1 }
 
-CBindings	: CBindingsRev			{ reverse $1 }
-CBindingsRev	: {- empty -}			{ [] }
+CBindings	: CBindingsRev	{ reverse $1 }
+	  	| {- empty -}	{ [] }
+CBindingsRev	: Binding ','			{ [$1] }
 		| CBindingsRev Binding ','	{ $2 : $1 }
 
 NameList	: NameListRev			{ reverse $1 }
@@ -136,6 +138,8 @@ NameListRev	: {- empty -}			{ [] }
 -- TODO once we have naked attr sets, allow empty statements
 Block
   : Stmts	{ Block $1 Nothing }
+  | Exp		{ Block [] (Just $1) }
+  | Stmts Exp	{ Block $1 (Just $2) }
 Stmts
   : StmtsRev	{ reverse $1 }
 StmtsRev
