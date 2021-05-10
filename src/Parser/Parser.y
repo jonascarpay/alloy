@@ -60,7 +60,7 @@ import qualified Data.ByteString as BS
 	'}'		{ Lex.RBrace }
 
 	num		{ Lex.Num $$ }
-	sym		{ Lex.Symbol $$ }
+	id		{ Lex.Ident $$ }
 	str		{ Lex.String $$ }
 
 %%
@@ -68,11 +68,12 @@ import qualified Data.ByteString as BS
 -- TODO Type signatures
 
 Exp
-  : sym ':' Exp			{ Lam $1 $3 }
+  : id ':' Exp			{ Lam $1 $3 }
   | let Bindings in Exp		{ Let $2 $4 }
   | with Exp ';' Exp		{ With $2 $4 }
   | if Exp then Exp else Exp	{ Cond $2 $4 $6 }
-  | '{' Bindings '}'		{ Attr $2 }
+  | '{' CBindings '}'		{ Attr $2 }
+  | '{' Block '}'		{ BlockExpr $2 }
   | '[' ListItems ']'		{ List $2 }
   | BinExp			{ $1 }
 
@@ -95,12 +96,12 @@ AppExp
   | AccExp		{ $1 }
 
 AccExp
-  : AccExp '.' sym	{ Acc $1 $3 }
+  : AccExp '.' id	{ Acc $1 $3 }
   | Exp0		{ $1 }
 
 Exp0
   : '(' Exp ')'		{ $2 }
-  | sym			{ Var $1 }
+  | id			{ Var $1 }
   | Prim		{ Prim $1 }
 
 Prim
@@ -116,17 +117,37 @@ ListItemsRev
   | ListItemsRev ',' Exp	{ $3 : $1 }
 
 Binding
-  : sym NameList '=' Exp ';'		{ Binding $1 $2 $4 }
-  | inherit sym ';'			{ Inherit $2 }
-  | inherit '(' Exp ')' NameList ';'	{ InheritFrom $3 $5 }
+  : id NameList '=' Exp			{ Binding $1 $2 $4 }
+  | inherit id				{ Inherit $2 }
+  | inherit '(' Exp ')' NameList	{ InheritFrom $3 $5 }
 
 Bindings	: BindingsRev			{ reverse $1 }
 BindingsRev	: {- empty -}			{ [] }
-		| BindingsRev Binding		{ $2 : $1 }
+		| BindingsRev Binding ';'	{ $2 : $1 }
+
+CBindings	: CBindingsRev			{ reverse $1 }
+CBindingsRev	: {- empty -}			{ [] }
+		| CBindingsRev Binding ','	{ $2 : $1 }
 
 NameList	: NameListRev			{ reverse $1 }
 NameListRev	: {- empty -}			{ [] }
-	 	| NameListRev sym		{ $2 : $1 }
+		| NameListRev id		{ $2 : $1 }
+
+-- TODO once we have naked attr sets, allow empty statements
+Block
+  : Stmts	{ Block $1 Nothing }
+Stmts
+  : StmtsRev	{ reverse $1 }
+StmtsRev
+  : Stmt ';'		{ [ $1 ] }
+  | StmtsRev Stmt ';'	{ $2 : $1 }
+Stmt
+  : return Exp			{ Return $2 }
+  | var id '=' Exp		{ Decl $2 Nothing $4 }
+  | var id ':' Exp '=' Exp	{ Decl $2 (Just $4) $6 }
+  | id '=' Exp			{ Assign $1 $3 }
+  | break Exp			{ Break Nothing (Just $2) } -- TODO Maybe label
+  | continue			{ Continue Nothing } -- TODO Maybe label
 
 {
 type Name = BS.ByteString
@@ -148,6 +169,7 @@ data AST
   | List [AST]
   | Acc AST Name
   | BinExp BinOp AST AST
+  | BlockExpr Block
   | Prim Prim
   deriving (Eq, Show)
 
@@ -163,6 +185,17 @@ data ArithOp = Add | Sub | Mul | Div
 data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
   deriving (Eq, Show)
 
+data Block = Block [Stmt] (Maybe AST)
+  deriving (Eq, Show)
+
+data Stmt
+  = Return AST
+  | Break (Maybe Name) (Maybe AST)
+  | Continue (Maybe Name)
+  | Assign Name AST
+  | Decl Name (Maybe AST) AST
+  deriving (Eq, Show)
+
 data Binding
   = Binding Name [Name] AST -- with argument list
   | Inherit Name
@@ -170,7 +203,7 @@ data Binding
   deriving (Eq, Show)
 
 parseError :: [Token] -> a
-parseError _ = error "parse error hombre"
+parseError tkns = error $ "parse error hombre: " <> show tkns
 }
 
 -- vim: ft=text:noet:ts=8:sw=8:autoindent

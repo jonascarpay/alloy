@@ -13,8 +13,8 @@ import Data.Word (Word8)
 }
 
 $digit = 0-9
-$symbolHead = [a-z A-Z]
-$symbolTail = [a-z A-Z 0-9 \_ \']
+$idHead = [a-z A-Z]
+$idTail = [a-z A-Z 0-9 \_ \']
 
 tokens :-
 
@@ -64,9 +64,9 @@ tokens :-
   "{"		{ tok LBrace }
   "}"		{ tok RBrace }
 
-  $digit+				{ tok_read Num }
-  $symbolHead $symbolTail*		{ tok_read Symbol }
-  \" (~ \")* \"				{ tok_string } -- TODO Use start codes to signal unterminated strings
+  $digit+		{ tok_read Num }
+  $idHead $idTail*	{ tok_read Ident }
+  \" (~ \")* \"		{ tok_string } -- TODO Use start codes to signal unterminated strings
 
 {
 data Token
@@ -119,7 +119,7 @@ data Token
   | LBrack
   | RBrack
 
-  | Symbol ByteString
+  | Ident ByteString
   | String ByteString
   | Num ByteString
 
