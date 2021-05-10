@@ -54,8 +54,8 @@ import qualified Data.ByteString as BS
 
 	'('		{ Lex.LParen }
 	')'		{ Lex.RParen }
-	'['		{ Lex.LBracket }
-	']'		{ Lex.RBracket }
+	'['		{ Lex.LBrack }
+	']'		{ Lex.RBrack }
 	'{'		{ Lex.LBrace }
 	'}'		{ Lex.RBrace }
 

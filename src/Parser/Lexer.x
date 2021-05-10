@@ -39,28 +39,28 @@ tokens :-
 
   -- TODO can these be written with single quotes to match with the Parser module?
   "+"		{ tok Add }
-  \-		{ tok Sub }
-  \*		{ tok Mul }
-  \/		{ tok Div }
-  ==		{ tok Eq }
-  \/=		{ tok Neq }
-  \<		{ tok Lt }
-  >		{ tok Gt }
-  \<=		{ tok Leq }
-  >=		{ tok Geq }
+  "-"		{ tok Sub }
+  "*"		{ tok Mul }
+  "/"		{ tok Div }
+  "=="		{ tok Eq }
+  "/="		{ tok Neq }
+  "<"		{ tok Lt }
+  ">"		{ tok Gt }
+  "<="		{ tok Leq }
+  ">="		{ tok Geq }
   "++"		{ tok Cat }
   "."		{ tok Dot }
 
   ";"		{ tok Semicolon }
-  :		{ tok Colon }
+  ":"		{ tok Colon }
   ","		{ tok Comma }
-  =		{ tok Assign }
-  @		{ tok At }
+  "="		{ tok Assign }
+  "@"		{ tok At }
 
   "("		{ tok LParen }
   ")"		{ tok RParen }
-  "["		{ tok LBracket }
-  "]"		{ tok RBracket }
+  "["		{ tok LBrack }
+  "]"		{ tok RBrack }
   "{"		{ tok LBrace }
   "}"		{ tok RBrace }
 
@@ -111,13 +111,13 @@ data Token
   | Assign
   | At
 
-  -- Braces
+  -- Delimiters
   | LParen
   | RParen
   | LBrace
   | RBrace
-  | LBracket
-  | RBracket
+  | LBrack
+  | RBrack
 
   | Symbol ByteString
   | String ByteString
