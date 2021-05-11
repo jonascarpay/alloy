@@ -45,12 +45,13 @@ common common-options
 library
   import:             common-options
   hs-source-dirs:     src
-  build-tool-depends: alex:alex -any, happy:happy -any
+  build-tool-depends: alex:alex -any
 
   -- array is a dep of alex-generated modueles
   build-depends:
     , array
     , bytestring
+    , parser-combinators
     , vector
 
   exposed-modules:
@@ -64,6 +65,7 @@ library
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
+    Parser.Types
     Print
     Program
 
