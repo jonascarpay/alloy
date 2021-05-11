@@ -65,7 +65,8 @@ library
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
-    Parser.Types
+    Parser.Token
+    Parser.Tree
     Print
     Program
 

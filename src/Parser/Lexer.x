@@ -5,7 +5,7 @@ module Parser.Lexer
   , lexer
   ) where
 
-import Prelude hiding (True, False)
+import Parser.Token
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.ByteString (ByteString)
@@ -29,8 +29,8 @@ tokens :-
   if		{ tok If }
   then		{ tok Then }
   else		{ tok Else }
-  true		{ tok True }
-  false		{ tok False }
+  true		{ tok TTrue }
+  false		{ tok TFalse }
 
   return	{ tok Return }
   break		{ tok Break }
@@ -64,82 +64,11 @@ tokens :-
   "{"		{ tok LBrace }
   "}"		{ tok RBrace }
 
-  $digit+		{ tok_read Num }
-  $idHead $idTail*	{ tok_read Ident }
+  $digit+		{ tok_num }
+  $idHead $idTail*	{ Ident }
   \" (~ \")* \"		{ tok_string } -- TODO Use start codes to signal unterminated strings
 
 {
-data Token
-
-  -- Compile time keywords
-  = Let
-  | In
-  | With
-  | Inherit
-
-  -- Common keywords
-  | If
-  | Then
-  | Else
-  | True
-  | False
-
-  -- Runtime keywords
-  | Return
-  | Break
-  | Continue
-  | Var
-
-  -- Operators
-  | Add
-  | Sub
-  | Mul
-  | Div
-  | Eq
-  | Neq
-  | Lt
-  | Gt
-  | Leq
-  | Geq
-  | Cat
-  | Dot
-
-  -- Punctuation
-  | Semicolon
-  | Colon
-  | Comma
-  | Assign
-  | At
-
-  -- Delimiters
-  | LParen
-  | RParen
-  | LBrace
-  | RBrace
-  | LBrack
-  | RBrack
-
-  | Ident ByteString
-  | String ByteString
-  | Num ByteString
-
-  deriving (Eq,Show)
-
-tok :: Token -> ByteString -> Token
-tok = const
-
-tok_read :: (ByteString -> Token) -> ByteString -> Token
-tok_read = id
-
-tok_string :: ByteString -> Token
-tok_string = String . BS.unsafeInit . BS.unsafeTail
-
-data SourcePos = SourcePos
-  { lineNumber :: Int
-  , columnNumber :: Int
-  }
-  deriving (Eq,Show)
-
 lexer :: BS.ByteString -> Either SourcePos [(Token, SourcePos)]
 lexer bs = go (AlexInput bs 0 0)
   where
@@ -175,7 +104,6 @@ isNewLine = (== 10)
 
 alexInputPrevChar :: AlexInput -> Char
 alexInputPrevChar = error "we don't use this"
-
 }
 
 -- vim: ft=text:noet
