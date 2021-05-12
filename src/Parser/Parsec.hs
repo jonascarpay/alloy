@@ -14,11 +14,23 @@ import Control.Applicative (Alternative (..))
 
 {-# INLINE runParser #-}
 runParser ::
+  Monoid e =>
   -- | Function to read a single token. Nothing means EOF/OOB.
   (Int -> t) ->
   Parser t e a ->
   Either (Int, e) a
-runParser t (Parser p) = p t 0 (\a _ -> Right a) (\e i -> Left (i, e))
+runParser t (Parser p) = p t 0 mempty (\a _ _ -> Right a) (\(Err i e) -> Left (i, e))
+
+data Err e = Err Int e
+
+instance Semigroup e => Semigroup (Err e) where
+  Err il el <> Err ir er = case compare il ir of
+    LT -> Err ir er
+    EQ -> Err ir (el <> er)
+    GT -> Err il el
+
+instance Monoid e => Monoid (Err e) where
+  mempty = Err 0 mempty
 
 -- | A simple backtracking parser.
 -- Maintains the error message of whatever branch managed to consume the most input.
@@ -26,52 +38,49 @@ newtype Parser t e a = Parser
   { unParser ::
       forall b.
       (Int -> t) -> -- Read token
-      Int -> -- Current position
-      (a -> Int -> b) -> -- Succes
-      (e -> Int -> b) -> -- Error
+      Int -> -- Offset
+      Err e -> -- error set
+      (a -> Int -> Err e -> b) -> -- Success continuation
+      (Err e -> b) -> -- Error continuation
       b
   }
 
 instance Functor (Parser t e) where
   {-# INLINE fmap #-}
-  fmap f (Parser k) = Parser $ \t i ok -> k t i (ok . f)
+  fmap f (Parser k) = Parser $ \t i e ok -> k t i e (ok . f)
 
 instance Applicative (Parser t e) where
   {-# INLINE pure #-}
-  pure a = Parser $ \_ i ok _ -> ok a i
+  pure a = Parser $ \_ i e ok _ -> ok a i e
   {-# INLINE (<*>) #-}
-  Parser pf <*> Parser pa = Parser $ \t i ok err -> pf t i (\f i' -> pa t i' (ok . f) err) err
+  Parser pf <*> Parser pa = Parser $ \t i e ok throw -> pf t i e (\f i' e' -> pa t i' e' (ok . f) throw) throw
 
 instance Monad (Parser t e) where
   {-# INLINE (>>=) #-}
-  Parser k >>= f = Parser $ \t i ok err -> k t i (\a i' -> unParser (f a) t i' ok err) err
+  Parser k >>= f = Parser $ \t i e ok throw -> k t i e (\a i' e' -> unParser (f a) t i' e' ok throw) throw
 
 instance Monoid e => Alternative (Parser t e) where
   {-# INLINE empty #-}
-  empty = Parser $ \_ i _ err -> err mempty i
+  empty = Parser $ \_ _ e _ throw -> throw e
   {-# INLINE (<|>) #-}
-  Parser pl <|> Parser pr = Parser $ \t i ok err ->
-    pl t i ok $ \el sl ->
-      pr t i ok $ \er sr ->
-        case compare sl sr of
-          LT -> err er sr
-          EQ -> err (el <> er) sl
-          GT -> err el sl
+  Parser pl <|> Parser pr = Parser $ \t i e ok throw ->
+    pl t i e ok $ \e' ->
+      pr t i e' ok throw
 
 {-# INLINE token #-}
 token :: Parser t e t
-token = Parser $ \t i ok _ -> ok (t i) (i + 1)
+token = Parser $ \t i e ok _ -> ok (t i) (i + 1) e
 
 {-# INLINE offset #-}
 offset :: Parser t e Int
-offset = Parser $ \_ i ok _ -> ok i i
+offset = Parser $ \_ i e ok _ -> ok i i e
 
 {-# INLINE throw #-}
-throw :: e -> Parser t e a
-throw e = Parser $ \_ i _ err -> err e i
+throw :: Semigroup e => e -> Parser t e a
+throw e = Parser $ \_ i e' _ err -> err (Err i e <> e')
 
 {-# INLINE throwCC #-}
-throwCC :: ((forall err. e -> Parser t e err) -> Parser t e a) -> Parser t e a
-throwCC k = Parser $ \t i ok err ->
-  let throw' e = Parser $ \_ _ _ err' -> err' e i
-   in unParser (k throw') t i ok err
+throwCC :: Semigroup e => ((forall err. e -> Parser t e err) -> Parser t e a) -> Parser t e a
+throwCC k = Parser $ \t i e ok err ->
+  let throw' e = Parser $ \_ _ e' _ err' -> err' (e' <> Err i e)
+   in unParser (k throw') t i e ok err

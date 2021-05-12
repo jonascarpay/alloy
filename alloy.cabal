@@ -61,7 +61,6 @@ library
     Evaluate
     Expr
     Lib
-    Parser
     Parser.Lexer
     Parser.Parsec
     Parser.Parser

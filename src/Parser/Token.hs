@@ -3,12 +3,16 @@ module Parser.Token where
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BS
+import Data.Char (toLower)
 
 data SourcePos = SourcePos
   { lineNumber :: Int,
     columnNumber :: Int
   }
-  deriving (Eq, Show)
+  deriving (Eq)
+
+instance Show SourcePos where
+  show (SourcePos l c) = "L" <> show (l + 1) <> ":" <> show (c + 1)
 
 data Token
   = -- Compile time keywords
@@ -70,5 +74,6 @@ tok_num bs = Num (parse bs)
 tok_string :: ByteString -> Token
 tok_string = String . BS.unsafeInit . BS.unsafeTail
 
-showToken :: Token -> String
-showToken = undefined
+descrToken :: Token -> String
+descrToken (Ident x) = "identifier " <> show x
+descrToken x = toLower <$> show x
