@@ -20,10 +20,10 @@ import TestLib
 import Text.RawString.QQ
 
 -- Standalone function, no deps
-saFunc :: String -> String -> TestTree
+saFunc :: HasCallStack => String -> String -> TestTree
 saFunc nm = funcWithNDeps nm 0
 
-funcWithNDeps :: String -> Int -> String -> TestTree
+funcWithNDeps :: HasCallStack => String -> Int -> String -> TestTree
 funcWithNDeps name exp prog = testCase name $ do
   val <- assertParse prog >>= assertEval
   let throw err = assertFailure $ unlines [err, show (ppVal val)]

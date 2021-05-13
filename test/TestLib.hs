@@ -5,26 +5,24 @@
 module TestLib where
 
 import Control.Monad
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Map qualified as M
 import Eval
 import Expr
 import Lib
-import Parse
+import Parser.Parser
 import Prettyprinter
 import Print
 import Program
 import System.Directory
 import Test.Tasty.HUnit
-import Text.Megaparsec qualified as MP
 
 assertFile :: FilePath -> IO String
 assertFile = readFile
 
 assertParse :: HasCallStack => String -> IO Expr
-assertParse str = do
-  case MP.parse pToplevel "" str of
-    Left err -> assertFailure $ MP.errorBundlePretty err
-    Right res -> pure res
+assertParse str = either assertFailure pure $ parse (BS8.pack str)
 
 assertEval :: HasCallStack => Expr -> IO Value
 assertEval expr = do

@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+-- TODO expot list
 module Eval where
 
 import Control.Monad.Except
@@ -20,7 +21,7 @@ import Data.Set (Set)
 import Data.Set qualified as S
 import Data.UnionFind.IO qualified as UF
 import Data.Void
-import Expr
+import Expr hiding (Binding)
 import Lens.Micro.Platform
 import Program
 

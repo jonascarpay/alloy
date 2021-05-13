@@ -1,45 +1,136 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Parser (parse, parseTest) where
+module Parser.Parser (parse) where
 
+import Control.Applicative
 import Control.Applicative.Combinators
+import Control.Monad.Combinators.Expr
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Expr
 import Parser.Lexer qualified as Lex
 import Parser.Parsec qualified as P
 import Parser.Token (SourcePos (..), Token, descrToken)
 import Parser.Token qualified as T
-import Parser.Tree
 
 type Parser = P.Parser (Maybe Token) (Set String)
 
-pExpr :: Parser PTree
+-- TODO some kind of slicing?
+-- may be pass what the expression should end with as an argument?
+-- the issue is this:
+-- in this parser, pFunc has to go before pBinExpr, becuase in the string
+--   [] -> int
+-- it succeeds on parsing the [] as a list, so it wont't try it as function anymore
+-- it'll interpret it as an expression followed by garbage
+pExpr :: Parser Expr
 pExpr =
   choice
     [ pLam,
       pLet,
-      pApp,
-      pList
+      pIf,
+      pWith,
+      pFunc,
+      pBinExpr
     ]
 
-pApp :: Parser PTree
-pApp = do
-  h <- pTerm
-  foldl App h <$> many pTerm
+pBinExpr :: Parser Expr
+pBinExpr =
+  makeExprParser
+    pTerm
+    [ [repeatedPostfix (Acc <$> (token T.Dot *> pIdent))],
+      [InfixL (pure App)],
+      [InfixL (BinExpr Concat <$ token T.Cat)],
+      [arith T.Mul Mul, arith T.Div Div],
+      [arith T.Add Add, arith T.Sub Sub],
+      [comp T.Lt Lt, comp T.Gt Gt, comp T.Leq Leq, comp T.Geq Geq],
+      [comp T.Eq Eq, comp T.Neq Neq]
+    ]
+  where
+    repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
+    repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
+    {-# INLINE arith #-}
+    arith :: Token -> ArithOp -> Operator Parser Expr
+    arith tk op = InfixL (BinExpr (ArithOp op) <$ token tk)
+    {-# INLINE comp #-}
+    comp :: Token -> CompOp -> Operator Parser Expr
+    comp tk op = InfixN (BinExpr (CompOp op) <$ token tk)
 
-pTerm :: Parser PTree
+pIf :: Parser Expr
+pIf =
+  liftA3
+    Cond
+    (token T.If *> pExpr)
+    (token T.Then *> pExpr)
+    (token T.Else *> pExpr)
+
+pWith :: Parser Expr
+pWith =
+  liftA2
+    With
+    (token T.With *> termSemicolon pExpr)
+    pExpr
+
+pAttr :: Parser Expr
+pAttr = braces $ Attr <$> sepEndBy pBinding' (token T.Comma)
+
+pFunc :: Parser Expr
+pFunc = do
+  args <-
+    brackets $
+      sepBy
+        (liftA2 (,) pIdent (token T.Colon *> pExpr))
+        (token T.Comma)
+  -- TODo proper right arrow operator
+  token T.Sub
+  token T.Gt
+  ret <- pTerm
+  Func args ret <$> pExpr
+
+pTerm :: Parser Expr
 pTerm =
   choice
-    [ pVar,
-      Atom <$> pAtom
+    [ Prim <$> pAtom,
+      pList,
+      pAttr,
+      BlockExpr <$> pBlock,
+      parens pExpr,
+      pVar
     ]
 
-pVar :: Parser PTree
+pBlock :: Parser (Block Name Name (Maybe Expr) Expr)
+pBlock = do
+  label <- optional $ pIdent <* token T.At
+  braces $ do
+    stmts <- many pStatement
+    terminator <- optional pExpr
+    pure $ Block label stmts terminator
+
+termSemicolon :: Parser a -> Parser a
+termSemicolon = (<* token T.Semicolon)
+
+pStatement :: Parser (Stmt Name Name (Maybe Expr) Expr)
+pStatement = choice (fmap termSemicolon [pReturn, pBreak, pDecl, ExprStmt <$> pExpr, pAssign, pContinue])
+  where
+    pReturn = token T.Return *> (Return <$> pExpr)
+    pMLabel = optional $ token T.At *> pIdent
+    pBreak = token T.Break *> liftA2 Break pMLabel (optional pExpr)
+    pContinue = token T.Continue *> (Continue <$> pMLabel)
+    pAssign = liftA2 Assign pIdent (token T.Assign *> pExpr)
+    pDecl =
+      token T.Var
+        *> liftA3
+          Decl
+          pIdent
+          (optional $ token T.Colon *> pExpr)
+          (token T.Assign *> pExpr)
+
+pVar :: Parser Expr
 pVar = Var <$> pIdent
 
 pIdent :: Parser Name
@@ -47,32 +138,49 @@ pIdent = expect "identifier" $ \case
   (T.Ident name) -> Just name
   _ -> Nothing
 
-pList :: Parser PTree
-pList = List . Seq.fromList <$> brackets (sepBy pExpr (token Lex.Comma))
+pList :: Parser Expr
+pList = List . Seq.fromList <$> brackets (sepBy pExpr (token T.Comma))
 
-pLam :: Parser PTree
+pLam :: Parser Expr
 pLam = do
   arg <- pIdent
   token T.Colon
   Lam arg <$> pExpr
 
-pLet :: Parser PTree
+pLet :: Parser Expr
 pLet = do
   token T.Let
-  binds <- sepEndBy pBinding (token T.Semicolon)
+  binds <- many pBinding
   token T.In
   Let binds <$> pExpr
 
-pAtom :: Parser Atom
+pAtom :: Parser Prim
 pAtom = expect "atom" $ \case
-  Lex.Num n -> Just $ AInt n
-  Lex.String s -> Just $ AString s
-  Lex.TTrue -> Just $ ABool True
-  Lex.TFalse -> Just $ ABool False
+  T.Num n -> Just $ PInt n
+  T.String s -> Just $ PString s
+  T.TTrue -> Just $ PBool True
+  T.TFalse -> Just $ PBool False
   _ -> Nothing
 
+-- TODO uses : and ,
+-- used until we move attr sets back to = and ;
+pBinding' :: Parser Binding
+pBinding' = choice [pBind, pInherit, pInheritFrom]
+  where
+    pBind = do
+      name <- pIdent
+      args <- many pIdent
+      token T.Colon
+      Binding name args <$> pExpr
+    pInherit = token T.Inherit *> (Inherit <$> some pIdent)
+    pInheritFrom = do
+      token T.Inherit
+      from <- parens pExpr
+      names <- many pIdent
+      pure $ InheritFrom from names
+
 pBinding :: Parser Binding
-pBinding = choice [pBind, pInherit, pInheritFrom]
+pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
   where
     pBind = do
       name <- pIdent
@@ -102,14 +210,13 @@ token tk = expect (T.descrToken tk) $
 expect :: String -> (Token -> Maybe a) -> Parser a
 expect msg f =
   P.throwCC $ \throw ->
-    let err = throw $ Set.singleton msg
-     in P.token >>= maybe err (maybe err pure . f)
+    let err = throw $ Set.singleton msg in P.token >>= maybe err (maybe err pure . f)
 
 eof :: Parser ()
 eof = P.throwCC $ \throw ->
   P.token >>= \case
     Nothing -> pure ()
-    _ -> throw $ Set.singleton "end of input"
+    _ -> throw $ Set.singleton "eof"
 
 tokenize :: ByteString -> (Vector Token, Vector SourcePos)
 tokenize bs = case Lex.lexer bs of
@@ -118,18 +225,13 @@ tokenize bs = case Lex.lexer bs of
     let (tokens, pos) = unzip lexed
      in (V.fromList tokens, V.fromList pos)
 
-parse :: ByteString -> PTree
-parse bs = case P.runParser (tokens V.!?) (pExpr <* eof) of
-  Right a -> a
-  Left (errIndex, expected) ->
-    error $
+parse :: ByteString -> Either String Expr
+parse bs = first formatError $ P.runParser (tokens V.!?) (pExpr <* eof)
+  where
+    formatError (errIndex, expected) =
       case tokens V.!? errIndex of
         Nothing -> "unexpected end of file, expected one of " <> unwords (Set.toList expected)
         Just tk ->
           let errPos = pos V.! errIndex
            in unwords ["unexpected", descrToken tk, "at", show errPos, ", expected one of:", unwords (Set.toList expected)]
-  where
     (tokens, pos) = tokenize bs
-
-parseTest :: PTree
-parseTest = parse "let x = [234, , true]; in"

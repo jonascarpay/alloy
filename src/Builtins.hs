@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Builtins where
 
@@ -7,18 +8,19 @@ module Builtins where
 
 import Control.Monad.Except
 import Control.Monad.RWS
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Foldable
 import Data.Map qualified as M
 import Data.Sequence qualified as Seq
 import Eval
 import Expr
 import Lens.Micro.Platform
-import Parse
+import Parser.Parser
 import System.FilePath
-import Text.Megaparsec qualified as MP
 
 bError :: ValueF ThunkID -> Eval (ValueF ThunkID)
-bError (VPrim (PString msg)) = throwError $ "error: " <> msg
+bError (VPrim (PString msg)) = throwError $ "error: " <> BS8.unpack msg
 bError _ = throwError "builtins.error was passed a non-string"
 
 attrNames :: ValueF ThunkID -> Eval (ValueF ThunkID)
@@ -46,7 +48,7 @@ bIndex _ _ = throwError "builtins.index called with not a list"
 
 bLength :: ValueF ThunkID -> Eval (ValueF ThunkID)
 bLength (VList xs) = pure $ VPrim $ PInt $ Seq.length xs
-bLength (VPrim (PString s)) = pure $ VPrim $ PInt $ length s
+bLength (VPrim (PString s)) = pure $ VPrim $ PInt $ BS.length s
 bLength _ = throwError "builtins.length called with not a list or string"
 
 bStruct :: ValueF ThunkID -> Eval (ValueF ThunkID)
@@ -63,11 +65,13 @@ bStruct _ = throwError "Making a struct typedef from something that's not an att
 bImport :: (Expr -> Eval a) -> ValueF ThunkID -> Eval a
 bImport f (VPrim (PString rel)) = do
   file <- view envFile
-  let file' = takeDirectory file </> rel
+  let file' = takeDirectory file </> BS8.unpack rel
   input <- liftIO $ readFile file'
-  case MP.parse pToplevel file' input of
-    Left err -> throwError $ MP.errorBundlePretty err
-    Right expr -> local (envFile .~ file') $ f expr
+  f (Var "TODO")
+-- case parse file' input of
+--   Left err -> throwError $ MP.errorBundlePretty err
+--   Right expr -> local (envFile .~ file') $ f expr
+-- local (envFile .~ file') $ f (parse input)
 bImport _ _ = throwError "import needs a filepath"
 
 bListToAttrs :: ValueF ThunkID -> Eval (ValueF ThunkID)
