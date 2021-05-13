@@ -7,12 +7,11 @@ import Control.Monad.IO.Class
 import Data.Bifunctor
 import Evaluate
 import Expr
-import Parse
+import Parser.Parser
 import Prettyprinter
 import Print
 import System.Console.Haskeline
 import System.Directory
-import Text.Megaparsec as MP
 
 evalInfo :: FilePath -> Expr -> IO (Either (Doc ann) Value)
 evalInfo fp expr = (fmap . first) f (eval fp expr)
@@ -25,16 +24,16 @@ evalInfo fp expr = (fmap . first) f (eval fp expr)
           indent 2 $ ppExpr expr
         ]
 
-repl :: IO ()
-repl = do
-  cwd <- getCurrentDirectory
-  let loop =
-        getInputLine "> " >>= \case
-          Nothing -> outputStrLn "You're my favorite customer"
-          Just str ->
-            case parse pToplevel "" str of
-              Left err -> outputStrLn (errorBundlePretty err) >> loop
-              Right expr -> do
-                liftIO (evalInfo cwd expr) >>= either (outputStrLn . show) (outputStrLn . show . ppVal)
-                loop
-  runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop
+-- repl :: IO ()
+-- repl = do
+--   cwd <- getCurrentDirectory
+--   let loop =
+--         getInputLine "> " >>= \case
+--           Nothing -> outputStrLn "You're my favorite customer"
+--           Just str ->
+--             case parse pToplevel "" str of
+--               Left err -> outputStrLn (errorBundlePretty err) >> loop
+--               Right expr -> do
+--                 liftIO (evalInfo cwd expr) >>= either (outputStrLn . show) (outputStrLn . show . ppVal)
+--                 loop
+--   runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop

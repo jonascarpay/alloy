@@ -50,12 +50,7 @@ step (App f x) = do
   reduce tf tx
 step (Var x) = lookupVar x force
 step (Lam arg body) = VClosure arg body <$> view staticEnv
-step (Let binds body) = do
-  n0 <- use idSource
-  let predictedThunks = zipWith (\name n -> (name, ThunkID n)) (fst <$> binds) [n0 ..]
-  local (bindThunks predictedThunks) $ do
-    forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
-    step body
+step (Let binds body) = step (With (Attr binds) body)
 step (BinExpr bop a b) = do
   va <- step a
   vb <- step b
@@ -71,12 +66,25 @@ step (BinExpr bop a b) = do
     (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
     (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
-step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
+-- step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
+step (Attr binds) =
+  case desugarBinds binds of
+    Left name -> throwError $ "Double declaration of name " <> show name
+    Right (DesugaredBindings simpl inherits inheritFrom) -> do
+      inheritBinds <- forM inherits $ \inherit ->
+        -- TODO
+        -- view (envBinds . at name)
+
+-- n0 <- use idSource
+-- let predictedThunks = zipWith (\name n -> (name, ThunkID n)) (fst <$> binds) [n0 ..]
+-- local (bindThunks predictedThunks) $ do
+--   forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
+--   step body
 step (Acc f em) =
   step em >>= \case
     VAttr m ->
       case M.lookup f m of
-        Nothing -> throwError $ "field " <> f <> " not present"
+        Nothing -> throwError $ "field " <> show f <> " not present"
         Just tid -> force tid
     _ -> throwError $ unwords ["Accessing field", show f, "of not an attribute set"]
 step (BlockExpr b) = do

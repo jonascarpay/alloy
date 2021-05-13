@@ -11,6 +11,7 @@ module Parser.Parsec
 where
 
 import Control.Applicative (Alternative (..))
+import Control.Monad (MonadPlus)
 
 {-# INLINE runParser #-}
 runParser ::
@@ -53,19 +54,21 @@ instance Applicative (Parser t e) where
   {-# INLINE pure #-}
   pure a = Parser $ \_ i e ok _ -> ok a i e
   {-# INLINE (<*>) #-}
-  Parser pf <*> Parser pa = Parser $ \t i e ok throw -> pf t i e (\f i' e' -> pa t i' e' (ok . f) throw) throw
+  Parser pf <*> Parser pa = Parser $ \t i e ok ng -> pf t i e (\f i' e' -> pa t i' e' (ok . f) ng) ng
 
 instance Monad (Parser t e) where
   {-# INLINE (>>=) #-}
-  Parser k >>= f = Parser $ \t i e ok throw -> k t i e (\a i' e' -> unParser (f a) t i' e' ok throw) throw
+  Parser k >>= f = Parser $ \t i e ok ng -> k t i e (\a i' e' -> unParser (f a) t i' e' ok ng) ng
 
 instance Monoid e => Alternative (Parser t e) where
   {-# INLINE empty #-}
-  empty = Parser $ \_ _ e _ throw -> throw e
+  empty = Parser $ \_ _ e _ ng -> ng e
   {-# INLINE (<|>) #-}
-  Parser pl <|> Parser pr = Parser $ \t i e ok throw ->
+  Parser pl <|> Parser pr = Parser $ \t i e ok ng ->
     pl t i e ok $ \e' ->
-      pr t i e' ok throw
+      pr t i e' ok ng
+
+instance Monoid e => MonadPlus (Parser t e)
 
 {-# INLINE token #-}
 token :: Parser t e t

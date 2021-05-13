@@ -76,4 +76,13 @@ tok_string = String . BS.unsafeInit . BS.unsafeTail
 
 descrToken :: Token -> String
 descrToken (Ident x) = "identifier " <> show x
+descrToken Add = "+"
+descrToken Mul = "*"
+descrToken Div = "/"
+descrToken Sub = "-"
+descrToken Assign = "="
+descrToken LParen = "("
+descrToken RParen = ")"
+descrToken LBrace = "}"
+descrToken RBrace = "}"
 descrToken x = toLower <$> show x

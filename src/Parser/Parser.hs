@@ -3,43 +3,86 @@
 
 module Parser.Parser (parse, parseTest) where
 
+import Control.Applicative
 import Control.Applicative.Combinators
+import Control.Monad.Combinators.Expr
 import Data.ByteString (ByteString)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Expr
 import Parser.Lexer qualified as Lex
 import Parser.Parsec qualified as P
 import Parser.Token (SourcePos (..), Token, descrToken)
 import Parser.Token qualified as T
-import Parser.Tree
 
 type Parser = P.Parser (Maybe Token) (Set String)
 
-pExpr :: Parser PTree
+pExpr :: Parser Expr
 pExpr =
   choice
     [ pLam,
       pLet,
-      pApp,
-      pList
+      pIf,
+      pWith,
+      pBinExpr
     ]
 
-pApp :: Parser PTree
-pApp = do
-  h <- pTerm
-  foldl App h <$> many pTerm
+pBinExpr :: Parser Expr
+pBinExpr =
+  makeExprParser
+    pTerm
+    [ [repeatedPostfix (Acc <$> (token T.Dot *> pIdent))],
+      [InfixL (pure App)],
+      [InfixL (BinExpr Concat <$ token T.Cat)],
+      [arith T.Mul Mul, arith T.Div Div],
+      [arith T.Add Add, arith T.Sub Sub],
+      [comp T.Lt Lt, comp T.Gt Gt, comp T.Leq Leq, comp T.Geq Geq],
+      [comp T.Eq Eq, comp T.Neq Neq]
+    ]
+  where
+    repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
+    repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
+    {-# INLINE arith #-}
+    arith :: Token -> ArithOp -> Operator Parser Expr
+    arith tk op = InfixL (BinExpr (ArithOp op) <$ token tk)
+    {-# INLINE comp #-}
+    comp :: Token -> CompOp -> Operator Parser Expr
+    comp tk op = InfixN (BinExpr (CompOp op) <$ token tk)
 
-pTerm :: Parser PTree
+pIf :: Parser Expr
+pIf =
+  liftA3
+    Cond
+    (token T.If *> pExpr)
+    (token T.Then *> pExpr)
+    (token T.Else *> pExpr)
+
+pWith :: Parser Expr
+pWith =
+  liftA2
+    With
+    (token T.With *> pExpr)
+    (token T.Semicolon *> pExpr)
+
+pAttr :: Parser Expr
+pAttr =
+  braces $
+    Attr <$> sepEndBy pBinding' (token T.Comma)
+
+pTerm :: Parser Expr
 pTerm =
   choice
     [ pVar,
-      Atom <$> pAtom
+      Prim <$> pAtom,
+      parens pExpr,
+      pList,
+      pAttr
     ]
 
-pVar :: Parser PTree
+pVar :: Parser Expr
 pVar = Var <$> pIdent
 
 pIdent :: Parser Name
@@ -47,33 +90,51 @@ pIdent = expect "identifier" $ \case
   (T.Ident name) -> Just name
   _ -> Nothing
 
-pList :: Parser PTree
-pList = List . Seq.fromList <$> brackets (sepBy pExpr (token Lex.Comma))
+pList :: Parser Expr
+pList = List . Seq.fromList <$> brackets (sepBy pExpr (token T.Comma))
 
-pLam :: Parser PTree
+pLam :: Parser Expr
 pLam = do
   arg <- pIdent
   token T.Colon
   Lam arg <$> pExpr
 
-pLet :: Parser PTree
+pLet :: Parser Expr
 pLet = do
   token T.Let
-  binds <- sepEndBy pBinding (token T.Semicolon)
+  binds <- many pBinding
   token T.In
   Let binds <$> pExpr
 
-pAtom :: Parser Atom
+pAtom :: Parser Prim
 pAtom = expect "atom" $ \case
-  Lex.Num n -> Just $ AInt n
-  Lex.String s -> Just $ AString s
-  Lex.TTrue -> Just $ ABool True
-  Lex.TFalse -> Just $ ABool False
+  T.Num n -> Just $ PInt n
+  T.String s -> Just $ PString s
+  T.TTrue -> Just $ PBool True
+  T.TFalse -> Just $ PBool False
   _ -> Nothing
 
-pBinding :: Parser Binding
-pBinding = choice [pBind, pInherit, pInheritFrom]
+-- TODO totdat we de = fixen
+pBinding' :: Parser Binding
+pBinding' = choice [pBind, pInherit, pInheritFrom]
   where
+    sep = token T.Comma
+    pBind = do
+      name <- pIdent
+      args <- many pIdent
+      token T.Colon
+      Binding name args <$> pExpr
+    pInherit = token T.Inherit *> (Inherit <$> some pIdent)
+    pInheritFrom = do
+      token T.Inherit
+      from <- parens pExpr
+      names <- many pIdent
+      pure $ InheritFrom from names
+
+pBinding :: Parser Binding
+pBinding = choice [pBind <* sep, pInherit <* sep, pInheritFrom <* sep]
+  where
+    sep = token T.Semicolon
     pBind = do
       name <- pIdent
       args <- many pIdent
@@ -109,7 +170,7 @@ eof :: Parser ()
 eof = P.throwCC $ \throw ->
   P.token >>= \case
     Nothing -> pure ()
-    _ -> throw $ Set.singleton "end of input"
+    _ -> throw $ Set.singleton "eof"
 
 tokenize :: ByteString -> (Vector Token, Vector SourcePos)
 tokenize bs = case Lex.lexer bs of
@@ -118,7 +179,7 @@ tokenize bs = case Lex.lexer bs of
     let (tokens, pos) = unzip lexed
      in (V.fromList tokens, V.fromList pos)
 
-parse :: ByteString -> PTree
+parse :: ByteString -> Expr
 parse bs = case P.runParser (tokens V.!?) (pExpr <* eof) of
   Right a -> a
   Left (errIndex, expected) ->
@@ -131,5 +192,5 @@ parse bs = case P.runParser (tokens V.!?) (pExpr <* eof) of
   where
     (tokens, pos) = tokenize bs
 
-parseTest :: PTree
-parseTest = parse "let x = [234, , true]; in"
+parseTest :: Expr
+parseTest = parse "let inherit (true) asd sdf; in b"

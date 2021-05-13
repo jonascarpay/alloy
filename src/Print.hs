@@ -3,15 +3,20 @@
 module Print (ppExpr, ppVal, ppTypedBlock) where
 
 import Data.Bool (bool)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS8
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
-import Eval
+import Eval hiding (Binding)
 import Expr
 import Lens.Micro.Platform
 import Prettyprinter
 import Program
+
+ppBS :: ByteString -> Doc ann
+ppBS = pretty . BS8.unpack
 
 ppAttrs :: (k -> Doc ann) -> (v -> Doc ann) -> Map k v -> Doc ann
 ppAttrs fk fv attrs = braces' $ align . vcat $ (\(k, v) -> fk k <> ":" <+> fv v <> ",") <$> M.toList attrs
@@ -23,7 +28,7 @@ ppPrim :: Prim -> Doc ann
 ppPrim (PInt x) = pretty x
 ppPrim (PDouble x) = pretty x
 ppPrim (PBool x) = ppBool x
-ppPrim (PString str) = dquotes $ pretty str
+ppPrim (PString str) = dquotes $ pretty $ BS8.unpack str
 
 ppBool :: Bool -> Doc ann
 ppBool True = "true"
@@ -34,35 +39,38 @@ ppType TInt = "<int>"
 ppType TDouble = "<double>"
 ppType TVoid = "<void>"
 ppType TBool = "<bool>"
-ppType (TStruct m) = angles $ "struct" <> ppAttrs pretty ppType m
+ppType (TStruct m) = angles $ "struct" <> ppAttrs ppBS ppType m
+
+ppBinding :: Binding -> Doc ann
+ppBinding = undefined
 
 ppExpr :: Expr -> Doc ann
-ppExpr (Var x) = pretty x
+ppExpr (Var x) = ppBS x
 ppExpr (App a b) = ppExpr a <+> ppExpr b
-ppExpr (Lam a b) = parens $ pretty a <> ":" <+> ppExpr b
+ppExpr (Lam a b) = parens $ ppBS a <> ":" <+> ppExpr b
 ppExpr (Let args body) =
   vcat
     [ "let",
-      indent 2 $ vcat ((\(name, bbody) -> pretty name <+> "=" <+> ppExpr bbody <> ";") <$> args),
+      indent 2 $ vcat (ppBinding <$> args),
       "in",
       indent 2 $ ppExpr body
     ]
 ppExpr (Prim n) = ppPrim n
 ppExpr (BinExpr op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
-ppExpr (Attr m) = ppAttrs pretty ppExpr m
-ppExpr (Acc a m) = ppExpr m <> "." <> pretty a
-ppExpr (BlockExpr b) = ppBlock pretty pretty (maybe mempty (ppAnn ppExpr)) ppExpr b
+-- ppExpr (Attr m) = ppAttrs pretty ppExpr m
+ppExpr (Acc a m) = ppExpr m <> "." <> ppBS a
+ppExpr (BlockExpr b) = ppBlock ppBS ppBS (maybe mempty (ppAnn ppExpr)) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)
 ppExpr (With bind body) = "with" <+> ppExpr bind <> ";" <+> ppExpr body
 ppExpr (Cond cond tr fl) = "if" <+> ppExpr cond <+> "then" <+> ppExpr tr <+> "else" <+> ppExpr fl
 ppExpr (Func args ret body) =
-  list (uncurry (ppTyped pretty ppExpr) <$> args)
+  list (uncurry (ppTyped ppBS ppExpr) <$> args)
     <+> "->"
     <+> ppExpr ret
     <+> ppExpr body
 
 ppLabel :: Maybe Name -> Doc ann
-ppLabel (Just lbl) = pretty lbl <> "@"
+ppLabel (Just lbl) = ppBS lbl <> "@"
 ppLabel Nothing = mempty
 
 -- TODO just take ppStatement
@@ -92,13 +100,13 @@ ppRTExpr :: Dependencies -> (var -> Doc ann) -> (lbl -> Doc ann) -> (call -> Doc
 ppRTExpr deps ppVar ppLbl ppCall pptyp ppinfo = go
   where
     go (RTVar x _) = ppVar x
-    go (RTAccessor expr field _) = go expr <> "." <> pretty field
+    go (RTAccessor expr field _) = go expr <> "." <> ppBS field
     go (RTLiteral n _) = ppRTLit n
     go (RTBin op a b _) = go a <+> opSymbol op <+> go b
     go (RTBlock b _) = ppBlock ppVar ppLbl pptyp go b
     go (RTCall call args _) = ppCall call <> list (go <$> args)
     go (RTCond cond tr fl _) = "if" <+> go cond <+> "then" <+> go tr <+> "else" <+> go fl
-    go (RTStruct m _) = ppAttrs pretty go m
+    go (RTStruct m _) = ppAttrs ppBS go m
 
 lookupFun :: Dependencies -> GUID -> FunDef Slot LabelID GUID
 lookupFun deps guid = fromMaybe err $ deps ^. depKnownFuncs . at guid
@@ -130,7 +138,7 @@ opSymbol (CompOp op) = comp op
 opSymbol Concat = "++"
 
 ppFunctionName :: Name -> GUID -> Doc ann
-ppFunctionName name guid = pretty name <> "_" <> ppGuid guid
+ppFunctionName name guid = ppBS name <> "_" <> ppGuid guid
 
 ppWithDeps :: Dependencies -> Maybe GUID -> Doc ann -> Doc ann
 ppWithDeps deps@(Dependencies fns temp) censor doc
@@ -211,7 +219,7 @@ ppKnownGuid deps (CallKnown guid) =
 
 ppVal :: Value -> Doc ann
 ppVal (Fix (VPrim n)) = ppPrim n
-ppVal (Fix (VAttr attrs)) = ppAttrs pretty ppVal attrs
+ppVal (Fix (VAttr attrs)) = ppAttrs ppBS ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
 ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO

@@ -7,12 +7,6 @@ import Data.Sequence (Seq)
 
 type Name = ByteString
 
-data Binding
-  = Binding Name [Name] PTree
-  | Inherit [Name]
-  | InheritFrom PTree [Name]
-  deriving (Eq, Show)
-
 data Atom
   = AInt Int
   | ADouble Double
@@ -27,4 +21,20 @@ data PTree
   | Lam Name PTree
   | Atom Atom
   | List (Seq PTree)
+  | Cond PTree PTree PTree
+  | Attr [Binding]
+  | With PTree PTree
+  | BinExpr BinOp PTree PTree
+  | Acc Name PTree
+  | Func [(Name, PTree)] PTree PTree
+  | BlockExpr (Block Name Name (Maybe Expr) Expr)
+  deriving (Eq, Show)
+
+data BinOp = ArithOp ArithOp | CompOp CompOp | Concat
+  deriving (Eq, Show)
+
+data ArithOp = Add | Sub | Mul | Div
+  deriving (Eq, Show)
+
+data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
   deriving (Eq, Show)
