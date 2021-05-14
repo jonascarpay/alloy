@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
@@ -66,20 +67,7 @@ step (BinExpr bop a b) = do
     (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
     (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
--- step (Attr m) = VAttr <$> M.traverseWithKey (\name expr -> withName name $ deferExpr expr) m
-step (Attr binds) =
-  case desugarBinds binds of
-    Left name -> throwError $ "Double declaration of name " <> show name
-    Right (DesugaredBindings simpl inherits inheritFrom) -> do
-      inheritBinds <- forM inherits $ \inherit ->
-        -- TODO
-        -- view (envBinds . at name)
-
--- n0 <- use idSource
--- let predictedThunks = zipWith (\name n -> (name, ThunkID n)) (fst <$> binds) [n0 ..]
--- local (bindThunks predictedThunks) $ do
---   forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
---   step body
+step (Attr binds) = VAttr <$> stepAttrs binds
 step (Acc f em) =
   step em >>= \case
     VAttr m ->
@@ -123,6 +111,29 @@ step (Func args ret bodyExpr) = do
   let farg (_, typ, _, var, _) = (var, typ)
       funDef = FunDef (farg <$> args') retType name typedBlk
   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
+
+stepAttrs :: [Binding] -> Eval (Map Name ThunkID)
+stepAttrs binds =
+  case desugarBinds binds of
+    Left name -> throwError $ "Double declaration of name " <> show name
+    Right (DesugaredBindings binds inherits inheritFroms) -> do
+      inheritBinds <- forM inherits $ \name ->
+        view (envBinds . at name) >>= \case
+          Nothing -> throwError $ "inherited variable " <> show name <> " is not present in the surrounding scope"
+          Just thunk -> pure (name, thunk)
+      inheritFromBinds <- forM inheritFroms $ \(expr, names) ->
+        step expr >>= \case
+          VAttr m -> forM names $ \name ->
+            case M.lookup name m of
+              Just tid -> pure (name, tid)
+              Nothing -> throwError $ "missing field " <> show name <> " in attr set in inherit-from binding"
+          _ -> throwError "inherit-from expression did not evaluate to an attr set"
+      n0 <- use idSource
+      let binds' = zipWith (\name n -> (name, ThunkID n)) (fst <$> binds) [n0 ..]
+      let env' = inheritBinds <> concat inheritFromBinds <> binds'
+      local (bindThunks env') $
+        forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
+      pure $ M.fromList env'
 
 functionBodyEnv :: [(Name, typ, ThunkID, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
 functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _)) =
@@ -423,13 +434,14 @@ compileExpr (Acc field attrExpr) = do
   lift (getTypeSuspend structType) >>= \case
     TStruct fieldTypes ->
       case M.lookup field fieldTypes of
-        Nothing -> throwError $ "struct type did not contain field " <> field
+        Nothing -> throwError $ "struct type did not contain field " <> show field
         Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
     _ -> throwError "accessing field of something that's not a struct"
-compileExpr (Attr fields) = do
+compileExpr (Attr binds) = do
+  binds' <- lift $ stepAttrs binds
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
-  rtFields <- mkStruct compileExpr typ fields
+  rtFields <- mkStruct (\t -> lift (force t) >>= compileVal) typ binds'
   pure $ RTStruct rtFields tv
 compileExpr expr@Prim {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
 compileExpr expr@BlockExpr {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
@@ -478,7 +490,7 @@ mkStruct :: (a -> RTEval b) -> Type -> Map Name a -> RTEval (Map Name b)
 mkStruct f (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName typ ->
   case M.lookup fieldName attrs of
     Just val -> atType typ (f val)
-    _ -> throwError $ "Field " <> fieldName <> " not present in the supplied struct"
+    _ -> throwError $ "Field " <> show fieldName <> " not present in the supplied struct"
 mkStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
@@ -556,7 +568,7 @@ matchType (VAttr attrs) (VType typ) =
   let getAttr attr = case M.lookup attr attrs of
         Just x -> pure x
         Nothing -> case M.lookup "default" attrs of
-          Nothing -> throwError $ "Attr " <> attr <> " not present, no default case"
+          Nothing -> throwError $ "Attr " <> show attr <> " not present, no default case"
           Just x -> pure x
    in case typ of
         TInt -> getAttr "int" >>= force
