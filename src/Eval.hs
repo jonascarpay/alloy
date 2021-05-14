@@ -85,10 +85,6 @@ data Binding
   | BSelf Int
   deriving (Eq, Show)
 
-isThunk :: Binding -> Bool
-isThunk (BThunk _) = True
-isThunk _ = False
-
 type Env = Map Name Binding
 
 data StaticEnv = StaticEnv
