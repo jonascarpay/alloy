@@ -48,13 +48,7 @@ step (App f x) = do
   tf <- step f
   tx <- deferExpr x
   reduce tf tx
-step (Var x) =
-  lookupVar
-    x
-    force
-    (\tid _ -> pure $ VRTVar tid)
-    (\tid _ -> pure $ VBlockLabel tid)
-    (pure . VSelf)
+step (Var x) = lookupVar x force
 step (Lam arg body) = VClosure arg body <$> view staticEnv
 step (Let binds body) = do
   n0 <- use idSource
@@ -101,35 +95,37 @@ step (Cond cond tr fl) = do
 step (Func args ret bodyExpr) = do
   args' <- forM args $ \(name, expr) -> do
     typ <- evalType expr
-    tid <- freshVarId
+    var <- freshVarId
+    thunk <- deferVal $ VRTVar var
     tv <- tvar typ
-    pure (name, typ, tid, tv)
+    pure (name, typ, thunk, var, tv)
   retType <- evalType ret
   retVar <- tvar retType
   recDepth <- length <$> view envFnStack
+  self <- deferVal $ VSelf recDepth
   name <- view $ envName . to (fromMaybe "fn")
   (blk, deps) <-
-    local (functionBodyEnv args' retVar) $
-      step bodyExpr >>= \case
-        VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ compileBlock blk
-        _ -> throwError "Function body did not evaluate to a block expression"
+    local (bindThunk "self" self) $
+      local (functionBodyEnv args' retVar) $
+        step bodyExpr >>= \case
+          VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ compileBlock blk
+          _ -> throwError "Function body did not evaluate to a block expression"
   let getTypeVoid = getType (pure TVoid)
   typedBlk <- typecheckFunction getTypeVoid blk
-  let farg (_, typ, tid, _) = (tid, typ)
+  let farg (_, typ, _, var, _) = (var, typ)
       funDef = FunDef (farg <$> args') retType name typedBlk
   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
-functionBodyEnv :: [(Name, typ, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
-functionBodyEnv typedArgs ret env =
+functionBodyEnv :: [(Name, typ, ThunkID, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
+functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _)) =
   Environment
     (StaticEnv ctx' ctxName fp)
     (DynamicEnv fns' Nothing (Just ret) (M.fromList dyn) mempty)
   where
-    Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _) = env
     (argBindings, dyn, namedArgs) = unzip3 $ fmap f typedArgs
-    f (nm, _, tempid, tv) = ((nm, BRTVar tempid), (tempid, tv), (nm, tv))
-    depth = length fns
-    ctx' = M.fromList argBindings <> M.singleton "self" (BSelf depth) <> ctx
+      where
+        f (name, _, thunk, var, tv) = ((name, thunk), (var, tv), (name, tv))
+    ctx' = M.fromList argBindings <> ctx
     fns' = (namedArgs, ret) : fns
 
 typecheckFunction ::
@@ -372,13 +368,7 @@ compileExpr (Cond cond t f) =
     (compileExpr t)
     (compileExpr f)
     askVar
-compileExpr (Var n) =
-  lookupVar
-    n
-    (\tid -> lift (force tid) >>= compileVal)
-    (\tpid tv -> RTVar tpid tv <$ (askVar >>= unify_ tv))
-    (\_ _ -> throwError "referencing block label as expression")
-    (const $ throwError "referencing self variable as expression")
+compileExpr (Var n) = lookupVar n (\tid -> lift (force tid) >>= compileVal)
 compileExpr (App f x) = do
   -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
   -- parallel as it potentially could be. Let's first see a test case though.

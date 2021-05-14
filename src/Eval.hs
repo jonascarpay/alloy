@@ -78,17 +78,10 @@ data EvalState = EvalState
 
 newtype TypeVar = TypeVar (UF.Point (Set Type))
 
-data Binding
-  = BThunk ThunkID
-  | BRTVar VarID
-  | BBlockLabel LabelID
-  | BSelf Int
-  deriving (Eq, Show)
-
-type Env = Map Name Binding
+type Env = Map Name ThunkID
 
 data StaticEnv = StaticEnv
-  { _statBinds :: Map Name Binding,
+  { _statBinds :: Map Name ThunkID,
     _statName :: Maybe Name,
     _statFile :: FilePath
   }
@@ -114,7 +107,7 @@ makeLenses ''DynamicEnv
 makeLenses ''Environment
 makeLenses ''EvalState
 
-envBinds :: Lens' Environment (Map Name Binding)
+envBinds :: Lens' Environment (Map Name ThunkID)
 envBinds = staticEnv . statBinds
 
 envName :: Lens' Environment (Maybe Name)
@@ -145,54 +138,42 @@ lookupVar ::
   (MonadReader Environment m, MonadError String m) =>
   Name ->
   (ThunkID -> m r) ->
-  (VarID -> TypeVar -> m r) ->
-  (LabelID -> TypeVar -> m r) ->
-  (Int -> m r) ->
   m r
-lookupVar name kct krt klbl kself = do
+lookupVar name kct = do
   view (envBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
-    Just (BThunk tid) -> kct tid
-    Just (BRTVar tpid) ->
-      view (dynamicEnv . dynVars . at tpid) >>= \case
-        Nothing -> throwError $ name <> " refers to a variable that's not currently in scope"
-        Just tv -> krt tpid tv
-    Just (BBlockLabel tpid) ->
-      view (dynamicEnv . dynLabels . at tpid) >>= \case
-        Nothing -> throwError $ name <> " refers to a label that's not currently in scope"
-        Just tv -> klbl tpid tv
-    Just (BSelf n) -> kself n
+    Just tid -> kct tid
 
 bindThunk :: Name -> ThunkID -> Environment -> Environment
-bindThunk name tid = envBinds . at name ?~ BThunk tid
+bindThunk name tid = envBinds . at name ?~ tid
 
 bindThunks :: [(Name, ThunkID)] -> Environment -> Environment
 bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
 bindRtvar ::
-  (MonadReader Environment m, MonadState EvalState m) =>
   Name ->
   TypeVar ->
-  m a ->
-  m (VarID, a)
+  RTEval a ->
+  RTEval (VarID, a)
 bindRtvar name tv k = do
   tmpid <- freshVarId
+  thunk <- lift $ deferVal (VRTVar tmpid)
   a <- flip local k $ \env ->
     env & dynamicEnv . dynVars . at tmpid ?~ tv
-      & staticEnv . statBinds . at name ?~ BRTVar tmpid
+      & staticEnv . statBinds . at name ?~ thunk
   pure (tmpid, a)
 
 bindLabel ::
-  (MonadReader Environment m, MonadState EvalState m) =>
   Name ->
   TypeVar ->
-  (LabelID -> m a) ->
-  m a
+  (LabelID -> RTEval a) ->
+  RTEval a
 bindLabel name tv k = do
   tmpid <- freshLblId
+  thunk <- lift $ deferVal (VBlockLabel tmpid)
   flip local (k tmpid) $ \env ->
     env & dynamicEnv . dynLabels . at tmpid ?~ tv
-      & staticEnv . statBinds . at name ?~ BBlockLabel tmpid
+      & staticEnv . statBinds . at name ?~ thunk
 
 runEval :: FilePath -> Eval a -> IO (Either String a)
 runEval fp (Eval m) =
@@ -238,31 +219,32 @@ freshFuncId = TempFuncID <$> freshId
 
 type RTEval = WriterT Dependencies Eval -- TODO rename this
 
+{-# ANN resolveToRuntimeVar "hlint: ignore" #-}
 resolveToRuntimeVar :: Name -> RTEval (VarID, TypeVar)
 resolveToRuntimeVar name =
   lift $
-    lookupVar name kComp (curry pure) (\_ _ -> err) (const err)
-  where
-    err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
-    kComp tid =
-      force tid >>= \case
+    lookupVar name $ \thunk ->
+      force thunk >>= \case
         VRTVar tpid ->
           view (envRTVar tpid) >>= \case
             Just tv -> pure (tpid, tv)
             Nothing -> err
         _ -> err
+  where
+    err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
 
+{-# ANN resolveToBlockLabel "hlint: ignore" #-}
 resolveToBlockLabel :: Name -> RTEval (LabelID, TypeVar)
-resolveToBlockLabel name = lift $ lookupVar name kComp (\_ _ -> err) (curry pure) (const err)
+resolveToBlockLabel name = lift $
+  lookupVar name $ \thunk ->
+    force thunk >>= \case
+      VBlockLabel tpid ->
+        view (envRTLabel tpid) >>= \case
+          Just tv -> pure (tpid, tv)
+          Nothing -> err
+      _ -> err
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
-    kComp tid =
-      force tid >>= \case
-        VBlockLabel tpid ->
-          view (envRTLabel tpid) >>= \case
-            Just tv -> pure (tpid, tv)
-            Nothing -> err
-        _ -> err
 
 mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
