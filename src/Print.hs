@@ -5,18 +5,19 @@ module Print (ppExpr, ppVal, ppTypedBlock) where
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS8
+import Data.ByteString.UTF8 qualified as U8
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe
-import Eval hiding (Binding)
+import Eval
 import Expr
 import Lens.Micro.Platform
 import Prettyprinter
 import Program
 
 ppBS :: ByteString -> Doc ann
-ppBS = pretty . BS8.unpack
+ppBS = pretty . U8.toString
 
 ppAttrs :: (k -> Doc ann) -> (v -> Doc ann) -> Map k v -> Doc ann
 ppAttrs fk fv attrs = braces' $ align . vcat $ (\(k, v) -> fk k <> ":" <+> fv v <> ",") <$> M.toList attrs
@@ -42,7 +43,9 @@ ppType TBool = "<bool>"
 ppType (TStruct m) = angles $ "struct" <> ppAttrs ppBS ppType m
 
 ppBinding :: Binding -> Doc ann
-ppBinding = undefined
+ppBinding (Binding name args expr) = ppBS name <+> hsep (ppBS <$> args) <+> "=" <+> ppExpr expr
+ppBinding (Inherit names) = "inherit" <+> hsep (ppBS <$> names)
+ppBinding (InheritFrom expr names) = "inherit" <+> parens (ppExpr expr) <+> hsep (ppBS <$> names)
 
 ppExpr :: Expr -> Doc ann
 ppExpr (Var x) = ppBS x
@@ -57,7 +60,7 @@ ppExpr (Let args body) =
     ]
 ppExpr (Prim n) = ppPrim n
 ppExpr (BinExpr op a b) = ppExpr a <+> opSymbol op <+> ppExpr b
--- ppExpr (Attr m) = ppAttrs pretty ppExpr m
+ppExpr (Attr m) = braces $ vsep (ppBinding <$> m)
 ppExpr (Acc a m) = ppExpr m <> "." <> ppBS a
 ppExpr (BlockExpr b) = ppBlock ppBS ppBS (maybe mempty (ppAnn ppExpr)) ppExpr b
 ppExpr (List l) = list (ppExpr <$> toList l)

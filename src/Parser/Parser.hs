@@ -1,11 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Parser (parse, parseTest) where
+module Parser.Parser (parse) where
 
 import Control.Applicative
 import Control.Applicative.Combinators
 import Control.Monad.Combinators.Expr
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
@@ -20,6 +21,13 @@ import Parser.Token qualified as T
 
 type Parser = P.Parser (Maybe Token) (Set String)
 
+-- TODO some kind of slicing?
+-- may be pass what the expression should end with as an argument?
+-- the issue is this:
+-- in this parser, pFunc has to go before pBinExpr, becuase in the string
+--   [] -> int
+-- it succeeds on parsing the [] as a list, so it wont't try it as function anymore
+-- it'll interpret it as an expression followed by garbage
 pExpr :: Parser Expr
 pExpr =
   choice
@@ -27,6 +35,7 @@ pExpr =
       pLet,
       pIf,
       pWith,
+      pFunc,
       pBinExpr
     ]
 
@@ -64,23 +73,62 @@ pWith :: Parser Expr
 pWith =
   liftA2
     With
-    (token T.With *> pExpr)
-    (token T.Semicolon *> pExpr)
+    (token T.With *> termSemicolon pExpr)
+    pExpr
 
 pAttr :: Parser Expr
-pAttr =
-  braces $
-    Attr <$> sepEndBy pBinding' (token T.Comma)
+pAttr = braces $ Attr <$> sepEndBy pBinding' (token T.Comma)
+
+pFunc :: Parser Expr
+pFunc = do
+  args <-
+    brackets $
+      sepBy
+        (liftA2 (,) pIdent (token T.Colon *> pExpr))
+        (token T.Comma)
+  -- TODo proper right arrow operator
+  token T.Sub
+  token T.Gt
+  ret <- pTerm
+  Func args ret <$> pExpr
 
 pTerm :: Parser Expr
 pTerm =
   choice
-    [ pVar,
-      Prim <$> pAtom,
-      parens pExpr,
+    [ Prim <$> pAtom,
       pList,
-      pAttr
+      pAttr,
+      BlockExpr <$> pBlock,
+      parens pExpr,
+      pVar
     ]
+
+pBlock :: Parser (Block Name Name (Maybe Expr) Expr)
+pBlock = do
+  label <- optional $ pIdent <* token T.At
+  braces $ do
+    stmts <- many pStatement
+    terminator <- optional pExpr
+    pure $ Block label stmts terminator
+
+termSemicolon :: Parser a -> Parser a
+termSemicolon = (<* token T.Semicolon)
+
+pStatement :: Parser (Stmt Name Name (Maybe Expr) Expr)
+pStatement = choice (fmap termSemicolon [pReturn, pBreak, pDecl, ExprStmt <$> pExpr, pAssign, pContinue])
+  where
+    pReturn = token T.Return *> (Return <$> pExpr)
+    pMLabel = optional $ token T.At *> pIdent
+    pBreak = token T.Break *> liftA2 Break pMLabel (optional pExpr)
+    pContinue = token T.Continue *> (Continue <$> pMLabel)
+    pAssign = liftA2 Assign pIdent (token T.Assign *> pExpr)
+    pDecl =
+      token T.Var
+        *> liftA3
+          Decl
+          pIdent
+          (optional $ token T.Colon *> pExpr)
+          (token T.Assign *> pExpr)
 
 pVar :: Parser Expr
 pVar = Var <$> pIdent
@@ -114,11 +162,11 @@ pAtom = expect "atom" $ \case
   T.TFalse -> Just $ PBool False
   _ -> Nothing
 
--- TODO totdat we de = fixen
+-- TODO uses : and ,
+-- used until we move attr sets back to = and ;
 pBinding' :: Parser Binding
 pBinding' = choice [pBind, pInherit, pInheritFrom]
   where
-    sep = token T.Comma
     pBind = do
       name <- pIdent
       args <- many pIdent
@@ -132,9 +180,8 @@ pBinding' = choice [pBind, pInherit, pInheritFrom]
       pure $ InheritFrom from names
 
 pBinding :: Parser Binding
-pBinding = choice [pBind <* sep, pInherit <* sep, pInheritFrom <* sep]
+pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
   where
-    sep = token T.Semicolon
     pBind = do
       name <- pIdent
       args <- many pIdent
@@ -163,8 +210,7 @@ token tk = expect (T.descrToken tk) $
 expect :: String -> (Token -> Maybe a) -> Parser a
 expect msg f =
   P.throwCC $ \throw ->
-    let err = throw $ Set.singleton msg
-     in P.token >>= maybe err (maybe err pure . f)
+    let err = throw $ Set.singleton msg in P.token >>= maybe err (maybe err pure . f)
 
 eof :: Parser ()
 eof = P.throwCC $ \throw ->
@@ -179,18 +225,13 @@ tokenize bs = case Lex.lexer bs of
     let (tokens, pos) = unzip lexed
      in (V.fromList tokens, V.fromList pos)
 
-parse :: ByteString -> Expr
-parse bs = case P.runParser (tokens V.!?) (pExpr <* eof) of
-  Right a -> a
-  Left (errIndex, expected) ->
-    error $
+parse :: ByteString -> Either String Expr
+parse bs = first formatError $ P.runParser (tokens V.!?) (pExpr <* eof)
+  where
+    formatError (errIndex, expected) =
       case tokens V.!? errIndex of
         Nothing -> "unexpected end of file, expected one of " <> unwords (Set.toList expected)
         Just tk ->
           let errPos = pos V.! errIndex
            in unwords ["unexpected", descrToken tk, "at", show errPos, ", expected one of:", unwords (Set.toList expected)]
-  where
     (tokens, pos) = tokenize bs
-
-parseTest :: Expr
-parseTest = parse "let inherit (true) asd sdf; in b"

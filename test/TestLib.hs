@@ -22,14 +22,7 @@ assertFile :: FilePath -> IO String
 assertFile = readFile
 
 assertParse :: HasCallStack => String -> IO Expr
-assertParse str = do
-  seq (parse (BS8.pack str)) (pure $ Prim $ PInt 9)
-
--- assertParse :: HasCallStack => String -> IO Expr
--- assertParse str = do
---   case MP.parse pToplevel "" str of
---     Left err -> assertFailure $ MP.errorBundlePretty err
---     Right res -> pure res
+assertParse str = either assertFailure pure $ parse (BS8.pack str)
 
 assertEval :: HasCallStack => Expr -> IO Value
 assertEval expr = do

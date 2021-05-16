@@ -125,7 +125,7 @@ desugarBinds binds = snd <$> execStateT (mapM_ go binds) (mempty, DesugaredBindi
         False -> _1 %= Set.insert name
     go (Binding name args body) = do
       check name
-      let expr = undefined
+      let expr = foldr Lam body args
       _2 . bindSimple %= ((name, expr) :)
     go (Inherit names) = forM_ names $ \name -> do
       check name
