@@ -21,7 +21,7 @@ import Data.Set (Set)
 import Data.Set qualified as S
 import Data.UnionFind.IO qualified as UF
 import Data.Void
-import Expr hiding (Binding)
+import Expr
 import Lens.Micro.Platform
 import Program
 
