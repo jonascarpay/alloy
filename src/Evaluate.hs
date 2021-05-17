@@ -168,7 +168,7 @@ evalType :: Expr -> Eval Type
 evalType expr =
   step expr >>= \case
     VType tp -> pure tp
-    _ -> throwError "Expected type, got not-a-type"
+    value -> throwError "Expected type, got something else"
 
 mkFunction ::
   Monad m =>
