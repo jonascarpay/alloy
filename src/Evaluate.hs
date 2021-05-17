@@ -39,7 +39,8 @@ deferExpr expr = do
 reduce :: ValueF ThunkID -> ThunkID -> Eval (ValueF ThunkID)
 reduce (VClosure arg body env) tid = do
   local (staticEnv .~ env) $
-    local (bindThunk arg tid) (step body)
+    local (bindThunk arg tid) $
+      step body
 reduce (VClosure' m) tid = m tid -- FIXME this will eventually break since it does not properly handle the environment
 reduce _ _ = throwError "Calling a non-function"
 
@@ -68,13 +69,7 @@ step (BinExpr bop a b) = do
     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
     (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
 step (Attr binds) = VAttr <$> stepAttrs binds
-step (Acc f em) =
-  step em >>= \case
-    VAttr m ->
-      case M.lookup f m of
-        Nothing -> throwError $ "field " <> show f <> " not present"
-        Just tid -> force tid
-    _ -> throwError $ unwords ["Accessing field", show f, "of not an attribute set"]
+step (Acc f em) = step em >>= accessor f >>= force
 step (BlockExpr b) = do
   env <- view staticEnv
   pure $ VBlock env b
@@ -117,23 +112,39 @@ stepAttrs binds =
   case desugarBinds binds of
     Left name -> throwError $ "Double declaration of name " <> show name
     Right (DesugaredBindings binds inherits inheritFroms) -> do
-      inheritBinds <- forM inherits $ \name ->
+      inherits' :: [(Name, ThunkID)] <- forM inherits $ \name ->
         view (envBinds . at name) >>= \case
           Nothing -> throwError $ "inherited variable " <> show name <> " is not present in the surrounding scope"
           Just thunk -> pure (name, thunk)
-      inheritFromBinds <- forM inheritFroms $ \(expr, names) ->
-        step expr >>= \case
-          VAttr m -> forM names $ \name ->
-            case M.lookup name m of
-              Just tid -> pure (name, tid)
-              Nothing -> throwError $ "missing field " <> show name <> " in attr set in inherit-from binding"
-          _ -> throwError "inherit-from expression did not evaluate to an attr set"
-      n0 <- use idSource
-      let binds' = zipWith (\name n -> (name, ThunkID n)) (fst <$> binds) [n0 ..]
-      let env' = inheritBinds <> concat inheritFromBinds <> binds'
-      local (bindThunks env') $
-        forM_ binds $ \(name, expr) -> withName name $ deferExpr expr
+      binds' :: [((Name, ThunkID), Expr)] <- forM binds $ \(name, expr) -> do
+        thunk <- freshThunkId
+        pure ((name, thunk), expr)
+      inheritFroms' :: [((Expr, ThunkID), [(Name, ThunkID)])] <- forM inheritFroms $ \(expr, attrs) -> do
+        exprThunk <- freshThunkId
+        attrs' <- forM attrs $ \attr -> do
+          thunk <- freshThunkId
+          pure (attr, thunk)
+        pure ((expr, exprThunk), attrs')
+      let env' :: [(Name, ThunkID)] = inherits' <> (fst <$> binds') <> (inheritFroms' >>= snd)
+      local (bindThunks env') $ do
+        innerEnv <- view staticEnv
+        let defer m = Deferred $ local (staticEnv .~ innerEnv) m
+        forM_ inheritFroms' $ \((expr, exprThunk), attrs) -> do
+          thunks . at exprThunk ?= defer (step expr)
+          forM_ attrs $ \(attr, attrThunk) ->
+            withName attr $
+              thunks . at attrThunk ?= defer (force exprThunk >>= accessor attr >>= force)
+        forM_ binds' $ \((name, thunk), expr) ->
+          withName name $
+            thunks . at thunk ?= defer (step expr)
       pure $ M.fromList env'
+
+accessor :: Name -> ValueF ThunkID -> Eval ThunkID
+accessor attr (VAttr attrs) =
+  case M.lookup attr attrs of
+    Just t -> pure t
+    _ -> throwError $ "field " <> show attr <> " not present"
+accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something that's not an attribute set"
 
 functionBodyEnv :: [(Name, typ, ThunkID, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
 functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _)) =
