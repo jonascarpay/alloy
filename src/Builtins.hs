@@ -66,17 +66,15 @@ bImport :: (Expr -> Eval a) -> ValueF ThunkID -> Eval a
 bImport f (VPrim (PString rel)) = do
   file <- view envFile
   let file' = takeDirectory file </> BS8.unpack rel
-  input <- liftIO $ readFile file'
-  f (Var "TODO")
--- case parse file' input of
---   Left err -> throwError $ MP.errorBundlePretty err
---   Right expr -> local (envFile .~ file') $ f expr
--- local (envFile .~ file') $ f (parse input)
+  input <- liftIO $ BS.readFile file'
+  case parse input of
+    Left err -> throwError err
+    Right expr -> local (envFile .~ file') $ f expr
 bImport _ _ = throwError "import needs a filepath"
 
 bListToAttrs :: ValueF ThunkID -> Eval (ValueF ThunkID)
-bListToAttrs (VList xs) = do
-  pairs <- forM (toList xs) $ \tid ->
+bListToAttrs (VList xs) = fmap (VAttr . M.fromList) $
+  forM (toList xs) $ \tid ->
     force tid >>= \case
       VAttr attrs ->
         case (M.lookup "key" attrs, M.lookup "value" attrs) of
@@ -86,5 +84,4 @@ bListToAttrs (VList xs) = do
               _ -> throwError "builtins.listToAttrs: key was not a string"
           _ -> throwError "builtins.listToAttrs: attr set did not contain key and value attributes"
       _ -> throwError "builtins.listToAttrs: list had a non-attribute set"
-  pure $ VAttr $ M.fromList pairs
 bListToAttrs _ = throwError "builtins.listToAttrs: argument was not a list"
