@@ -54,6 +54,10 @@ comp Geq = (>=)
 
 type Value = Fix ValueF
 
+-- TODO
+-- Deferred really should be
+--   Deferred StaticEnv (CoroutineT ... v)
+-- Whenever you defer, you should capture the static env of the call site, and this would enforce that
 data ThunkF m v = Deferred (m v) | Computed v
 
 type Thunk = ThunkF Eval (ValueF ThunkID)
