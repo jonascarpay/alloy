@@ -5,7 +5,6 @@ module Print (ppExpr, ppVal, ppTypedBlock) where
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS8
-import Data.ByteString.UTF8 qualified as U8
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -17,7 +16,7 @@ import Prettyprinter
 import Program
 
 ppBS :: ByteString -> Doc ann
-ppBS = pretty . U8.toString
+ppBS = pretty . BS8.unpack
 
 ppAttrs :: (k -> Doc ann) -> (v -> Doc ann) -> Map k v -> Doc ann
 ppAttrs fk fv attrs = braces' $ align . vcat $ (\(k, v) -> fk k <> ":" <+> fv v <> ",") <$> M.toList attrs
