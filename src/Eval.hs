@@ -209,6 +209,9 @@ localState f m = do
 freshId :: MonadState EvalState m => m Int
 freshId = state (\(EvalState ts n) -> (n, EvalState ts (n + 1)))
 
+freshThunkId :: MonadState EvalState m => m ThunkID
+freshThunkId = ThunkID <$> freshId
+
 freshVarId :: MonadState EvalState m => m VarID
 freshVarId = VarID <$> freshId
 
