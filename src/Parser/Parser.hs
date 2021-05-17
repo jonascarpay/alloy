@@ -8,6 +8,7 @@ import Control.Applicative.Combinators
 import Control.Monad.Combinators.Expr
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -109,7 +110,8 @@ pBlock = do
   braces $ do
     stmts <- many pStatement
     terminator <- optional pExpr
-    pure $ Block label stmts terminator
+    let exprStmt = Break Nothing . Just
+    pure $ Block label (stmts <> toList (exprStmt <$> terminator)) Nothing
 
 termSemicolon :: Parser a -> Parser a
 termSemicolon = (<* token T.Semicolon)
@@ -209,11 +211,12 @@ token tk = expect (T.descrToken tk) $
 
 expect :: String -> (Token -> Maybe a) -> Parser a
 expect msg f =
-  P.throwCC $ \throw ->
-    let err = throw $ Set.singleton msg in P.token >>= maybe err (maybe err pure . f)
+  P.throwAt $ \throw ->
+    let err = throw $ Set.singleton msg
+     in P.token >>= maybe err (maybe err pure . f)
 
 eof :: Parser ()
-eof = P.throwCC $ \throw ->
+eof = P.throwAt $ \throw ->
   P.token >>= \case
     Nothing -> pure ()
     _ -> throw $ Set.singleton "eof"

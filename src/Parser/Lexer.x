@@ -92,12 +92,10 @@ data AlexInput = AlexInput
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
 alexGetByte (AlexInput bs line col)
   | BS.null bs = Nothing
-  | otherwise =
+  | otherwise = Just $
       let b = BS.unsafeHead bs
-          nl = isNewLine b
-          line' = if nl then line + 1 else line
-          col'  = if nl then 0        else col + 1
-       in Just $ (b, AlexInput (BS.unsafeTail bs) line' col')
+          (line', col') = if isNewLine b then (line + 1, 0) else (line, col + 1)
+       in (b, AlexInput (BS.unsafeTail bs) line' col')
 
 isNewLine :: Word8 -> Bool
 isNewLine = (== 10)

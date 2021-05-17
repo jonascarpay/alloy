@@ -4,9 +4,7 @@ module Parser.Parsec
   ( Parser,
     runParser,
     token,
-    offset,
-    throw,
-    throwCC,
+    throwAt,
   )
 where
 
@@ -74,16 +72,8 @@ instance Monoid e => MonadPlus (Parser t e)
 token :: Parser t e t
 token = Parser $ \t i e ok _ -> ok (t i) (i + 1) e
 
-{-# INLINE offset #-}
-offset :: Parser t e Int
-offset = Parser $ \_ i e ok _ -> ok i i e
-
-{-# INLINE throw #-}
-throw :: Semigroup e => e -> Parser t e a
-throw e = Parser $ \_ i e' _ err -> err (Err i e <> e')
-
-{-# INLINE throwCC #-}
-throwCC :: Semigroup e => ((forall err. e -> Parser t e err) -> Parser t e a) -> Parser t e a
-throwCC k = Parser $ \t i e ok err ->
+{-# INLINE throwAt #-}
+throwAt :: Semigroup e => ((forall err. e -> Parser t e err) -> Parser t e a) -> Parser t e a
+throwAt k = Parser $ \t i e ok err ->
   let throw' e = Parser $ \_ _ e' _ err' -> err' (e' <> Err i e)
    in unParser (k throw') t i e ok err
