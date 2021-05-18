@@ -27,6 +27,7 @@ evalTests =
       is9 "add" "4+5",
       is9 "mul" "3*3",
       is9 "sub" "13-4",
+      is9 "div" "27/3",
       is9 "precedence" "3 * 5 - 6",
       is9 "precedence 2" "3 * 13 - 5 * 6",
       is9 "associativity" "15 - 5 - 1",
