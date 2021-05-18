@@ -4,7 +4,7 @@ module Print (ppExpr, ppVal, ppTypedBlock) where
 
 import Data.Bool (bool)
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS8
+import Data.ByteString.Char8 qualified as BS8
 import Data.Foldable
 import Data.Map (Map)
 import Data.Map qualified as M
