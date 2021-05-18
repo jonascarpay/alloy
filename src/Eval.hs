@@ -28,7 +28,7 @@ import Program
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  | VClosure' (ThunkID -> Eval (LazyValue)) -- TODO can this be Eval ThunkID, not force evaluation?
+  | VClosure' (ThunkID -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
   | VRTVar VarID
@@ -63,26 +63,20 @@ type Value = Fix ValueF
 
 type LazyValue = ValueF ThunkID
 
+-- | The evaluation monad, minus the environment
+-- It is used in two places, first with an Environment reader to create the Eval monad proper.
+-- Second, when we defer a value, in which case we never want make sure we don't accidentally
+-- inherit the environment of the evaluation site.
+type EvalControl = Coroutine (StateT EvalState (ExceptT String IO))
+
 data Thunk
-  = -- TODO
-    -- it makes me a little bit nervous that this uses the dynamicEnv at evaluation time,
-    -- not at deferral time
-    Deferred StaticEnv (Eval LazyValue)
+  = Deferred (EvalControl LazyValue)
   | Computed LazyValue
 
-newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
-
--- TODO Eval is no longer a transformer, remove the m argument
-newtype Eval a = Eval
-  { _unLazyT ::
-      ReaderT
-        Environment
-        ( Coroutine
-            (StateT EvalState (ExceptT String IO))
-        )
-        a
-  }
+newtype Eval a = Eval {_unLazyT :: ReaderT Environment EvalControl a}
   deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadState EvalState, MonadCoroutine)
+
+newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
 
 data EvalState = EvalState
   { _thunks :: Map ThunkID Thunk,
@@ -265,6 +259,9 @@ resolveToBlockLabel name = lift $
 mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
 
+setThunk :: ThunkID -> Thunk -> Eval ()
+setThunk tid thunk = thunks . at tid ?= thunk
+
 fresh :: MonadIO m => m TypeVar
 fresh = liftIO $ TypeVar <$> UF.fresh mempty
 
@@ -297,12 +294,15 @@ getType def (TypeVar tv) = do
 deferVal :: LazyValue -> Eval ThunkID
 deferVal = mkThunk . Computed
 
-force :: ThunkID -> Eval (LazyValue)
+close :: Eval a -> Eval (EvalControl a)
+close (Eval (ReaderT m)) = Eval $ ReaderT $ pure . m
+
+force :: ThunkID -> Eval LazyValue
 force tid =
   use (thunks . at tid) >>= \case
-    Just (Deferred env m) -> do
-      thunks . at tid .= Just (Deferred env $ throwError "Infinite recursion")
-      v <- local (staticEnv .~ env) m
+    Just (Deferred m) -> do
+      thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
+      v <- Eval $ lift m
       thunks . at tid .= Just (Computed v)
       pure v
     Just (Computed x) -> pure x

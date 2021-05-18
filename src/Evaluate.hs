@@ -32,9 +32,9 @@ eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
 
 deferExpr :: Expr -> Eval ThunkID
 deferExpr expr = do
-  env <- view staticEnv
   tid <- freshThunkId
-  thunks . at tid ?= Deferred env (step expr)
+  k <- close (step expr)
+  thunks . at tid ?= Deferred k
   pure tid
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
@@ -110,8 +110,8 @@ step (Func args ret bodyExpr) = do
   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
 stepAttrs :: [Binding] -> Eval (Map Name ThunkID)
-stepAttrs binds =
-  case desugarBinds binds of
+stepAttrs bindings =
+  case desugarBinds bindings of
     Left name -> throwError $ "Double declaration of name " <> show name
     Right (DesugaredBindings binds inherits inheritFroms) -> do
       inherits' :: [(Name, ThunkID)] <- forM inherits $ \name ->
@@ -129,16 +129,14 @@ stepAttrs binds =
         pure ((expr, exprThunk), attrs')
       let env' :: [(Name, ThunkID)] = inherits' <> (fst <$> binds') <> (inheritFroms' >>= snd)
       local (bindThunks env') $ do
-        innerEnv <- view staticEnv
-        let defer m = Deferred innerEnv m
         forM_ inheritFroms' $ \((expr, exprThunk), attrs) -> do
-          thunks . at exprThunk ?= defer (step expr)
+          close (step expr) >>= setThunk exprThunk . Deferred
           forM_ attrs $ \(attr, attrThunk) ->
             withName attr $
-              thunks . at attrThunk ?= defer (force exprThunk >>= accessor attr >>= force)
+              close (force exprThunk >>= accessor attr >>= force) >>= setThunk attrThunk . Deferred
         forM_ binds' $ \((name, thunk), expr) ->
           withName name $
-            thunks . at thunk ?= defer (step expr)
+            close (step expr) >>= setThunk thunk . Deferred
       pure $ M.fromList env'
 
 accessor :: Name -> LazyValue -> Eval ThunkID
@@ -181,7 +179,7 @@ evalType :: Expr -> Eval Type
 evalType expr =
   step expr >>= \case
     VType tp -> pure tp
-    value -> throwError "Expected type, got something else"
+    _ -> throwError "Expected type, got something else"
 
 mkFunction ::
   Monad m =>
