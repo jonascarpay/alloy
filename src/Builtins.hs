@@ -19,18 +19,18 @@ import Lens.Micro.Platform
 import Parser.Parser
 import System.FilePath
 
-bError :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bError :: LazyValue -> Eval LazyValue
 bError (VPrim (PString msg)) = throwError $ "error: " <> BS8.unpack msg
 bError _ = throwError "builtins.error was passed a non-string"
 
-attrNames :: ValueF ThunkID -> Eval (ValueF ThunkID)
+attrNames :: LazyValue -> Eval LazyValue
 attrNames (VAttr attrs) = do
   names <- traverse (deferVal . VPrim . PString) (M.keys attrs)
   pure $ VList $ Seq.fromList names
 attrNames _ = throwError "attrNames on non-list"
 
 -- TODO combine with normal field accessor
-bLookup :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
+bLookup :: LazyValue -> LazyValue -> Eval LazyValue
 bLookup (VAttr attrs) (VPrim (PString str)) =
   case M.lookup str attrs of
     Nothing -> throwError "field doesn't exist"
@@ -38,7 +38,7 @@ bLookup (VAttr attrs) (VPrim (PString str)) =
 bLookup (VAttr _) _ = throwError "second argument to stringField was not a string"
 bLookup _ _ = throwError "first argument to stringField was not an attr set"
 
-bIndex :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
+bIndex :: LazyValue -> LazyValue -> Eval LazyValue
 bIndex (VList xs) (VPrim (PInt i)) =
   case Seq.lookup i xs of
     Nothing -> throwError $ "builtins.index: index " <> show i <> " out of bounds"
@@ -46,12 +46,12 @@ bIndex (VList xs) (VPrim (PInt i)) =
 bIndex (VList _) _ = throwError "builtins.index called with not an integer"
 bIndex _ _ = throwError "builtins.index called with not a list"
 
-bLength :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bLength :: LazyValue -> Eval LazyValue
 bLength (VList xs) = pure $ VPrim $ PInt $ Seq.length xs
 bLength (VPrim (PString s)) = pure $ VPrim $ PInt $ BS.length s
 bLength _ = throwError "builtins.length called with not a list or string"
 
-bStruct :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bStruct :: LazyValue -> Eval LazyValue
 bStruct (VAttr m) = do
   let forceType tid = do
         force tid >>= \case
@@ -62,7 +62,7 @@ bStruct (VAttr m) = do
 bStruct _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- TODO this could be lazier if VClosure' were lazier
-bImport :: (Expr -> Eval a) -> ValueF ThunkID -> Eval a
+bImport :: (Expr -> Eval a) -> LazyValue -> Eval a
 bImport f (VPrim (PString rel)) = do
   file <- view envFile
   let file' = takeDirectory file </> BS8.unpack rel
@@ -72,7 +72,7 @@ bImport f (VPrim (PString rel)) = do
     Right expr -> local (envFile .~ file') $ f expr
 bImport _ _ = throwError "import needs a filepath"
 
-bListToAttrs :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bListToAttrs :: LazyValue -> Eval LazyValue
 bListToAttrs (VList xs) = fmap (VAttr . M.fromList) $
   forM (toList xs) $ \tid ->
     force tid >>= \case

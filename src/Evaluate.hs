@@ -33,10 +33,12 @@ eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
 deferExpr :: Expr -> Eval ThunkID
 deferExpr expr = do
   env <- view staticEnv
-  deferM $ local (staticEnv .~ env) (step expr)
+  tid <- freshThunkId
+  thunks . at tid ?= Deferred env (step expr)
+  pure tid
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
-reduce :: ValueF ThunkID -> ThunkID -> Eval (ValueF ThunkID)
+reduce :: LazyValue -> ThunkID -> Eval LazyValue
 reduce (VClosure arg body env) tid = do
   local (staticEnv .~ env) $
     local (bindThunk arg tid) $
@@ -44,7 +46,7 @@ reduce (VClosure arg body env) tid = do
 reduce (VClosure' m) tid = m tid -- FIXME this will eventually break since it does not properly handle the environment
 reduce _ _ = throwError "Calling a non-function"
 
-step :: Expr -> Eval (ValueF ThunkID)
+step :: Expr -> Eval LazyValue
 step (Prim p) = pure $ VPrim p
 step (App f x) = do
   tf <- step f
@@ -128,7 +130,7 @@ stepAttrs binds =
       let env' :: [(Name, ThunkID)] = inherits' <> (fst <$> binds') <> (inheritFroms' >>= snd)
       local (bindThunks env') $ do
         innerEnv <- view staticEnv
-        let defer m = Deferred $ local (staticEnv .~ innerEnv) m
+        let defer m = Deferred innerEnv m
         forM_ inheritFroms' $ \((expr, exprThunk), attrs) -> do
           thunks . at exprThunk ?= defer (step expr)
           forM_ attrs $ \(attr, attrThunk) ->
@@ -139,7 +141,7 @@ stepAttrs binds =
             thunks . at thunk ?= defer (step expr)
       pure $ M.fromList env'
 
-accessor :: Name -> ValueF ThunkID -> Eval ThunkID
+accessor :: Name -> LazyValue -> Eval ThunkID
 accessor attr (VAttr attrs) =
   case M.lookup attr attrs of
     Just t -> pure t
@@ -505,7 +507,7 @@ mkStruct f (TStruct fields) attrs = flip M.traverseWithKey fields $ \fieldName t
 mkStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attrset literal"
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
-compileVal :: ValueF ThunkID -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
+compileVal :: LazyValue -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
 compileVal (VPrim p) = do
   tv <- askVar
   typ <- lift $ getTypeSuspend tv
@@ -561,10 +563,10 @@ withBuiltins m = do
         ("void", TVoid),
         ("bool", TBool)
       ]
-    fn1 :: (ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
+    fn1 :: (LazyValue -> Eval LazyValue) -> Eval ThunkID
     fn1 f = deferVal $ VClosure' (force >=> f)
     -- TODO express in terms of fn1
-    fn2 :: (ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)) -> Eval ThunkID
+    fn2 :: (LazyValue -> LazyValue -> Eval LazyValue) -> Eval ThunkID
     fn2 f = deferVal $
       VClosure' $ \t1 ->
         pure $
@@ -574,7 +576,7 @@ withBuiltins m = do
             f v1 v2
 
 -- TODO _is_ this a type? i.e. church-encode types?
-matchType :: ValueF ThunkID -> ValueF ThunkID -> Eval (ValueF ThunkID)
+matchType :: LazyValue -> LazyValue -> Eval LazyValue
 matchType (VAttr attrs) (VType typ) =
   let getAttr attr = case M.lookup attr attrs of
         Just x -> pure x
@@ -594,7 +596,7 @@ matchType (VAttr attrs) (VType typ) =
 matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"
 
-bTypeOf :: ValueF ThunkID -> Eval (ValueF ThunkID)
+bTypeOf :: LazyValue -> Eval LazyValue
 bTypeOf (VRTVar tid) =
   view (envRTVar tid) >>= \case
     Just tv -> VType <$> getTypeSuspend tv

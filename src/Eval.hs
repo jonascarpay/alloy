@@ -28,7 +28,7 @@ import Program
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  | VClosure' (ThunkID -> Eval (ValueF ThunkID)) -- TODO can this be Eval ThunkID, not force evaluation?
+  | VClosure' (ThunkID -> Eval (LazyValue)) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
   | VRTVar VarID
@@ -61,13 +61,14 @@ comp Geq = (>=)
 
 type Value = Fix ValueF
 
--- TODO
--- Deferred really should be
---   Deferred StaticEnv (CoroutineT ... v)
--- Whenever you defer, you should capture the static env of the call site, and this would enforce that
-data ThunkF m v = Deferred (m v) | Computed v
+type LazyValue = ValueF ThunkID
 
-type Thunk = ThunkF Eval (ValueF ThunkID)
+data Thunk
+  = -- TODO
+    -- it makes me a little bit nervous that this uses the dynamicEnv at evaluation time,
+    -- not at deferral time
+    Deferred StaticEnv (Eval LazyValue)
+  | Computed LazyValue
 
 newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
 
@@ -264,9 +265,6 @@ resolveToBlockLabel name = lift $
 mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
 
-deferM :: Eval (ValueF ThunkID) -> Eval ThunkID
-deferM = mkThunk . Deferred
-
 fresh :: MonadIO m => m TypeVar
 fresh = liftIO $ TypeVar <$> UF.fresh mempty
 
@@ -296,15 +294,15 @@ getType def (TypeVar tv) = do
     [] -> def
     l -> throwError $ "Overdetermined: " <> show l
 
-deferVal :: ValueF ThunkID -> Eval ThunkID
+deferVal :: LazyValue -> Eval ThunkID
 deferVal = mkThunk . Computed
 
-force :: ThunkID -> Eval (ValueF ThunkID)
+force :: ThunkID -> Eval (LazyValue)
 force tid =
   use (thunks . at tid) >>= \case
-    Just (Deferred m) -> do
-      thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
-      v <- m
+    Just (Deferred env m) -> do
+      thunks . at tid .= Just (Deferred env $ throwError "Infinite recursion")
+      v <- local (staticEnv .~ env) m
       thunks . at tid .= Just (Computed v)
       pure v
     Just (Computed x) -> pure x
