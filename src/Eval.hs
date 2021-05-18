@@ -39,10 +39,17 @@ data ValueF val
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
 
-arith :: Num n => ArithOp -> n -> n -> n
-arith Add = (+)
-arith Sub = (-)
-arith Mul = (*)
+arithInt :: ArithOp -> Int -> Int -> Int
+arithInt Add = (+)
+arithInt Sub = (-)
+arithInt Mul = (*)
+arithInt Div = div
+
+arithFloat :: ArithOp -> Double -> Double -> Double
+arithFloat Add = (+)
+arithFloat Sub = (-)
+arithFloat Mul = (*)
+arithFloat Div = (/)
 
 comp :: Ord n => CompOp -> n -> n -> Bool
 comp Eq = (==)
