@@ -8,7 +8,7 @@ import Control.Applicative.Combinators
 import Control.Monad.Combinators.Expr
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
-import Data.Foldable (toList)
+import Data.Foldable (foldl', toList)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -44,8 +44,7 @@ pBinExpr :: Parser Expr
 pBinExpr =
   makeExprParser
     pTerm
-    [ [repeatedPostfix (Acc <$> (token T.Dot *> pIdent))],
-      [InfixL (pure App)],
+    [ [InfixL (pure App)],
       [InfixL (BinExpr Concat <$ token T.Cat)],
       [arith T.Mul Mul, arith T.Div Div],
       [arith T.Add Add, arith T.Sub Sub],
@@ -53,8 +52,6 @@ pBinExpr =
       [comp T.Eq Eq, comp T.Neq Neq]
     ]
   where
-    repeatedPostfix :: Parser (Expr -> Expr) -> Operator Parser Expr
-    repeatedPostfix = Postfix . fmap (foldr1 (.) . reverse) . some
     {-# INLINE arith #-}
     arith :: Token -> ArithOp -> Operator Parser Expr
     arith tk op = InfixL (BinExpr (ArithOp op) <$ token tk)
@@ -94,15 +91,18 @@ pFunc = do
   Func args ret <$> pExpr
 
 pTerm :: Parser Expr
-pTerm =
-  choice
-    [ Prim <$> pAtom,
-      pList,
-      pAttr,
-      BlockExpr <$> pBlock,
-      parens pExpr,
-      pVar
-    ]
+pTerm = do
+  val <-
+    choice
+      [ Prim <$> pAtom,
+        pList,
+        pAttr,
+        BlockExpr <$> pBlock,
+        parens pExpr,
+        pVar
+      ]
+  accessors <- many (token T.Dot *> pIdent)
+  pure $ foldl' (flip Acc) val accessors
 
 pBlock :: Parser (Block Name Name (Maybe Expr) Expr)
 pBlock = do

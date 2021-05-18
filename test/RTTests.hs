@@ -51,14 +51,13 @@ rtTests :: TestTree
 rtTests =
   testGroup
     "rt"
-    [ pending $
-        saFunc "trivial" "[] -> builtins.types.int { return 0; }",
+    [ saFunc "trivial" "[] -> builtins.types.int { return 0; }",
       pending $
         saFunc "empty function" "with builtins.types; [] -> void { }",
       saFunc "trivial with" "with builtins.types; [] -> int { return 0; }",
       expectFailBecause "Cannot construct void for nums" $
         saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
-      saFunc "simple recursion" "[] -> (builtins.types.int) { return self []; }",
+      saFunc "simple recursion" "[] -> builtins.types.int { return self []; }",
       funcWithNDeps
         "mutual recursion"
         1
@@ -152,8 +151,8 @@ rtTests =
           |],
       saFunc
         "nested return without semicolon"
-        "[] -> (builtins.types.int) { { return 4; } }",
-      saFunc "named blocks parse" "[] -> (builtins.types.void) { lbl@{ }; }",
+        "[] -> builtins.types.int { { return 4; } }",
+      saFunc "named blocks parse" "[] -> builtins.types.void { lbl@{ }; }",
       saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }",
       saFunc
         "labeled break as return"
@@ -175,7 +174,7 @@ rtTests =
       negative $
         saFunc
           "labeled break as return (negative 2)"
-          "[] -> (builtins.types.int) lbl@{ break @lbl; }",
+          "[] -> builtins.types.int lbl@{ break @lbl; }",
       saFunc
         "break as return"
         [r| with builtins.types;
@@ -196,7 +195,7 @@ rtTests =
       negative $
         saFunc
           "break as return (negative 2)"
-          "[] -> (builtins.types.int) { break; }",
+          "[] -> builtins.types.int { break; }",
       saFunc
         "nested break return"
         [r| with builtins.types;
@@ -247,7 +246,7 @@ rtTests =
         |],
       saFunc
         "terminator expression"
-        "[] -> (builtins.types.int) { 3 }",
+        "[] -> builtins.types.int { 3 }",
       negative $
         saFunc
           "simple declaration type mismatch"
@@ -537,7 +536,7 @@ rtTests =
       negative $
         saFunc
           "unify types of blockExprs"
-          [r| with (builtins.types);
+          [r| with builtins.types;
               [] -> int {
                 var b: double = {var res: int = 0; res};
               }
@@ -545,7 +544,7 @@ rtTests =
       negative $
         saFunc
           "unify types of blockExprs"
-          [r| with (builtins.types);
+          [r| with builtins.types;
               let
                 zeroExpr = {var res: int = 0; break res;};
               in [] -> int {
@@ -555,7 +554,7 @@ rtTests =
           |],
       saFunc
         "block types are not evaluated"
-        [r| with (builtins.types);
+        [r| with builtins.types;
             let
               zeroExpr = {var res = 0; break res;};
             in [] -> int {
