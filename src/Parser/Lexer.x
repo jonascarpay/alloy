@@ -15,6 +15,7 @@ import Data.Word (Word8)
 $digit = 0-9
 $idHead = [a-z A-Z]
 $idTail = [a-z A-Z 0-9 \_ \']
+$stringChars = [$printable \n]
 
 tokens :-
 
@@ -64,9 +65,9 @@ tokens :-
   "{"		{ tok LBrace }
   "}"		{ tok RBrace }
 
-  $digit+		{ tok_num }
-  $idHead $idTail*	{ Ident }
-  \" (~ \")* \"		{ tok_string } -- TODO Use start codes to signal unterminated strings
+  $digit+			{ tok_num }
+  $idHead $idTail*		{ Ident }
+  \" ($stringChars # \")* \"	{ tok_string } -- TODO Use start codes to signal unterminated strings
 
 {
 lexer :: BS.ByteString -> Either SourcePos [(Token, SourcePos)]
