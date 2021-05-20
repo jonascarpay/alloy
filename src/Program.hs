@@ -115,6 +115,7 @@ rtInfo (RTBlock _ a) = a
 rtInfo (RTCall _ _ a) = a
 rtInfo (RTLiteral _ a) = a
 rtInfo (RTCond _ _ _ a) = a
+rtInfo (RTStruct _ a) = a
 
 newtype GUID = GUID {unGUID :: Int}
   deriving (Eq, Ord, Hashable)
