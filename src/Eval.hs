@@ -63,6 +63,22 @@ type Value = Fix ValueF
 
 type LazyValue = ValueF ThunkID
 
+describeValue :: ValueF f -> String
+describeValue (VPrim (PInt _)) = "integer"
+describeValue (VPrim (PDouble _)) = "double"
+describeValue (VPrim (PBool _)) = "boolean"
+describeValue (VPrim (PString _)) = "string"
+describeValue VClosure {} = "closure"
+describeValue VClosure' {} = "closure"
+describeValue VType {} = "type"
+describeValue VAttr {} = "attribute set"
+describeValue VRTVar {} = "runtime variable"
+describeValue VBlockLabel {} = "block label"
+describeValue VSelf {} = "recursive function reference"
+describeValue VBlock {} = "code block"
+describeValue VFunc {} = "runtime function"
+describeValue VList {} = "list"
+
 -- | The evaluation monad, minus the environment
 -- It is used in two places, first with an Environment reader to create the Eval monad proper.
 -- Second, when we defer a value, in which case we never want make sure we don't accidentally

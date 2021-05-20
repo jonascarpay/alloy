@@ -61,15 +61,17 @@ step (BinExpr bop a b) = do
   case (bop, va, vb) of
     (ArithOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arithInt op pa pb
     (ArithOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arithFloat op pa pb
-    (ArithOp _, _, _) -> throwError "Arithmetic on not a pair of numbers"
-    (CompOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PBool $ comp op pa pb
-    (CompOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (ArithOp _, lhs, rhs) -> throwError $ unwords ["Arithmetic on a", describeValue lhs, "and a", describeValue rhs]
+    (CompOp Eq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa == pb
+    (CompOp Neq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa /= pb
     (CompOp Eq, VType ta, VType tb) -> pure . VPrim . PBool $ ta == tb
     (CompOp Neq, VType ta, VType tb) -> pure . VPrim . PBool $ ta /= tb
-    (CompOp _, _, _) -> throwError "Cannot compare the thing you're trying to compare"
+    (CompOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp _, lhs, rhs) -> throwError $ unwords ["Cannot compare a", describeValue lhs, "to a", describeValue rhs]
     (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
-    (Concat, _, _) -> throwError "Cannot concat the thing you're trying to concat"
+    (Concat, lhs, rhs) -> throwError $ unwords ["Cannot concatenate a", describeValue lhs, "and a", describeValue rhs]
 step (Attr binds) = VAttr <$> stepAttrs binds
 step (Acc f em) = step em >>= accessor f >>= force
 step (BlockExpr b) = do

@@ -126,5 +126,11 @@ evalTests =
       is9 "list concat" "builtins.index ([] ++ [9] ++ []) 0",
       is9 "listToAttrs" "(builtins.listToAttrs [{ key: \"nine\", value: 9 }]).nine",
       is9 "haskell function syntax 1" "let id x = x; in id 9",
-      is9 "haskell function syntax 2" "let const x y = x; in const 9 10"
+      is9 "haskell function syntax 2" "let const x y = x; in const 9 10",
+      is9
+        "simple string comparison"
+        [r| let str1 = "test";
+                str2 = "test";
+            in if str1 == str2 then 9 else 8
+        |]
     ]
