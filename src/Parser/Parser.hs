@@ -221,20 +221,23 @@ eof = P.throwAt $ \throw ->
     Nothing -> pure ()
     _ -> throw $ Set.singleton "eof"
 
-tokenize :: ByteString -> (Vector Token, Vector SourcePos)
+tokenize :: ByteString -> Either SourcePos (Vector Token, Vector SourcePos)
 tokenize bs = case Lex.lexer bs of
-  Left err -> error (show err)
+  Left err -> Left err
   Right lexed ->
-    let (tokens, pos) = unzip lexed
-     in (V.fromList tokens, V.fromList pos)
+    Right $
+      let (tokens, pos) = unzip lexed
+       in (V.fromList tokens, V.fromList pos)
+
+formatError :: Vector Token -> Vector SourcePos -> (Int, Set String) -> String
+formatError tokens sps (errIndex, expected) =
+  case tokens V.!? errIndex of
+    Nothing -> "unexpected end of file, expected one of " <> unwords (Set.toList expected)
+    Just tk ->
+      let errPos = sps V.! errIndex
+       in unwords ["unexpected", descrToken tk, "at", show errPos, ", expected one of:", unwords (Set.toList expected)]
 
 parse :: ByteString -> Either String Expr
-parse bs = first formatError $ P.runParser (tokens V.!?) (pExpr <* eof)
-  where
-    formatError (errIndex, expected) =
-      case tokens V.!? errIndex of
-        Nothing -> "unexpected end of file, expected one of " <> unwords (Set.toList expected)
-        Just tk ->
-          let errPos = pos V.! errIndex
-           in unwords ["unexpected", descrToken tk, "at", show errPos, ", expected one of:", unwords (Set.toList expected)]
-    (tokens, pos) = tokenize bs
+parse bs = do
+  (tokens, sps) <- first (\p -> "Lexical error at " <> show p) (tokenize bs)
+  first (formatError tokens sps) $ P.runParser (tokens V.!?) (pExpr <* eof)
