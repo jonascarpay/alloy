@@ -1,3 +1,4 @@
+src/Parser/Lexer.hs # eventually ignore
 *.ay
 
 ### Nix ###
