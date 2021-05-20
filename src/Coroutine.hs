@@ -52,6 +52,8 @@ class MonadCoroutine m where
 
   suspend :: m a -> m a
 
+-- | Run a coroutine until completion, retrying every time it suspends.
+-- Note that if a computation infinitely stalls (e.g. 'fix suspend') this will cause infinite recursion.
 runCoroutine :: Monad m => Coroutine m r -> m r
 runCoroutine (Coroutine m) = m >>= either runCoroutine pure
 
