@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -28,7 +30,8 @@ data Prim
   | PDouble Double
   | PBool Bool
   | PString ByteString
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Hashable)
 
 data Type
   = TInt
@@ -36,13 +39,12 @@ data Type
   | TBool
   | TVoid
   | TStruct (Map Name Type)
-  deriving (Eq, Show, Ord, Generic)
+  deriving stock (Eq, Show, Ord, Generic)
+  deriving anyclass (Hashable)
 
 -- TODO move to orphan module
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
   hashWithSalt salt m = hashWithSalt salt (M.toList m)
-
-instance Hashable Type
 
 data Binding
   = Binding Name [Name] Expr
@@ -68,29 +70,23 @@ data Expr
 
 data BinOp = ArithOp ArithOp | CompOp CompOp | Concat
   deriving (Eq, Show, Generic)
+  deriving anyclass (Hashable)
 
 data ArithOp = Add | Sub | Mul | Div
   deriving (Eq, Show, Generic)
+  deriving anyclass (Hashable)
 
 data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
   deriving (Eq, Show, Generic)
-
-instance Hashable BinOp
-
-instance Hashable ArithOp
-
-instance Hashable CompOp
+  deriving anyclass (Hashable)
 
 data Block var lbl typ expr = Block
   { _blkLabel :: Maybe lbl,
     _blkStmts :: [Stmt var lbl typ expr],
     _blkType :: typ
   }
-  deriving (Eq, Show, Generic)
-
-instance
-  (Hashable var, Hashable lbl, Hashable typ, Hashable expr) =>
-  Hashable (Block var lbl typ expr)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Hashable)
 
 data Stmt var lbl typ expr
   = Return expr
@@ -100,10 +96,7 @@ data Stmt var lbl typ expr
   | Continue (Maybe lbl) -- TODO Maybe lbl -> lbl
   | Break (Maybe lbl) (Maybe expr) -- TODO Maybe lbl -> lbl
   deriving (Eq, Show, Generic)
-
-instance
-  (Hashable var, Hashable lbl, Hashable expr, Hashable typ) =>
-  Hashable (Stmt var lbl typ expr)
+  deriving anyclass (Hashable)
 
 data DesugaredBindings = DesugaredBindings
   { _bindSimple :: [(Name, Expr)],
