@@ -84,17 +84,16 @@ describeValue VList {} = "list"
 -- It is used in two places, first with an Environment reader to create the Eval monad proper.
 -- Second, when we defer a value, in which case we never want make sure we don't accidentally
 -- inherit the environment of the evaluation site.
-newtype EvalControl a = EvalControl
-  { unEvalControl :: Coroutine (StateT EvalState (ExceptT String IO)) a
-  }
+newtype Eval a = Eval
+  {unEval :: Coroutine (StateT EvalState (ExceptT String IO)) a}
   deriving (Functor, MonadIO, Applicative, Monad, MonadError String, MonadState EvalState, MonadCoroutine)
 
 newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
 
 class Monad m => MonadEval m where
-  liftEval :: EvalControl a -> m a
+  liftEval :: Eval a -> m a
 
-instance MonadEval EvalControl where
+instance MonadEval Eval where
   liftEval = id
 
 instance MonadEval m => MonadEval (ReaderT r m) where
@@ -112,15 +111,15 @@ data EvalState = EvalState
   }
 
 data Thunk
-  = Deferred (EvalControl LazyValue)
+  = Deferred (Eval LazyValue)
   | Computed LazyValue
 
-newtype StaticEval a = StaticEval {unStaticEval :: ReaderT Environment EvalControl a}
+newtype StaticEval a = StaticEval {unStaticEval :: ReaderT Environment Eval a}
   deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadEval, MonadCoroutine)
 
 newtype TypeVar = TypeVar (UF.Point (Set Type))
 
-newtype DynEval a = DynEval {unDynEval :: RWST DynamicEnv Dependencies () EvalControl a}
+newtype DynEval a = DynEval {unDynEval :: RWST DynamicEnv Dependencies () Eval a}
   deriving (Functor, MonadIO, Applicative, Monad, MonadError String, MonadEval, MonadCoroutine)
 
 type Env = Map Name ThunkID
@@ -220,8 +219,8 @@ bindLabel name tv k = do
     env & dynamicEnv . dynLabels . at tmpid ?~ tv
       & staticEnv . statBinds . at name ?~ thunk
 
-runEvalControl :: EvalControl a -> IO (Either String a)
-runEvalControl (EvalControl m) =
+runEvalControl :: Eval a -> IO (Either String a)
+runEvalControl (Eval m) =
   runExceptT $
     flip evalStateT st0 $
       runCoroutine m
@@ -288,7 +287,7 @@ resolveToBlockLabel name = lift $
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
 
-mkThunk :: Thunk -> EvalControl ThunkID
+mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
 
 setThunk :: MonadEval m => ThunkID -> Thunk -> m ()
@@ -326,7 +325,7 @@ getType def (TypeVar tv) = do
 deferVal :: MonadEval m => LazyValue -> m ThunkID
 deferVal = liftEval . mkThunk . Computed
 
-close :: StaticEval a -> StaticEval (EvalControl a)
+close :: StaticEval a -> StaticEval (Eval a)
 close (StaticEval (ReaderT m)) = StaticEval $ ReaderT $ pure . m
 
 force :: MonadEval m => ThunkID -> m LazyValue
