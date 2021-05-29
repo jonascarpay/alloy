@@ -28,8 +28,8 @@ import Program
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  -- TODO can this be Eval ThunkID, not force evaluation?
-  | VClosure' (ThunkID -> Eval LazyValue)
+  -- TODO can this be Stat ThunkID, not force evaluation?
+  | VClosure' (ThunkID -> Stat LazyValue)
   | VType Type
   | VAttr (Map Name val)
   | VRTVar VarID
@@ -81,7 +81,7 @@ describeValue VFunc {} = "runtime function"
 describeValue VList {} = "list"
 
 -- | The evaluation monad, minus the environment
--- It is used in two places, first with an Environment reader to create the Eval monad proper.
+-- It is used in two places, first with an Environment reader to create the Stat monad proper.
 -- Second, when we defer a value, in which case we never want make sure we don't accidentally
 -- inherit the environment of the evaluation site.
 newtype EvalControl a = EvalControl
@@ -115,7 +115,7 @@ data Thunk
   = Deferred (EvalControl LazyValue)
   | Computed LazyValue
 
-newtype Eval a = Eval {unEval :: ReaderT Environment EvalControl a}
+newtype Stat a = Stat {unStat :: ReaderT Environment EvalControl a}
   deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadEval, MonadCoroutine)
 
 newtype TypeVar = TypeVar (UF.Point (Set Type))
@@ -173,7 +173,7 @@ envRTVar tid = dynamicEnv . dynVars . at tid
 envRTLabel :: LabelID -> Lens' Environment (Maybe TypeVar)
 envRTLabel tid = dynamicEnv . dynLabels . at tid
 
-withName :: Name -> Eval a -> Eval a
+withName :: Name -> Stat a -> Stat a
 withName name = local (envName ?~ name)
 
 lookupVar ::
@@ -225,15 +225,15 @@ runEvalControl (EvalControl m) =
   where
     st0 = EvalState mempty 0
 
-runEval :: FilePath -> Eval a -> IO (Either String a)
-runEval fp (Eval m) = runEvalControl $ runReaderT m env0
+runEval :: FilePath -> Stat a -> IO (Either String a)
+runEval fp (Stat m) = runEvalControl $ runReaderT m env0
   where
     env0 =
       Environment
         (StaticEnv mempty Nothing fp)
         (DynamicEnv mempty Nothing Nothing mempty mempty)
 
-deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
+deferAttrs :: [(Name, ValueF Void)] -> Stat ThunkID
 deferAttrs attrs = do
   attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
   deferVal $ VAttr $ M.fromList attrs'
@@ -256,7 +256,7 @@ freshLblId = LabelID <$> freshId
 freshFuncId :: MonadEval m => m TempFuncID
 freshFuncId = TempFuncID <$> freshId
 
-type RTEval = WriterT Dependencies Eval -- TODO rename this
+type RTEval = WriterT Dependencies Stat -- TODO rename this
 
 {-# ANN resolveToRuntimeVar "hlint: ignore" #-}
 resolveToRuntimeVar :: Name -> RTEval (VarID, TypeVar)
@@ -306,13 +306,13 @@ tvarMay mty = do
   forM_ mty $ setType tv
   pure tv
 
-unify :: TypeVar -> TypeVar -> Eval TypeVar
+unify :: TypeVar -> TypeVar -> Stat TypeVar
 unify a b = a <$ unify_ a b
 
 unify_ :: MonadIO m => TypeVar -> TypeVar -> m ()
 unify_ (TypeVar a) (TypeVar b) = liftIO $ UF.union' a b (\sa sb -> pure (sa <> sb))
 
-getType :: Eval Type -> TypeVar -> Eval Type
+getType :: Stat Type -> TypeVar -> Stat Type
 getType def (TypeVar tv) = do
   tys <- liftIO $ UF.descriptor tv
   case S.toList tys of
@@ -323,8 +323,8 @@ getType def (TypeVar tv) = do
 deferVal :: MonadEval m => LazyValue -> m ThunkID
 deferVal = liftEval . mkThunk . Computed
 
-close :: Eval a -> Eval (EvalControl a)
-close (Eval (ReaderT m)) = Eval $ ReaderT $ pure . m
+close :: Stat a -> Stat (EvalControl a)
+close (Stat (ReaderT m)) = Stat $ ReaderT $ pure . m
 
 force :: MonadEval m => ThunkID -> m LazyValue
 force tid =
@@ -338,10 +338,10 @@ force tid =
       Just (Computed x) -> pure x
       Nothing -> throwError "Looking up invalid thunk?"
 
-getTypeSuspend :: TypeVar -> Eval Type
+getTypeSuspend :: TypeVar -> Stat Type
 getTypeSuspend tv = go retries
   where
     retries = 10
-    go :: Int -> Eval Type
+    go :: Int -> Stat Type
     go 0 = throwError "Underdetermined type variable"
     go n = getType (suspend $ go (n -1)) tv

@@ -31,15 +31,15 @@ import Program
 eval :: FilePath -> Expr -> IO (Either String Value)
 eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
 
-deferExpr :: Expr -> Eval ThunkID
+deferExpr :: Expr -> Stat ThunkID
 deferExpr expr = do
   tid <- freshThunkId
   k <- close (step expr)
   liftEval $ thunks . at tid ?= Deferred k
   pure tid
 
--- TODO once we only have non-Expr closures, this can be moved to Eval
-reduce :: LazyValue -> ThunkID -> Eval LazyValue
+-- TODO once we only have non-Expr closures, this can be moved to Stat
+reduce :: LazyValue -> ThunkID -> Stat LazyValue
 reduce (VClosure arg body env) tid = do
   local (staticEnv .~ env) $
     local (bindThunk arg tid) $
@@ -47,7 +47,7 @@ reduce (VClosure arg body env) tid = do
 reduce (VClosure' m) tid = m tid
 reduce _ _ = throwError "Calling a non-function"
 
-step :: Expr -> Eval LazyValue
+step :: Expr -> Stat LazyValue
 step (Prim p) = pure $ VPrim p
 step (App f x) = do
   tf <- step f
@@ -112,7 +112,7 @@ step (Func args ret bodyExpr) = do
       funDef = FunDef (farg <$> args') retType name typedBlk
   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
-stepAttrs :: [Binding] -> Eval (Map Name ThunkID)
+stepAttrs :: [Binding] -> Stat (Map Name ThunkID)
 stepAttrs bindings =
   case desugarBinds bindings of
     Left name -> throwError $ "Double declaration of name " <> show name
@@ -142,7 +142,7 @@ stepAttrs bindings =
             close (step expr) >>= setThunk thunk . Deferred
       pure $ M.fromList env'
 
-accessor :: Name -> LazyValue -> Eval ThunkID
+accessor :: Name -> LazyValue -> Stat ThunkID
 accessor attr (VAttr attrs) =
   case M.lookup attr attrs of
     Just t -> pure t
@@ -162,9 +162,9 @@ functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEn
     fns' = (namedArgs, ret) : fns
 
 typecheckFunction ::
-  (TypeVar -> Eval Type) ->
+  (TypeVar -> Stat Type) ->
   RTBlock var lbl call TypeVar ->
-  Eval (RTBlock var lbl call Type)
+  Stat (RTBlock var lbl call Type)
 typecheckFunction getType (Block lbl stmts typ) = do
   stmts' <- (traverse . types) getType stmts
   typ' <- getType typ
@@ -178,7 +178,7 @@ typecheckFunction getType (Block lbl stmts typ) = do
         typ2
     types f = stmtMasterTraversal pure pure f (rtExprMasterTraversal pure pure pure f f pure)
 
-evalType :: Expr -> Eval Type
+evalType :: Expr -> Stat Type
 evalType expr =
   step expr >>= \case
     VType tp -> pure tp
@@ -356,7 +356,7 @@ compileBlock (Block mlbl stmts typ) = do
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
-deepEvalExpr :: Expr -> Eval Value
+deepEvalExpr :: Expr -> Stat Value
 deepEvalExpr = deferExpr >=> deepEval
 
 askVar :: (MonadError String m, MonadReader Environment m) => m TypeVar
@@ -461,11 +461,11 @@ compileExpr expr@Prim {} = lift (step expr) >>= compileVal -- TODO remove the st
 compileExpr expr@BlockExpr {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
 compileExpr _ = throwError "invalid runtime expression"
 
-varsFromSig :: [Type] -> Type -> Eval ([TypeVar], TypeVar)
+varsFromSig :: [Type] -> Type -> Stat ([TypeVar], TypeVar)
 varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
 
 -- TODO split into selfcallsig and id call sig, same as it's actually used
-callSig :: Dependencies -> PreCall -> Eval ([TypeVar], TypeVar)
+callSig :: Dependencies -> PreCall -> Stat ([TypeVar], TypeVar)
 callSig deps (CallKnown guid) = do
   case deps ^. depKnownFuncs . at guid of
     Nothing -> error "impossible" -- TODO throwError
@@ -537,13 +537,13 @@ compileVal (VBlock env blk) = do
   pure $ RTBlock blk' tv
 
 -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
-withBuiltins :: Eval a -> Eval a
+withBuiltins :: Stat a -> Stat a
 withBuiltins m = do
   ts <- traverse sequenceA binds
   tBuiltins <- deferVal . VAttr $ M.fromList ts
   local (bindThunk "builtins" tBuiltins) m
   where
-    binds :: [(Name, Eval ThunkID)]
+    binds :: [(Name, Stat ThunkID)]
     binds =
       [ ("types", deferAttrs (fmap VType <$> types)),
         ("struct", fn1 bStruct),
@@ -564,10 +564,10 @@ withBuiltins m = do
         ("void", TVoid),
         ("bool", TBool)
       ]
-    fn1 :: (LazyValue -> Eval LazyValue) -> Eval ThunkID
+    fn1 :: (LazyValue -> Stat LazyValue) -> Stat ThunkID
     fn1 f = deferVal $ VClosure' $ force >=> f
     -- TODO express in terms of fn1
-    fn2 :: (LazyValue -> LazyValue -> Eval LazyValue) -> Eval ThunkID
+    fn2 :: (LazyValue -> LazyValue -> Stat LazyValue) -> Stat ThunkID
     fn2 f = deferVal $
       VClosure' $ \t1 ->
         pure $
@@ -577,7 +577,7 @@ withBuiltins m = do
             f v1 v2
 
 -- TODO _is_ this a type? i.e. church-encode types?
-matchType :: LazyValue -> LazyValue -> Eval LazyValue
+matchType :: LazyValue -> LazyValue -> Stat LazyValue
 matchType (VAttr attrs) (VType typ) =
   let getAttr attr = case M.lookup attr attrs of
         Just x -> pure x
@@ -597,7 +597,7 @@ matchType (VAttr attrs) (VType typ) =
 matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"
 
-bTypeOf :: LazyValue -> Eval LazyValue
+bTypeOf :: LazyValue -> Stat LazyValue
 bTypeOf (VRTVar tid) =
   view (envRTVar tid) >>= \case
     Just tv -> VType <$> getTypeSuspend tv
