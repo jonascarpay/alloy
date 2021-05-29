@@ -86,3 +86,7 @@ instance (Semigroup w, Functor m, MonadCoroutine m) => MonadCoroutine (WriterT w
 instance (MonadCoroutine m) => MonadCoroutine (ReaderT r m) where
   suspend (ReaderT m) = ReaderT $ suspend . m
   par (ReaderT mf) (ReaderT ma) = ReaderT $ \r -> par (mf r) (ma r)
+
+instance (Semigroup w, Functor m, MonadCoroutine m) => MonadCoroutine (RWST r w () m) where
+  suspend (RWST m) = RWST $ \r s -> suspend (m r s)
+  par (RWST mf) (RWST ma) = RWST $ \r s -> par ((\(f, _, w) (a, _, w') -> (f a, s, w <> w')) <$> mf r s) (ma r s)

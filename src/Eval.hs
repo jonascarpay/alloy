@@ -103,6 +103,9 @@ instance MonadEval m => MonadEval (ReaderT r m) where
 instance (Monoid w, MonadEval m) => MonadEval (WriterT w m) where
   liftEval = lift . liftEval
 
+instance (Monoid w, MonadEval m) => MonadEval (RWST r w s m) where
+  liftEval = lift . liftEval
+
 data EvalState = EvalState
   { _thunks :: Map ThunkID Thunk,
     _idSource :: Int
