@@ -12,6 +12,7 @@ module Evaluate (ValueF (..), Value, eval, Dependencies (..)) where
 import Builtins
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
+import Control.Monad.Reader
 import Control.Monad.State (State, evalState)
 import Control.Monad.Writer
 import Coroutine
@@ -34,7 +35,7 @@ deferExpr :: Expr -> Eval ThunkID
 deferExpr expr = do
   tid <- freshThunkId
   k <- close (step expr)
-  thunks . at tid ?= Deferred k
+  liftEval $ thunks . at tid ?= Deferred k
   pure tid
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
@@ -43,7 +44,7 @@ reduce (VClosure arg body env) tid = do
   local (staticEnv .~ env) $
     local (bindThunk arg tid) $
       step body
-reduce (VClosure' m) tid = m tid -- FIXME this will eventually break since it does not properly handle the environment
+reduce (VClosure' m) tid = m tid
 reduce _ _ = throwError "Calling a non-function"
 
 step :: Expr -> Eval LazyValue
@@ -564,7 +565,7 @@ withBuiltins m = do
         ("bool", TBool)
       ]
     fn1 :: (LazyValue -> Eval LazyValue) -> Eval ThunkID
-    fn1 f = deferVal $ VClosure' (force >=> f)
+    fn1 f = deferVal $ VClosure' $ force >=> f
     -- TODO express in terms of fn1
     fn2 :: (LazyValue -> LazyValue -> Eval LazyValue) -> Eval ThunkID
     fn2 f = deferVal $
@@ -600,13 +601,13 @@ bTypeOf :: LazyValue -> Eval LazyValue
 bTypeOf (VRTVar tid) =
   view (envRTVar tid) >>= \case
     Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get bTypeOf"
+    Nothing -> throwError "Cannot get type of this var"
 bTypeOf (VBlockLabel tid) =
   view (envRTLabel tid) >>= \case
     Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get bTypeOf"
+    Nothing -> throwError "Cannot get type of this label"
 bTypeOf (VBlock env blk) = do
   (blk', _) <- local (staticEnv .~ env) $ runWriterT $ compileBlock blk
   let tv = blk' ^. blkType
   VType <$> getTypeSuspend tv
-bTypeOf _ = throwError "Cannot get bTypeOf"
+bTypeOf val = throwError $ "Cannot get bTypeOf of a " <> describeValue val

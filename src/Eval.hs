@@ -1,3 +1,4 @@
+-- TODO expot list
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -5,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- TODO expot list
 module Eval where
 
 import Control.Monad.Except
@@ -28,7 +28,8 @@ import Program
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  | VClosure' (ThunkID -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
+  -- TODO can this be Eval ThunkID, not force evaluation?
+  | VClosure' (ThunkID -> Eval LazyValue)
   | VType Type
   | VAttr (Map Name val)
   | VRTVar VarID
@@ -83,21 +84,36 @@ describeValue VList {} = "list"
 -- It is used in two places, first with an Environment reader to create the Eval monad proper.
 -- Second, when we defer a value, in which case we never want make sure we don't accidentally
 -- inherit the environment of the evaluation site.
-type EvalControl = Coroutine (StateT EvalState (ExceptT String IO))
-
-data Thunk
-  = Deferred (EvalControl LazyValue)
-  | Computed LazyValue
-
-newtype Eval a = Eval {_unLazyT :: ReaderT Environment EvalControl a}
-  deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadState EvalState, MonadCoroutine)
+newtype EvalControl a = EvalControl
+  { unEvalControl :: Coroutine (StateT EvalState (ExceptT String IO)) a
+  }
+  deriving (Functor, MonadIO, Applicative, Monad, MonadError String, MonadState EvalState, MonadCoroutine)
 
 newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
+
+class Monad m => MonadEval m where
+  liftEval :: EvalControl a -> m a
+
+instance MonadEval EvalControl where
+  liftEval = id
+
+instance MonadEval m => MonadEval (ReaderT r m) where
+  liftEval = lift . liftEval
+
+instance (Monoid w, MonadEval m) => MonadEval (WriterT w m) where
+  liftEval = lift . liftEval
 
 data EvalState = EvalState
   { _thunks :: Map ThunkID Thunk,
     _idSource :: Int
   }
+
+data Thunk
+  = Deferred (EvalControl LazyValue)
+  | Computed LazyValue
+
+newtype Eval a = Eval {unEval :: ReaderT Environment EvalControl a}
+  deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadEval, MonadCoroutine)
 
 newtype TypeVar = TypeVar (UF.Point (Set Type))
 
@@ -198,49 +214,43 @@ bindLabel name tv k = do
     env & dynamicEnv . dynLabels . at tmpid ?~ tv
       & staticEnv . statBinds . at name ?~ thunk
 
+runEvalControl :: EvalControl a -> IO (Either String a)
+runEvalControl (EvalControl m) =
+  runExceptT $
+    flip evalStateT st0 $
+      runCoroutine m
+  where
+    st0 = EvalState mempty 0
+
 runEval :: FilePath -> Eval a -> IO (Either String a)
-runEval fp (Eval m) =
-  (fmap . fmap) fst $
-    runExceptT $
-      flip runStateT st0 $
-        runCoroutine $
-          runReaderT m env0
+runEval fp (Eval m) = runEvalControl $ runReaderT m env0
   where
     env0 =
       Environment
         (StaticEnv mempty Nothing fp)
         (DynamicEnv mempty Nothing Nothing mempty mempty)
-    st0 = EvalState mempty 0
 
 deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
   attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
   deferVal $ VAttr $ M.fromList attrs'
 
-deepEval :: ThunkID -> Eval Value
+deepEval :: MonadEval m => ThunkID -> m Value
 deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 
-localState :: MonadState s m => (s -> s) -> m a -> m a
-localState f m = do
-  s <- get
-  put (f s)
-  a <- m
-  put s
-  pure a
+freshId :: MonadEval m => m Int
+freshId = liftEval $ state (\(EvalState ts n) -> (n, EvalState ts (n + 1)))
 
-freshId :: MonadState EvalState m => m Int
-freshId = state (\(EvalState ts n) -> (n, EvalState ts (n + 1)))
-
-freshThunkId :: MonadState EvalState m => m ThunkID
+freshThunkId :: MonadEval m => m ThunkID
 freshThunkId = ThunkID <$> freshId
 
-freshVarId :: MonadState EvalState m => m VarID
+freshVarId :: MonadEval m => m VarID
 freshVarId = VarID <$> freshId
 
-freshLblId :: MonadState EvalState m => m LabelID
+freshLblId :: MonadEval m => m LabelID
 freshLblId = LabelID <$> freshId
 
-freshFuncId :: MonadState EvalState m => m TempFuncID
+freshFuncId :: MonadEval m => m TempFuncID
 freshFuncId = TempFuncID <$> freshId
 
 type RTEval = WriterT Dependencies Eval -- TODO rename this
@@ -250,7 +260,7 @@ resolveToRuntimeVar :: Name -> RTEval (VarID, TypeVar)
 resolveToRuntimeVar name =
   lift $
     lookupVar name $ \thunk ->
-      force thunk >>= \case
+      liftEval (force thunk) >>= \case
         VRTVar tpid ->
           view (envRTVar tpid) >>= \case
             Just tv -> pure (tpid, tv)
@@ -263,7 +273,7 @@ resolveToRuntimeVar name =
 resolveToBlockLabel :: Name -> RTEval (LabelID, TypeVar)
 resolveToBlockLabel name = lift $
   lookupVar name $ \thunk ->
-    force thunk >>= \case
+    liftEval (force thunk) >>= \case
       VBlockLabel tpid ->
         view (envRTLabel tpid) >>= \case
           Just tv -> pure (tpid, tv)
@@ -272,11 +282,11 @@ resolveToBlockLabel name = lift $
   where
     err = throwError $ "Variable " <> show name <> " did not resolve to block label"
 
-mkThunk :: Thunk -> Eval ThunkID
+mkThunk :: Thunk -> EvalControl ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
 
-setThunk :: ThunkID -> Thunk -> Eval ()
-setThunk tid thunk = thunks . at tid ?= thunk
+setThunk :: MonadEval m => ThunkID -> Thunk -> m ()
+setThunk tid thunk = liftEval $ thunks . at tid ?= thunk
 
 fresh :: MonadIO m => m TypeVar
 fresh = liftIO $ TypeVar <$> UF.fresh mempty
@@ -307,22 +317,23 @@ getType def (TypeVar tv) = do
     [] -> def
     l -> throwError $ "Overdetermined: " <> show l
 
-deferVal :: LazyValue -> Eval ThunkID
-deferVal = mkThunk . Computed
+deferVal :: MonadEval m => LazyValue -> m ThunkID
+deferVal = liftEval . mkThunk . Computed
 
 close :: Eval a -> Eval (EvalControl a)
 close (Eval (ReaderT m)) = Eval $ ReaderT $ pure . m
 
-force :: ThunkID -> Eval LazyValue
+force :: MonadEval m => ThunkID -> m LazyValue
 force tid =
-  use (thunks . at tid) >>= \case
-    Just (Deferred m) -> do
-      thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
-      v <- Eval $ lift m
-      thunks . at tid .= Just (Computed v)
-      pure v
-    Just (Computed x) -> pure x
-    Nothing -> throwError "Looking up invalid thunk?"
+  liftEval $
+    use (thunks . at tid) >>= \case
+      Just (Deferred m) -> do
+        thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
+        v <- m
+        thunks . at tid .= Just (Computed v)
+        pure v
+      Just (Computed x) -> pure x
+      Nothing -> throwError "Looking up invalid thunk?"
 
 getTypeSuspend :: TypeVar -> Eval Type
 getTypeSuspend tv = go retries
