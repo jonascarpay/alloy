@@ -29,13 +29,13 @@ data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
   -- TODO can this be Eval ThunkID, not force evaluation?
-  | VClosure' (ThunkID -> StaticEval LazyValue)
+  | VClosure' (ThunkID -> Eval LazyValue)
   | VType Type
   | VAttr (Map Name val)
   | VRTVar VarID
   | VBlockLabel LabelID
   | VSelf Int
-  | VBlock StaticEnv (Block Name Name (Maybe Expr) Expr)
+  | VRTExpr (DynEval (RTExpr VarID LabelID PreCall TypeVar TypeVar))
   | VFunc Dependencies (Either TempFuncID GUID)
   | VList (Seq val)
   deriving (Functor, Foldable, Traversable)
@@ -76,7 +76,7 @@ describeValue VAttr {} = "attribute set"
 describeValue VRTVar {} = "runtime variable"
 describeValue VBlockLabel {} = "block label"
 describeValue VSelf {} = "recursive function reference"
-describeValue VBlock {} = "code block"
+describeValue VRTExpr {} = "runtime expression"
 describeValue VFunc {} = "runtime function"
 describeValue VList {} = "list"
 
@@ -90,7 +90,7 @@ newtype Eval a = Eval
 
 newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
 
-class Monad m => MonadEval m where
+class MonadError String m => MonadEval m where
   liftEval :: Eval a -> m a
 
 instance MonadEval Eval where
@@ -114,8 +114,8 @@ data Thunk
   = Deferred (Eval LazyValue)
   | Computed LazyValue
 
-newtype StaticEval a = StaticEval {unStaticEval :: ReaderT Environment Eval a}
-  deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadEval, MonadCoroutine)
+newtype StaticEval a = StaticEval {unStaticEval :: ReaderT StaticEnv Eval a}
+  deriving (Functor, MonadIO, Applicative, Monad, MonadReader StaticEnv, MonadError String, MonadEval, MonadCoroutine)
 
 newtype TypeVar = TypeVar (UF.Point (Set Type))
 
@@ -126,8 +126,7 @@ type Env = Map Name ThunkID
 
 data StaticEnv = StaticEnv
   { _statBinds :: Map Name ThunkID,
-    _statName :: Maybe Name,
-    _statFile :: FilePath
+    _statName :: Maybe Name
   }
 
 type FunctionSig = ([(Name, TypeVar)], TypeVar)
@@ -141,57 +140,26 @@ data DynamicEnv = DynamicEnv
     _dynLabels :: Map LabelID TypeVar
   }
 
-data Environment = Environment
-  { _staticEnv :: StaticEnv,
-    _dynamicEnv :: DynamicEnv
-  }
-
 makeLenses ''StaticEnv
 makeLenses ''DynamicEnv
-makeLenses ''Environment
 makeLenses ''EvalState
 
-envBinds :: Lens' Environment (Map Name ThunkID)
-envBinds = staticEnv . statBinds
-
-envName :: Lens' Environment (Maybe Name)
-envName = staticEnv . statName
-
-envExprVar :: Lens' Environment (Maybe TypeVar)
-envExprVar = dynamicEnv . dynExprVar
-
-envBlockVar :: Lens' Environment (Maybe TypeVar)
-envBlockVar = dynamicEnv . dynBlockVar
-
-envFnStack :: Lens' Environment [FunctionSig]
-envFnStack = dynamicEnv . dynFnStack
-
-envFile :: Lens' Environment FilePath
-envFile = staticEnv . statFile
-
-envRTVar :: VarID -> Lens' Environment (Maybe TypeVar)
-envRTVar tid = dynamicEnv . dynVars . at tid
-
-envRTLabel :: LabelID -> Lens' Environment (Maybe TypeVar)
-envRTLabel tid = dynamicEnv . dynLabels . at tid
-
 withName :: Name -> StaticEval a -> StaticEval a
-withName name = local (envName ?~ name)
+withName name = local (statName ?~ name)
 
 lookupVar ::
-  (MonadReader Environment m, MonadError String m) =>
   Name ->
-  (ThunkID -> m r) ->
-  m r
+  (ThunkID -> StaticEval r) ->
+  StaticEval r
 lookupVar name kct = do
-  view (envBinds . at name) >>= \case
+  view (statBinds . at name) >>= \case
     Nothing -> throwError $ "undefined variable " <> show name
     Just tid -> kct tid
 
-bindThunk :: Name -> ThunkID -> Environment -> Environment
-bindThunk name tid = envBinds . at name ?~ tid
+bindThunk :: Name -> ThunkID -> StaticEnv -> StaticEnv
+bindThunk name tid = statBinds . at name ?~ tid
 
-bindThunks :: [(Name, ThunkID)] -> Environment -> Environment
+bindThunks :: [(Name, ThunkID)] -> StaticEnv -> StaticEnv
 bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
 
 bindRtvar ::
@@ -199,25 +167,27 @@ bindRtvar ::
   TypeVar ->
   RTEval a ->
   RTEval (VarID, a)
-bindRtvar name tv k = do
-  tmpid <- freshVarId
-  thunk <- lift $ deferVal (VRTVar tmpid)
-  a <- flip local k $ \env ->
-    env & dynamicEnv . dynVars . at tmpid ?~ tv
-      & staticEnv . statBinds . at name ?~ thunk
-  pure (tmpid, a)
+bindRtvar name tv k = error "bindRTVar"
+
+-- tmpid <- freshVarId
+-- thunk <- lift $ deferVal (VRTVar tmpid)
+-- a <- flip local k $ \env ->
+--   env & dynamicEnv . dynVars . at tmpid ?~ tv
+--     & staticEnv . statBinds . at name ?~ thunk
+-- pure (tmpid, a)
 
 bindLabel ::
   Name ->
   TypeVar ->
   (LabelID -> RTEval a) ->
   RTEval a
-bindLabel name tv k = do
-  tmpid <- freshLblId
-  thunk <- lift $ deferVal (VBlockLabel tmpid)
-  flip local (k tmpid) $ \env ->
-    env & dynamicEnv . dynLabels . at tmpid ?~ tv
-      & staticEnv . statBinds . at name ?~ thunk
+bindLabel name tv k = error "bindLabel"
+
+-- tmpid <- freshLblId
+-- thunk <- lift $ deferVal (VBlockLabel tmpid)
+-- flip local (k tmpid) $ \env ->
+--   env & dynamicEnv . dynLabels . at tmpid ?~ tv
+--     & staticEnv . statBinds . at name ?~ thunk
 
 runEvalControl :: Eval a -> IO (Either String a)
 runEvalControl (Eval m) =
@@ -227,13 +197,14 @@ runEvalControl (Eval m) =
   where
     st0 = EvalState mempty 0
 
-runEval :: FilePath -> StaticEval a -> IO (Either String a)
-runEval fp (StaticEval m) = runEvalControl $ runReaderT m env0
+runStatic :: StaticEnv -> StaticEval a -> Eval a
+runStatic env (StaticEval m) = runReaderT m env
+
+-- TODO rename this and runEvalControl
+runEval :: StaticEval a -> IO (Either String a)
+runEval (StaticEval m) = runEvalControl $ runReaderT m env0
   where
-    env0 =
-      Environment
-        (StaticEnv mempty Nothing fp)
-        (DynamicEnv mempty Nothing Nothing mempty mempty)
+    env0 = StaticEnv mempty Nothing
 
 deferAttrs :: [(Name, ValueF Void)] -> StaticEval ThunkID
 deferAttrs attrs = do
@@ -262,30 +233,31 @@ type RTEval = WriterT Dependencies StaticEval -- TODO rename this
 
 {-# ANN resolveToRuntimeVar "hlint: ignore" #-}
 resolveToRuntimeVar :: Name -> RTEval (VarID, TypeVar)
-resolveToRuntimeVar name =
-  lift $
-    lookupVar name $ \thunk ->
-      liftEval (force thunk) >>= \case
-        VRTVar tpid ->
-          view (envRTVar tpid) >>= \case
-            Just tv -> pure (tpid, tv)
-            Nothing -> err
-        _ -> err
-  where
-    err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
+resolveToRuntimeVar name = error "resolveToRuntimeVar"
+
+-- lift $
+--   lookupVar name $ \thunk ->
+--     liftEval (force thunk) >>= \case
+--       VRTVar tpid ->
+--         view (envRTVar tpid) >>= \case
+--           Just tv -> pure (tpid, tv)
+--           Nothing -> err
+--       _ -> err
+-- where
+--   err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
 
 {-# ANN resolveToBlockLabel "hlint: ignore" #-}
 resolveToBlockLabel :: Name -> RTEval (LabelID, TypeVar)
-resolveToBlockLabel name = lift $
-  lookupVar name $ \thunk ->
-    liftEval (force thunk) >>= \case
-      VBlockLabel tpid ->
-        view (envRTLabel tpid) >>= \case
-          Just tv -> pure (tpid, tv)
-          Nothing -> err
-      _ -> err
-  where
-    err = throwError $ "Variable " <> show name <> " did not resolve to block label"
+resolveToBlockLabel name = error "resolveToBlockLabel" -- lift $
+-- lookupVar name $ \thunk ->
+--   liftEval (force thunk) >>= \case
+--     VBlockLabel tpid ->
+--       view (envRTLabel tpid) >>= \case
+--         Just tv -> pure (tpid, tv)
+--         Nothing -> err
+--     _ -> err
+-- where
+--   err = throwError $ "Variable " <> show name <> " did not resolve to block label"
 
 mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))

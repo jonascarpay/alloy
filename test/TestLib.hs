@@ -5,7 +5,6 @@
 module TestLib where
 
 import Control.Monad
-import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.Map qualified as M
 import Eval
@@ -15,7 +14,6 @@ import Parser.Parser
 import Prettyprinter
 import Print
 import Program
-import System.Directory
 import Test.Tasty.HUnit
 
 assertFile :: FilePath -> IO String
@@ -26,8 +24,7 @@ assertParse str = either assertFailure pure $ parse (BS8.pack str)
 
 assertEval :: HasCallStack => Expr -> IO Value
 assertEval expr = do
-  cwd <- getCurrentDirectory
-  evalInfo cwd expr >>= \case
+  evalInfo expr >>= \case
     Left err -> assertFailure $ show err
     Right val -> pure val
 

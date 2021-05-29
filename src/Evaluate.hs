@@ -12,24 +12,19 @@ module Evaluate (ValueF (..), Value, eval, Dependencies (..)) where
 import Builtins
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
-import Control.Monad.Reader
 import Control.Monad.State (State, evalState)
-import Control.Monad.Writer
-import Coroutine
-import Data.Bifunctor
 import Data.Bitraversable
 import Data.Foldable
 import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.Maybe
 import Eval
 import Expr
 import Lens.Micro.Platform
 import Program
 
-eval :: FilePath -> Expr -> IO (Either String Value)
-eval fp eRoot = runEval fp $ withBuiltins $ deepEvalExpr eRoot
+eval :: Expr -> IO (Either String Value)
+eval eRoot = runEval $ withBuiltins $ deepEvalExpr eRoot
 
 deferExpr :: Expr -> StaticEval ThunkID
 deferExpr expr = do
@@ -39,12 +34,11 @@ deferExpr expr = do
   pure tid
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
-reduce :: LazyValue -> ThunkID -> StaticEval LazyValue
-reduce (VClosure arg body env) tid = do
-  local (staticEnv .~ env) $
-    local (bindThunk arg tid) $
-      step body
-reduce (VClosure' m) tid = m tid
+reduce :: MonadEval m => LazyValue -> ThunkID -> m LazyValue
+reduce (VClosure arg body env) tid =
+  liftEval $
+    runStatic (env & statBinds . at arg ?~ tid) (step body)
+reduce (VClosure' m) tid = liftEval $ m tid
 reduce _ _ = throwError "Calling a non-function"
 
 step :: Expr -> StaticEval LazyValue
@@ -54,7 +48,7 @@ step (App f x) = do
   tx <- deferExpr x
   reduce tf tx
 step (Var x) = lookupVar x force
-step (Lam arg body) = VClosure arg body <$> view staticEnv
+step (Lam arg body) = asks (VClosure arg body)
 step (Let binds body) = step (With (Attr binds) body)
 step (BinExpr bop a b) = do
   va <- step a
@@ -75,9 +69,7 @@ step (BinExpr bop a b) = do
     (Concat, lhs, rhs) -> throwError $ unwords ["Cannot concatenate a", describeValue lhs, "and a", describeValue rhs]
 step (Attr binds) = VAttr <$> stepAttrs binds
 step (Acc f em) = step em >>= accessor f >>= force
-step (BlockExpr b) = do
-  env <- view staticEnv
-  pure $ VBlock env b
+step (BlockExpr b) = error "blockExpr"
 step (List l) = VList <$> traverse deferExpr l
 step (With bind body) = do
   step bind >>= \case
@@ -88,29 +80,30 @@ step (Cond cond tr fl) = do
     VPrim (PBool True) -> step tr
     VPrim (PBool False) -> step fl
     _ -> throwError "Did not evaluate to a boolean"
-step (Func args ret bodyExpr) = do
-  args' <- forM args $ \(name, expr) -> do
-    typ <- evalType expr
-    var <- freshVarId
-    thunk <- deferVal $ VRTVar var
-    tv <- tvar typ
-    pure (name, typ, thunk, var, tv)
-  retType <- evalType ret
-  retVar <- tvar retType
-  recDepth <- length <$> view envFnStack
-  self <- deferVal $ VSelf recDepth
-  name <- view $ envName . to (fromMaybe "fn")
-  (blk, deps) <-
-    local (bindThunk "self" self) $
-      local (functionBodyEnv args' retVar) $
-        step bodyExpr >>= \case
-          VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ compileBlock blk
-          _ -> throwError "Function body did not evaluate to a block expression"
-  let getTypeVoid = getType (pure TVoid)
-  typedBlk <- typecheckFunction getTypeVoid blk
-  let farg (_, typ, _, var, _) = (var, typ)
-      funDef = FunDef (farg <$> args') retType name typedBlk
-  uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
+step (Func args ret bodyExpr) = error "step Func"
+
+-- args' <- forM args $ \(name, expr) -> do
+--   typ <- evalType expr
+--   var <- freshVarId
+--   thunk <- deferVal $ VRTVar var
+--   tv <- tvar typ
+--   pure (name, typ, thunk, var, tv)
+-- retType <- evalType ret
+-- retVar <- tvar retType
+-- recDepth <- length <$> view envFnStack
+-- self <- deferVal $ VSelf recDepth
+-- name <- view $ envName . to (fromMaybe "fn")
+-- (blk, deps) <-
+--   local (bindThunk "self" self) $
+--     local (functionBodyEnv args' retVar) $
+--       step bodyExpr >>= \case
+--         VBlock env blk -> local (staticEnv .~ env) $ runWriterT $ compileBlock blk
+--         _ -> throwError "Function body did not evaluate to a block expression"
+-- let getTypeVoid = getType (pure TVoid)
+-- typedBlk <- typecheckFunction getTypeVoid blk
+-- let farg (_, typ, _, var, _) = (var, typ)
+--     funDef = FunDef (farg <$> args') retType name typedBlk
+-- uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
 stepAttrs :: [Binding] -> StaticEval (Map Name ThunkID)
 stepAttrs bindings =
@@ -118,7 +111,7 @@ stepAttrs bindings =
     Left name -> throwError $ "Double declaration of name " <> show name
     Right (DesugaredBindings binds inherits inheritFroms) -> do
       inherits' :: [(Name, ThunkID)] <- forM inherits $ \name ->
-        view (envBinds . at name) >>= \case
+        view (statBinds . at name) >>= \case
           Nothing -> throwError $ "inherited variable " <> show name <> " is not present in the surrounding scope"
           Just thunk -> pure (name, thunk)
       binds' :: [((Name, ThunkID), Expr)] <- forM binds $ \(name, expr) -> do
@@ -149,17 +142,20 @@ accessor attr (VAttr attrs) =
     _ -> throwError $ "field " <> show attr <> " not present"
 accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something that's not an attribute set"
 
-functionBodyEnv :: [(Name, typ, ThunkID, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
-functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _)) =
-  Environment
-    (StaticEnv ctx' ctxName fp)
-    (DynamicEnv fns' Nothing (Just ret) (M.fromList dyn) mempty)
-  where
-    (argBindings, dyn, namedArgs) = unzip3 $ fmap f typedArgs
-      where
-        f (name, _, thunk, var, tv) = ((name, thunk), (var, tv), (name, tv))
-    ctx' = M.fromList argBindings <> ctx
-    fns' = (namedArgs, ret) : fns
+functionBodyEnv :: a
+functionBodyEnv = undefined
+
+-- functionBodyEnv :: [(Name, typ, ThunkID, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
+-- functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _)) =
+--   Environment
+--     (StaticEnv ctx' ctxName fp)
+--     (DynamicEnv fns' Nothing (Just ret) (M.fromList dyn) mempty)
+--   where
+--     (argBindings, dyn, namedArgs) = unzip3 $ fmap f typedArgs
+--       where
+--         f (name, _, thunk, var, tv) = ((name, thunk), (var, tv), (name, tv))
+--     ctx' = M.fromList argBindings <> ctx
+--     fns' = (namedArgs, ret) : fns
 
 typecheckFunction ::
   (TypeVar -> StaticEval Type) ->
@@ -287,89 +283,102 @@ mkFunction fresh recDepth transDeps funDef =
 compileStmt ::
   [Stmt Name Name (Maybe Expr) Expr] ->
   RTEval [Stmt VarID LabelID TypeVar (RTExpr VarID LabelID PreCall TypeVar TypeVar)]
-compileStmt (Return expr : r) = do
-  tv <-
-    view envFnStack >>= \case
-      (_, rtv) : _ -> pure rtv
-      _ -> throwError "returning but no return type found?"
-  liftP2
-    (\e' r' -> Return e' : r')
-    (atVar tv $ compileExpr expr)
-    (compileStmt r)
-compileStmt (Break mname mexpr : r) = do
-  mlbl <- traverse resolveToBlockLabel mname
-  tv <- case mlbl of
-    Just (_, ltv) -> pure ltv
-    Nothing ->
-      view envBlockVar >>= \case
-        Just ltv -> pure ltv
-        _ -> throwError "No current block type variable?"
-  liftP2
-    (\e' r' -> Break (fst <$> mlbl) e' : r')
-    ( case mexpr of
-        Just expr -> Just <$> atVar tv (compileExpr expr)
-        Nothing -> Nothing <$ setType tv TVoid
-    )
-    (compileStmt r)
-compileStmt (Continue mname : r) =
-  liftP2
-    (\ml' r' -> Continue (fst <$> ml') : r')
-    (traverse resolveToBlockLabel mname)
-    (compileStmt r)
-compileStmt (Decl name mtypExpr expr : r) = do
-  tv <- lift fresh
-  liftP3
-    (\_ e' (tmpid, r') -> Decl tmpid tv e' : r')
-    (lift $ forM_ mtypExpr (evalType >=> setType tv))
-    (atVar tv $ compileExpr expr)
-    (bindRtvar name tv (compileStmt r))
-compileStmt (Assign name expr : r) = do
-  (name', tv) <- resolveToRuntimeVar name
-  liftP2
-    (\e' r' -> Assign name' e' : r')
-    (atVar tv $ compileExpr expr)
-    (compileStmt r)
-compileStmt (ExprStmt expr : r) = do
-  tv <- fresh
-  liftP2
-    (\e' r' -> ExprStmt e' : r')
-    (atVar tv $ compileExpr expr)
-    (compileStmt r)
-compileStmt [] = pure []
+compileStmt = error "compileStmt"
+
+-- compileStmt (Return expr : r) = do
+--   tv <-
+--     view envFnStack >>= \case
+--       (_, rtv) : _ -> pure rtv
+--       _ -> throwError "returning but no return type found?"
+--   liftP2
+--     (\e' r' -> Return e' : r')
+--     (atVar tv $ compileExpr expr)
+--     (compileStmt r)
+-- compileStmt (Break mname mexpr : r) = do
+--   mlbl <- traverse resolveToBlockLabel mname
+--   tv <- case mlbl of
+--     Just (_, ltv) -> pure ltv
+--     Nothing ->
+--       view envBlockVar >>= \case
+--         Just ltv -> pure ltv
+--         _ -> throwError "No current block type variable?"
+--   liftP2
+--     (\e' r' -> Break (fst <$> mlbl) e' : r')
+--     ( case mexpr of
+--         Just expr -> Just <$> atVar tv (compileExpr expr)
+--         Nothing -> Nothing <$ setType tv TVoid
+--     )
+--     (compileStmt r)
+-- compileStmt (Continue mname : r) =
+--   liftP2
+--     (\ml' r' -> Continue (fst <$> ml') : r')
+--     (traverse resolveToBlockLabel mname)
+--     (compileStmt r)
+-- compileStmt (Decl name mtypExpr expr : r) = do
+--   tv <- lift fresh
+--   liftP3
+--     (\_ e' (tmpid, r') -> Decl tmpid tv e' : r')
+--     (lift $ forM_ mtypExpr (evalType >=> setType tv))
+--     (atVar tv $ compileExpr expr)
+--     (bindRtvar name tv (compileStmt r))
+-- compileStmt (Assign name expr : r) = do
+--   (name', tv) <- resolveToRuntimeVar name
+--   liftP2
+--     (\e' r' -> Assign name' e' : r')
+--     (atVar tv $ compileExpr expr)
+--     (compileStmt r)
+-- compileStmt (ExprStmt expr : r) = do
+--   tv <- fresh
+--   liftP2
+--     (\e' r' -> ExprStmt e' : r')
+--     (atVar tv $ compileExpr expr)
+--     (compileStmt r)
+-- compileStmt [] = pure []
 
 compileBlock ::
   Block Name Name (Maybe Expr) Expr ->
   RTEval (RTBlock VarID LabelID PreCall TypeVar)
-compileBlock (Block mlbl stmts typ) = do
-  tv <-
-    view envExprVar >>= \case
-      Just tv -> pure tv
-      Nothing -> fresh
-  forM_ typ (lift . evalType >=> setType tv)
-  -- TODO the envExprVar shouldn't be necessary
-  (mtid, stmts') <-
-    local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
-      case mlbl of
-        Nothing -> (Nothing,) <$> compileStmt stmts
-        Just lbl -> bindLabel lbl tv $ \tid -> (Just tid,) <$> compileStmt stmts
-  pure (Block mtid stmts' tv)
+compileBlock = error "compileBlock"
+
+-- compileBlock (Block mlbl stmts typ) = do
+--   tv <-
+--     view envExprVar >>= \case
+--       Just tv -> pure tv
+--       Nothing -> fresh
+--   forM_ typ (lift . evalType >=> setType tv)
+--   -- TODO the envExprVar shouldn't be necessary
+--   (mtid, stmts') <-
+--     local ((envExprVar .~ Nothing) . (envBlockVar ?~ tv)) $
+--       case mlbl of
+--         Nothing -> (Nothing,) <$> compileStmt stmts
+--         Just lbl -> bindLabel lbl tv $ \tid -> (Just tid,) <$> compileStmt stmts
+--   pure (Block mtid stmts' tv)
 
 -- TODO this technically creates an unnecessary thunk since we defer and then
 -- immediately evaluate but I don't think we care
 deepEvalExpr :: Expr -> StaticEval Value
 deepEvalExpr = deferExpr >=> deepEval
 
-askVar :: (MonadError String m, MonadReader Environment m) => m TypeVar
-askVar =
-  view envExprVar >>= \case
-    Nothing -> throwError "No type variable defined for the current expression"
-    Just tv -> pure tv
+askVar :: a
+askVar = error "askvar"
 
-setLocalType :: (MonadIO m, MonadError String m, MonadReader Environment m) => Type -> m ()
-setLocalType typ = askVar >>= \tv -> setType tv typ
+-- askVar :: (MonadError String m, MonadReader Environment m) => m TypeVar
+-- askVar =
+--   view envExprVar >>= \case
+--     Nothing -> throwError "No type variable defined for the current expression"
+--     Just tv -> pure tv
 
-atVar :: MonadReader Environment m => TypeVar -> m a -> m a
-atVar tv = local (envExprVar ?~ tv)
+setLocalType :: a
+setLocalType = error "setLocalType"
+
+-- setLocalType :: (MonadIO m, MonadError String m, MonadReader Environment m) => Type -> m ()
+-- setLocalType typ = askVar >>= \tv -> setType tv typ
+
+atVar :: a
+atVar = error "atVar"
+
+-- atVar :: MonadReader Environment m => TypeVar -> m a -> m a
+-- atVar :: MonadReader Environment m => TypeVar -> m a - atVar tv -- atVar :: MonadReader Environment m => TypeVar -> m a -local (envExprVar ?~ tv)
 
 atType :: Type -> RTEval a -> RTEval a
 atType typ m = do
@@ -379,108 +388,112 @@ atType typ m = do
 compileExpr ::
   Expr ->
   RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
-compileExpr (BinExpr (ArithOp op) a b) =
-  liftP3
-    (RTBin (ArithOp op))
-    (compileExpr a)
-    (compileExpr b)
-    askVar
-compileExpr (BinExpr (CompOp op) a b) = do
-  setLocalType TBool
-  tvExp <- fresh
-  liftP3
-    (RTBin (CompOp op))
-    (atVar tvExp $ compileExpr a)
-    (atVar tvExp $ compileExpr b)
-    askVar
-compileExpr (BinExpr Concat _ _) = throwError "concatenation doesn't work for runtime expressions"
-compileExpr (Cond cond t f) =
-  liftP4
-    RTCond
-    (atType TBool $ compileExpr cond)
-    (compileExpr t)
-    (compileExpr f)
-    askVar
-compileExpr (Var n) = lookupVar n (\tid -> lift (force tid) >>= compileVal)
-compileExpr (App f x) = do
-  -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
-  -- parallel as it potentially could be. Let's first see a test case though.
-  tf <- lift $ deferExpr f
-  lift (force tf) >>= \case
-    VFunc tdeps funId ->
-      case x of
-        List argExprs -> do
-          (argVars, retVar) <- lift $ callSig tdeps (either CallTemp CallKnown funId)
-          view envExprVar >>= \case
-            Nothing -> error "not in an expr" -- TODO
-            Just var -> unify_ var retVar
-          tell tdeps
-          rtArgExprs <-
-            safeZipWithM
-              (throwError "Argument length mismatch")
-              (\expr tv -> atVar tv $ compileExpr expr)
-              (toList argExprs)
-              argVars
-          pure $ RTCall (either CallTemp CallKnown funId) rtArgExprs retVar
-        _ -> throwError "Trying to call a function with a non-list-like-thing"
-    VSelf n ->
-      case x of
-        List argExprs -> do
-          (argVars, retVar) <- lift $ callSig mempty (CallRec n)
-          view envExprVar >>= \case
-            Nothing -> error "not in an expr" -- TODO
-            Just var -> unify_ var retVar
-          rtArgExprs <-
-            safeZipWithM
-              (throwError "Argument length mismatch")
-              (\expr tv -> atVar tv $ compileExpr expr)
-              (toList argExprs)
-              argVars
-          pure $ RTCall (CallRec n) rtArgExprs retVar
-        _ -> throwError "Trying to call a function with a non-list-like-thing"
-    val -> lift (deferExpr x >>= reduce val) >>= compileVal
-compileExpr (Acc field attrExpr) = do
-  fieldType <- askVar
-  structType <- fresh
-  -- TODO when compileVal is lazier, don't evaluate this as deeply
-  -- TODO unify type stuff for fieldType and structType
-  rtExpr <- atVar structType (compileExpr attrExpr)
-  lift (getTypeSuspend structType) >>= \case
-    TStruct fieldTypes ->
-      case M.lookup field fieldTypes of
-        Nothing -> throwError $ "struct type did not contain field " <> show field
-        Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
-    _ -> throwError "accessing field of something that's not a struct"
-compileExpr (Attr binds) = do
-  binds' <- lift $ stepAttrs binds
-  tv <- askVar
-  typ <- lift $ getTypeSuspend tv
-  rtFields <- mkStruct (\t -> lift (force t) >>= compileVal) typ binds'
-  pure $ RTStruct rtFields tv
-compileExpr expr@Prim {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
-compileExpr expr@BlockExpr {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
-compileExpr _ = throwError "invalid runtime expression"
+compileExpr = error "compileExpr"
+
+-- compileExpr (BinExpr (ArithOp op) a b) =
+--   liftP3
+--     (RTBin (ArithOp op))
+--     (compileExpr a)
+--     (compileExpr b)
+--     askVar
+-- compileExpr (BinExpr (CompOp op) a b) = do
+--   setLocalType TBool
+--   tvExp <- fresh
+--   liftP3
+--     (RTBin (CompOp op))
+--     (atVar tvExp $ compileExpr a)
+--     (atVar tvExp $ compileExpr b)
+--     askVar
+-- compileExpr (BinExpr Concat _ _) = throwError "concatenation doesn't work for runtime expressions"
+-- compileExpr (Cond cond t f) =
+--   liftP4
+--     RTCond
+--     (atType TBool $ compileExpr cond)
+--     (compileExpr t)
+--     (compileExpr f)
+--     askVar
+-- compileExpr (Var n) = lookupVar n (\tid -> lift (force tid) >>= compileVal)
+-- compileExpr (App f x) = do
+--   -- TODO Nothing here uses `par`, or `liftP`, which means that this is not as
+--   -- parallel as it potentially could be. Let's first see a test case though.
+--   tf <- lift $ deferExpr f
+--   lift (force tf) >>= \case
+--     VFunc tdeps funId ->
+--       case x of
+--         List argExprs -> do
+--           (argVars, retVar) <- lift $ callSig tdeps (either CallTemp CallKnown funId)
+--           view envExprVar >>= \case
+--             Nothing -> error "not in an expr" -- TODO
+--             Just var -> unify_ var retVar
+--           tell tdeps
+--           rtArgExprs <-
+--             safeZipWithM
+--               (throwError "Argument length mismatch")
+--               (\expr tv -> atVar tv $ compileExpr expr)
+--               (toList argExprs)
+--               argVars
+--           pure $ RTCall (either CallTemp CallKnown funId) rtArgExprs retVar
+--         _ -> throwError "Trying to call a function with a non-list-like-thing"
+--     VSelf n ->
+--       case x of
+--         List argExprs -> do
+--           (argVars, retVar) <- lift $ callSig mempty (CallRec n)
+--           view envExprVar >>= \case
+--             Nothing -> error "not in an expr" -- TODO
+--             Just var -> unify_ var retVar
+--           rtArgExprs <-
+--             safeZipWithM
+--               (throwError "Argument length mismatch")
+--               (\expr tv -> atVar tv $ compileExpr expr)
+--               (toList argExprs)
+--               argVars
+--           pure $ RTCall (CallRec n) rtArgExprs retVar
+--         _ -> throwError "Trying to call a function with a non-list-like-thing"
+--     val -> lift (deferExpr x >>= reduce val) >>= compileVal
+-- compileExpr (Acc field attrExpr) = do
+--   fieldType <- askVar
+--   structType <- fresh
+--   -- TODO when compileVal is lazier, don't evaluate this as deeply
+--   -- TODO unify type stuff for fieldType and structType
+--   rtExpr <- atVar structType (compileExpr attrExpr)
+--   lift (getTypeSuspend structType) >>= \case
+--     TStruct fieldTypes ->
+--       case M.lookup field fieldTypes of
+--         Nothing -> throwError $ "struct type did not contain field " <> show field
+--         Just t -> RTAccessor rtExpr field fieldType <$ setType fieldType t
+--     _ -> throwError "accessing field of something that's not a struct"
+-- compileExpr (Attr binds) = do
+--   binds' <- lift $ stepAttrs binds
+--   tv <- askVar
+--   typ <- lift $ getTypeSuspend tv
+--   rtFields <- mkStruct (\t -> lift (force t) >>= compileVal) typ binds'
+--   pure $ RTStruct rtFields tv
+-- compileExpr expr@Prim {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
+-- compileExpr expr@BlockExpr {} = lift (step expr) >>= compileVal -- TODO remove the step here, keep things runtime
+-- compileExpr _ = throwError "invalid runtime expression"
 
 varsFromSig :: [Type] -> Type -> StaticEval ([TypeVar], TypeVar)
 varsFromSig args ret = (,) <$> traverse tvar args <*> tvar ret
 
 -- TODO split into selfcallsig and id call sig, same as it's actually used
 callSig :: Dependencies -> PreCall -> StaticEval ([TypeVar], TypeVar)
-callSig deps (CallKnown guid) = do
-  case deps ^. depKnownFuncs . at guid of
-    Nothing -> error "impossible" -- TODO throwError
-    Just fn -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
-callSig deps (CallTemp tid) =
-  case deps ^. depTempFuncs . at tid of
-    Nothing -> throwError "impossible"
-    Just (TempFunc fn _) -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
-callSig _ (CallRec n) = do
-  -- TODO clean this up, views envFnStack many times
-  depth <- view (envFnStack . to length)
-  -- TODO not a fan of the (-1) here
-  view (envFnStack . to (safeLookup (depth - n -1))) >>= \case
-    Nothing -> throwError $ "impossible: " <> show (n, depth, depth - n)
-    Just t -> pure (first (fmap snd) t)
+callSig = error "callSig"
+
+-- callSig deps (CallKnown guid) = do
+--   case deps ^. depKnownFuncs . at guid of
+--     Nothing -> error "impossible" -- TODO throwError
+--     Just fn -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
+-- callSig deps (CallTemp tid) =
+--   case deps ^. depTempFuncs . at tid of
+--     Nothing -> throwError "impossible"
+--     Just (TempFunc fn _) -> varsFromSig (fn ^.. fnArgs . traverse . _2) (fn ^. fnRet)
+-- callSig _ (CallRec n) = do
+--   -- TODO clean this up, views envFnStack many times
+--   depth <- view (envFnStack . to length)
+--   -- TODO not a fan of the (-1) here
+--   view (envFnStack . to (safeLookup (depth - n -1))) >>= \case
+--     Nothing -> throwError $ "impossible: " <> show (n, depth, depth - n)
+--     Just t -> pure (first (fmap snd) t)
 
 safeLookup :: Int -> [a] -> Maybe a
 safeLookup 0 (a : _) = Just a
@@ -509,32 +522,34 @@ mkStruct _ t _ = throwError $ "Cannot create a type " <> show t <> " from a attr
 
 -- TODO this value can be lazy, that way structs only evaluate relevant members
 compileVal :: LazyValue -> RTEval (RTExpr VarID LabelID PreCall TypeVar TypeVar)
-compileVal (VPrim p) = do
-  tv <- askVar
-  typ <- lift $ getTypeSuspend tv
-  lit <- mkLit typ p
-  pure $ RTLiteral lit tv
-compileVal (VAttr m) = do
-  tv <- askVar
-  typ <- lift $ getTypeSuspend tv
-  s <- mkStruct (\tid -> lift (force tid) >>= compileVal) typ m
-  pure $ RTStruct s tv
-compileVal (VRTVar tpid) =
-  view (envRTVar tpid) >>= \case
-    Nothing -> throwError "variable not in scope"
-    Just tv -> RTVar tpid tv <$ (askVar >>= unify_ tv) -- TODO Combine with Var handling as expr on line 375 somehow
-compileVal VClosure {} = throwError "partially applied closure in runtime expression"
-compileVal VClosure' {} = throwError "partially applied closure' in runtime expression"
-compileVal VSelf {} = throwError "naked `self` in runtime expression"
-compileVal VList {} = throwError "can't handle list values yet"
-compileVal VType {} = throwError "can't handle type"
-compileVal VFunc {} = throwError "Function values don't make sense here"
-compileVal VBlockLabel {} = throwError "Block labels don't make sense here"
-compileVal (VBlock env blk) = do
-  blk' <- local (staticEnv .~ env) $ compileBlock blk
-  tv <- askVar
-  unify_ tv (blk' ^. blkType)
-  pure $ RTBlock blk' tv
+compileVal = error "compileVal"
+
+-- compileVal (VPrim p) = do
+--   tv <- askVar
+--   typ <- lift $ getTypeSuspend tv
+--   lit <- mkLit typ p
+--   pure $ RTLiteral lit tv
+-- compileVal (VAttr m) = do
+--   tv <- askVar
+--   typ <- lift $ getTypeSuspend tv
+--   s <- mkStruct (\tid -> lift (force tid) >>= compileVal) typ m
+--   pure $ RTStruct s tv
+-- compileVal (VRTVar tpid) =
+--   view (envRTVar tpid) >>= \case
+--     Nothing -> throwError "variable not in scope"
+--     Just tv -> RTVar tpid tv <$ (askVar >>= unify_ tv) -- TODO Combine with Var handling as expr on line 375 somehow
+-- compileVal VClosure {} = throwError "partially applied closure in runtime expression"
+-- compileVal VClosure' {} = throwError "partially applied closure' in runtime expression"
+-- compileVal VSelf {} = throwError "naked `self` in runtime expression"
+-- compileVal VList {} = throwError "can't handle list values yet"
+-- compileVal VType {} = throwError "can't handle type"
+-- compileVal VFunc {} = throwError "Function values don't make sense here"
+-- compileVal VBlockLabel {} = throwError "Block labels don't make sense here"
+-- compileVal (VBlock env blk) = do
+--   blk' <- local (staticEnv .~ env) $ compileBlock blk
+--   tv <- askVar
+--   unify_ tv (blk' ^. blkType)
+--   pure $ RTBlock blk' tv
 
 -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
 withBuiltins :: StaticEval a -> StaticEval a
@@ -547,10 +562,9 @@ withBuiltins m = do
     binds =
       [ ("types", deferAttrs (fmap VType <$> types)),
         ("struct", fn1 bStruct),
-        ("typeOf", fn1 bTypeOf),
         ("matchType", fn2 matchType),
         ("error", fn1 bError),
-        ("import", fn1 (bImport step)),
+        -- ("import", error "builtins.import"), -- TODO fix this, it requires reintroducing builtins
         ("attrNames", fn1 attrNames),
         ("listToAttrs", fn1 bListToAttrs),
         ("lookup", fn2 bLookup),
@@ -564,10 +578,10 @@ withBuiltins m = do
         ("void", TVoid),
         ("bool", TBool)
       ]
-    fn1 :: (LazyValue -> StaticEval LazyValue) -> StaticEval ThunkID
+    fn1 :: (LazyValue -> Eval LazyValue) -> StaticEval ThunkID
     fn1 f = deferVal $ VClosure' $ force >=> f
     -- TODO express in terms of fn1
-    fn2 :: (LazyValue -> LazyValue -> StaticEval LazyValue) -> StaticEval ThunkID
+    fn2 :: (LazyValue -> LazyValue -> Eval LazyValue) -> StaticEval ThunkID
     fn2 f = deferVal $
       VClosure' $ \t1 ->
         pure $
@@ -577,7 +591,7 @@ withBuiltins m = do
             f v1 v2
 
 -- TODO _is_ this a type? i.e. church-encode types?
-matchType :: LazyValue -> LazyValue -> StaticEval LazyValue
+matchType :: LazyValue -> LazyValue -> Eval LazyValue
 matchType (VAttr attrs) (VType typ) =
   let getAttr attr = case M.lookup attr attrs of
         Just x -> pure x
@@ -596,18 +610,3 @@ matchType (VAttr attrs) (VType typ) =
           reduce k fields'
 matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
 matchType _ _ = throwError "matching on not-a-type"
-
-bTypeOf :: LazyValue -> StaticEval LazyValue
-bTypeOf (VRTVar tid) =
-  view (envRTVar tid) >>= \case
-    Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get type of this var"
-bTypeOf (VBlockLabel tid) =
-  view (envRTLabel tid) >>= \case
-    Just tv -> VType <$> getTypeSuspend tv
-    Nothing -> throwError "Cannot get type of this label"
-bTypeOf (VBlock env blk) = do
-  (blk', _) <- local (staticEnv .~ env) $ runWriterT $ compileBlock blk
-  let tv = blk' ^. blkType
-  VType <$> getTypeSuspend tv
-bTypeOf val = throwError $ "Cannot get bTypeOf of a " <> describeValue val

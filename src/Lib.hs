@@ -12,10 +12,9 @@ import Parser.Parser
 import Prettyprinter
 import Print
 import System.Console.Haskeline
-import System.Directory
 
-evalInfo :: FilePath -> Expr -> IO (Either (Doc ann) Value)
-evalInfo fp expr = (fmap . first) f (eval fp expr)
+evalInfo :: Expr -> IO (Either (Doc ann) Value)
+evalInfo expr = (fmap . first) f (eval expr)
   where
     f err =
       vcat
@@ -27,7 +26,6 @@ evalInfo fp expr = (fmap . first) f (eval fp expr)
 
 repl :: IO ()
 repl = do
-  cwd <- getCurrentDirectory
   let loop =
         getInputLine "> " >>= \case
           Nothing -> outputStrLn "You're my favorite customer"
@@ -35,6 +33,6 @@ repl = do
             case parse (BS8.pack str) of
               Left err -> outputStrLn err >> loop
               Right expr -> do
-                liftIO (evalInfo cwd expr) >>= either (outputStrLn . show) (outputStrLn . show . ppVal)
+                liftIO (evalInfo expr) >>= either (outputStrLn . show) (outputStrLn . show . ppVal)
                 loop
   runInputT defaultSettings {historyFile = Just "~/alloy_repl_hist"} loop

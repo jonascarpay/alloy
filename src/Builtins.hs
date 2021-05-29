@@ -19,18 +19,18 @@ import Lens.Micro.Platform
 import Parser.Parser
 import System.FilePath
 
-bError :: LazyValue -> StaticEval LazyValue
+bError :: LazyValue -> Eval LazyValue
 bError (VPrim (PString msg)) = throwError $ "error: " <> BS8.unpack msg
 bError _ = throwError "builtins.error was passed a non-string"
 
-attrNames :: LazyValue -> StaticEval LazyValue
+attrNames :: LazyValue -> Eval LazyValue
 attrNames (VAttr attrs) = do
   names <- traverse (deferVal . VPrim . PString) (M.keys attrs)
   pure $ VList $ Seq.fromList names
 attrNames _ = throwError "attrNames on non-list"
 
 -- TODO combine with normal field accessor
-bLookup :: LazyValue -> LazyValue -> StaticEval LazyValue
+bLookup :: LazyValue -> LazyValue -> Eval LazyValue
 bLookup (VAttr attrs) (VPrim (PString str)) =
   case M.lookup str attrs of
     Nothing -> throwError "field doesn't exist"
@@ -38,7 +38,7 @@ bLookup (VAttr attrs) (VPrim (PString str)) =
 bLookup (VAttr _) _ = throwError "second argument to stringField was not a string"
 bLookup _ _ = throwError "first argument to stringField was not an attr set"
 
-bIndex :: LazyValue -> LazyValue -> StaticEval LazyValue
+bIndex :: LazyValue -> LazyValue -> Eval LazyValue
 bIndex (VList xs) (VPrim (PInt i)) =
   case Seq.lookup i xs of
     Nothing -> throwError $ "builtins.index: index " <> show i <> " out of bounds"
@@ -46,12 +46,12 @@ bIndex (VList xs) (VPrim (PInt i)) =
 bIndex (VList _) _ = throwError "builtins.index called with not an integer"
 bIndex _ _ = throwError "builtins.index called with not a list"
 
-bLength :: LazyValue -> StaticEval LazyValue
+bLength :: LazyValue -> Eval LazyValue
 bLength (VList xs) = pure $ VPrim $ PInt $ Seq.length xs
 bLength (VPrim (PString s)) = pure $ VPrim $ PInt $ BS.length s
 bLength _ = throwError "builtins.length called with not a list or string"
 
-bStruct :: LazyValue -> StaticEval LazyValue
+bStruct :: LazyValue -> Eval LazyValue
 bStruct (VAttr m) = do
   let forceType tid = do
         force tid >>= \case
@@ -62,17 +62,23 @@ bStruct (VAttr m) = do
 bStruct _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- TODO this could be lazier if VClosure' were lazier
-bImport :: (Expr -> StaticEval a) -> LazyValue -> StaticEval a
-bImport f (VPrim (PString rel)) = do
-  file <- view envFile
-  let file' = takeDirectory file </> BS8.unpack rel
-  input <- liftIO $ BS.readFile file'
+-- TODO
+-- file paths are currently only absolute.
+-- This is because handling relative paths is actually kind of tricky.
+-- What are they relative to?  The import call site? That means import is now context-sensitive.
+-- What if you bind import to some other name, is it now relative to where you originally put import, or the aliased call?
+-- You can't make it relative to the string location, since strings might be manipulated/composed..
+-- I think a good solution might be to have path values similar to nix, but we'll see.
+bImport :: (Expr -> Eval a) -> LazyValue -> Eval a
+bImport f (VPrim (PString path)) = do
+  let path' = BS8.unpack path
+  input <- liftIO $ BS.readFile path'
   case parse input of
     Left err -> throwError err
-    Right expr -> local (envFile .~ file') $ f expr
+    Right expr -> f expr
 bImport _ _ = throwError "import needs a filepath"
 
-bListToAttrs :: LazyValue -> StaticEval LazyValue
+bListToAttrs :: LazyValue -> Eval LazyValue
 bListToAttrs (VList xs) = fmap (VAttr . M.fromList) $
   forM (toList xs) $ \tid ->
     force tid >>= \case
