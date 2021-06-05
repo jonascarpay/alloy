@@ -33,14 +33,14 @@ eval :: FilePath -> Expr -> IO (Either String Value)
 eval fp eRoot =
   runEval $
     fmap Fix $
-      step eRoot se0 [] >>= traverse deepEval
+      step se0 [] eRoot >>= traverse deepEval
   where
     se0 = StaticEnv mempty Nothing fp
 
 deferExpr ::
-  Expr ->
   StaticEnv ->
   DynamicEnv ->
+  Expr ->
   Eval ThunkID
 deferExpr expr se de = do
   tid <- freshThunkId
@@ -53,41 +53,36 @@ reduce ::
   ThunkID ->
   DynamicEnv ->
   Eval LazyValue
-reduce (VClosure arg body se) tid de = do
-  step body (se & statBinds . at arg ?~ tid) de
+reduce (VClosure arg body se) tid de = step (se & statBinds . at arg ?~ tid) de body
 reduce (VClosure' m) tid de = m tid de
 reduce _ _ _ = throwError "Calling a non-function"
 
 step ::
-  Expr ->
   StaticEnv ->
   DynamicEnv ->
+  Expr ->
   Eval LazyValue
-step (Prim p) _ _ = pure $ VPrim p
-step (App f x) se de = do
-  tf <- step f se de
-  tx <- deferExpr x se de
+step _ _ (Prim p) = pure $ VPrim p
+step se de (App f x) = do
+  tf <- step se de f
+  tx <- deferExpr se de x
   reduce tf tx de
-step (Var x) se _ =
-  maybe (throwError $ "unknown variable " <> show x) force $
-    se ^. statBinds . at x
-step (Lam arg body) se _ = pure $ VClosure arg body se
-step (Let binds body) se de = step (With (Attr binds) body) se de
-step (Attr binds) se de = VAttr <$> stepAttrs binds se de
-step (Acc f em) se de = step em se de >>= accessor f >>= force
-step (BinExpr bop a b) se de = do
-  va <- step a se de
-  vb <- step b se de
+step se _ (Var x) =
+  let err = (throwError $ "unknown variable " <> show x)
+   in maybe err force $ se ^. statBinds . at x
+step se _ (Lam arg body) = pure $ VClosure arg body se
+step se de (Let binds body) = step se de (With (Attr binds) body)
+step se de (Attr binds) = VAttr <$> stepAttrs binds se de
+step se de (Acc f em) = step se de em >>= accessor f >>= force
+step se de (BinExpr bop a b) = do
+  va <- step se de a
+  vb <- step se de b
   stepBinExpr bop va vb
-step (With bind body) se de = do
-  step bind se de >>= \case
-    VAttr m -> step body (se & statBinds %~ (m <>)) de
+step se de (With bind body) =
+  step se de bind >>= \case
+    VAttr m -> step (se & statBinds %~ (m <>)) de body
     _ -> throwError "Binder in `with` expression did not evaluate to an attrset"
-
--- step (BlockExpr b) = do
---   env <- view staticEnv
---   pure $ VBlock env b
--- step (List l) = VList <$> traverse deferExpr l
+step se de (List l) = VList <$> traverse (deferExpr se de) l
 
 -- step (Cond cond tr fl) = do
 --   step cond >>= \case
@@ -165,11 +160,11 @@ stepAttrs bindings se de =
       let env' :: [(Name, ThunkID)] = inherits' <> (fst <$> binds') <> (inheritFroms' >>= snd)
       let se' = se & statBinds %~ (M.fromList env' <>)
       forM_ inheritFroms' $ \((expr, exprThunk), attrs) -> do
-        setThunk exprThunk $ Deferred $ step expr se' de
+        setThunk exprThunk $ Deferred $ step se' de expr
         forM_ attrs $ \(attr, attrThunk) ->
           setThunk attrThunk $ Deferred $ force exprThunk >>= accessor attr >>= force
       forM_ binds' $ \((name, thunk), expr) ->
-        setThunk thunk $ Deferred $ step expr (se & statName ?~ name) de
+        setThunk thunk $ Deferred $ step (se & statName ?~ name) de expr
       pure $ M.fromList env'
 
 accessor :: Name -> LazyValue -> Eval ThunkID
