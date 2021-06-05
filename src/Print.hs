@@ -224,8 +224,9 @@ ppVal (Fix (VPrim n)) = ppPrim n
 ppVal (Fix (VAttr attrs)) = ppAttrs ppBS ppVal attrs
 ppVal (Fix VClosure {}) = "<<closure>>"
 ppVal (Fix VClosure' {}) = "<<closure'>>"
-ppVal (Fix VRTVar {}) = "I'm not sure, is this even possible?" -- TODO
-ppVal (Fix (VBlock deps b)) = "<<body expression>>"
+ppVal (Fix VRT {}) = "<<runtime expression>>" -- TODO
+ppVal (Fix VBlock {}) = "<<label reference -- impossible>>"
+ppVal (Fix VVar {}) = "<<var reference -- impossible>>"
 ppVal (Fix (VList l)) = list (ppVal <$> toList l)
 ppVal (Fix (VFunc deps (Right guid))) =
   ppWithDeps deps (Just guid) $ ppFunDef deps guid
