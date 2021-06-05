@@ -167,7 +167,7 @@ stepAttrs bindings se de =
         forM_ attrs $ \(attr, attrThunk) ->
           setThunk attrThunk $ Deferred $ force exprThunk >>= accessor attr >>= force
       forM_ binds' $ \((name, thunk), expr) ->
-        setThunk thunk $ Deferred $ step (se & statName ?~ name) de expr
+        setThunk thunk $ Deferred $ step (se' & statName ?~ name) de expr
       pure $ M.fromList env'
 
 accessor :: Name -> LazyValue -> Eval ThunkID
