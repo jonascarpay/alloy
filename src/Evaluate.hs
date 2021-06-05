@@ -71,9 +71,9 @@ step (App f x) se de = do
 step (Var x) se _ =
   maybe (throwError $ "unknown variable " <> BS8.unpack x) force $
     se ^. statBinds . at x
+step (Lam arg body) se _ = pure $ VClosure arg body se
+step (Let binds body) se de = step (With (Attr binds) body) se de
 
--- step (Lam arg body) = VClosure arg body <$> view staticEnv
--- step (Let binds body) = step (With (Attr binds) body)
 -- step (BinExpr bop a b) = do
 --   va <- step a
 --   vb <- step b
