@@ -74,30 +74,17 @@ step (Var x) se _ =
 step (Lam arg body) se _ = pure $ VClosure arg body se
 step (Let binds body) se de = step (With (Attr binds) body) se de
 step (Attr binds) se de = VAttr <$> stepAttrs binds se de
+step (Acc f em) se de = step em se de >>= accessor f >>= force
+step (BinExpr bop a b) se de = do
+  va <- step a se de
+  vb <- step b se de
+  stepBinExpr bop va vb
 
--- step (Acc f em) = step em >>= accessor f >>= force
 -- step (BlockExpr b) = do
 --   env <- view staticEnv
 --   pure $ VBlock env b
 -- step (List l) = VList <$> traverse deferExpr l
 
--- step (BinExpr bop a b) = do
---   va <- step a
---   vb <- step b
---   case (bop, va, vb) of
---     (ArithOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arithInt op pa pb
---     (ArithOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arithFloat op pa pb
---     (ArithOp _, lhs, rhs) -> throwError $ unwords ["Arithmetic on a", describeValue lhs, "and a", describeValue rhs]
---     (CompOp Eq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa == pb
---     (CompOp Neq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa /= pb
---     (CompOp Eq, VType ta, VType tb) -> pure . VPrim . PBool $ ta == tb
---     (CompOp Neq, VType ta, VType tb) -> pure . VPrim . PBool $ ta /= tb
---     (CompOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PBool $ comp op pa pb
---     (CompOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PBool $ comp op pa pb
---     (CompOp _, lhs, rhs) -> throwError $ unwords ["Cannot compare a", describeValue lhs, "to a", describeValue rhs]
---     (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
---     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
---     (Concat, lhs, rhs) -> throwError $ unwords ["Cannot concatenate a", describeValue lhs, "and a", describeValue rhs]
 -- step (With bind body) = do
 --   step bind >>= \case
 --     VAttr m -> local (bindThunks (M.toList m)) (step body)
@@ -130,6 +117,28 @@ step (Attr binds) se de = VAttr <$> stepAttrs binds se de
 --   let farg (_, typ, _, var, _) = (var, typ)
 --       funDef = FunDef (farg <$> args') retType name typedBlk
 --   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
+
+-- TODO just pattern match in the arguments directly
+stepBinExpr ::
+  BinOp ->
+  LazyValue ->
+  LazyValue ->
+  Eval LazyValue
+stepBinExpr bop va vb =
+  case (bop, va, vb) of
+    (ArithOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arithInt op pa pb
+    (ArithOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arithFloat op pa pb
+    (ArithOp _, lhs, rhs) -> throwError $ unwords ["Arithmetic on a", describeValue lhs, "and a", describeValue rhs]
+    (CompOp Eq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa == pb
+    (CompOp Neq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa /= pb
+    (CompOp Eq, VType ta, VType tb) -> pure . VPrim . PBool $ ta == tb
+    (CompOp Neq, VType ta, VType tb) -> pure . VPrim . PBool $ ta /= tb
+    (CompOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PBool $ comp op pa pb
+    (CompOp _, lhs, rhs) -> throwError $ unwords ["Cannot compare a", describeValue lhs, "to a", describeValue rhs]
+    (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
+    (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
+    (Concat, lhs, rhs) -> throwError $ unwords ["Cannot concatenate a", describeValue lhs, "and a", describeValue rhs]
 
 stepAttrs ::
   [Binding] ->
