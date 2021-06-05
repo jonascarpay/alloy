@@ -19,18 +19,22 @@ import Lens.Micro.Platform
 import Parser.Parser
 import System.FilePath
 
-bError :: LazyValue -> Eval LazyValue
-bError (VPrim (PString msg)) = throwError $ "error: " <> BS8.unpack msg
-bError _ = throwError "builtins.error was passed a non-string"
+type Builtin1 = DynamicEnv -> LazyValue -> Eval LazyValue
 
-attrNames :: LazyValue -> Eval LazyValue
-attrNames (VAttr attrs) = do
+type Builtin2 = LazyValue -> LazyValue -> Eval LazyValue
+
+bError :: Builtin1
+bError _ (VPrim (PString msg)) = throwError $ "error: " <> BS8.unpack msg
+bError _ _ = throwError "builtins.error was passed a non-string"
+
+attrNames :: Builtin1
+attrNames _ (VAttr attrs) = do
   names <- traverse (deferVal . VPrim . PString) (M.keys attrs)
   pure $ VList $ Seq.fromList names
-attrNames _ = throwError "attrNames on non-list"
+attrNames _ _ = throwError "attrNames on non-list"
 
 -- TODO combine with normal field accessor
-bLookup :: LazyValue -> LazyValue -> Eval LazyValue
+bLookup :: Builtin2
 bLookup (VAttr attrs) (VPrim (PString str)) =
   case M.lookup str attrs of
     Nothing -> throwError "field doesn't exist"
@@ -38,7 +42,7 @@ bLookup (VAttr attrs) (VPrim (PString str)) =
 bLookup (VAttr _) _ = throwError "second argument to stringField was not a string"
 bLookup _ _ = throwError "first argument to stringField was not an attr set"
 
-bIndex :: LazyValue -> LazyValue -> Eval LazyValue
+bIndex :: Builtin2
 bIndex (VList xs) (VPrim (PInt i)) =
   case Seq.lookup i xs of
     Nothing -> throwError $ "builtins.index: index " <> show i <> " out of bounds"
@@ -46,20 +50,20 @@ bIndex (VList xs) (VPrim (PInt i)) =
 bIndex (VList _) _ = throwError "builtins.index called with not an integer"
 bIndex _ _ = throwError "builtins.index called with not a list"
 
-bLength :: LazyValue -> Eval LazyValue
-bLength (VList xs) = pure $ VPrim $ PInt $ Seq.length xs
-bLength (VPrim (PString s)) = pure $ VPrim $ PInt $ BS.length s
-bLength _ = throwError "builtins.length called with not a list or string"
+bLength :: Builtin1
+bLength _ (VList xs) = pure $ VPrim $ PInt $ Seq.length xs
+bLength _ (VPrim (PString s)) = pure $ VPrim $ PInt $ BS.length s
+bLength _ _ = throwError "builtins.length called with not a list or string"
 
-bStruct :: LazyValue -> Eval LazyValue
-bStruct (VAttr m) = do
+bStruct :: Builtin1
+bStruct _ (VAttr m) = do
   let forceType tid = do
         force tid >>= \case
           (VType t) -> pure t
           _ -> throwError "Struct member was not a type expression"
   types <- traverse forceType m
   pure $ VType $ TStruct types
-bStruct _ = throwError "Making a struct typedef from something that's not an attrset"
+bStruct _ _ = throwError "Making a struct typedef from something that's not an attrset"
 
 -- -- TODO this could be lazier if VClosure' were lazier
 -- bImport :: (Expr -> Eval a) -> LazyValue -> Eval a
@@ -72,8 +76,8 @@ bStruct _ = throwError "Making a struct typedef from something that's not an att
 --     Right expr -> local (envFile .~ file') $ f expr
 -- bImport _ _ = throwError "import needs a filepath"
 
-bListToAttrs :: LazyValue -> Eval LazyValue
-bListToAttrs (VList xs) = fmap (VAttr . M.fromList) $
+bListToAttrs :: Builtin1
+bListToAttrs _ (VList xs) = fmap (VAttr . M.fromList) $
   forM (toList xs) $ \tid ->
     force tid >>= \case
       VAttr attrs ->
@@ -84,4 +88,4 @@ bListToAttrs (VList xs) = fmap (VAttr . M.fromList) $
               _ -> throwError "builtins.listToAttrs: key was not a string"
           _ -> throwError "builtins.listToAttrs: attr set did not contain key and value attributes"
       _ -> throwError "builtins.listToAttrs: list had a non-attribute set"
-bListToAttrs _ = throwError "builtins.listToAttrs: argument was not a list"
+bListToAttrs _ _ = throwError "builtins.listToAttrs: argument was not a list"

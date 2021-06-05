@@ -39,7 +39,7 @@ data EvalState = EvalState
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  | VClosure' (ThunkID -> DynamicEnv -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
+  | VClosure' (DynamicEnv -> ThunkID -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
   | VList (Seq val)

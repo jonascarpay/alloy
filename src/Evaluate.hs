@@ -31,9 +31,10 @@ import Program
 
 eval :: FilePath -> Expr -> IO (Either String Value)
 eval fp eRoot =
-  runEval $
+  runEval $ do
+    tbuiltin <- mkBuiltins
     fmap Fix $
-      step se0 [] eRoot >>= traverse deepEval
+      step (se0 & statBinds . at "builtins" ?~ tbuiltin) [] eRoot >>= traverse deepEval
   where
     se0 = StaticEnv mempty Nothing fp
 
@@ -54,7 +55,7 @@ reduce ::
   DynamicEnv ->
   Eval LazyValue
 reduce (VClosure arg body se) tid de = step (se & statBinds . at arg ?~ tid) de body
-reduce (VClosure' m) tid de = m tid de
+reduce (VClosure' m) tid de = m de tid
 reduce _ _ _ = throwError "Calling a non-function"
 
 step ::
@@ -88,6 +89,8 @@ step se de (Cond cond tr fl) = do
     VPrim (PBool True) -> step se de tr
     VPrim (PBool False) -> step se de fl
     _ -> throwError "Did not evaluate to a boolean"
+step _ _ (BlockExpr _) = throwError "TODO: block expression"
+step _ _ (Func _ _ _) = throwError "TODO: func expression"
 
 -- step (Func args ret bodyExpr) = do
 --   args' <- forM args $ \(name, expr) -> do
@@ -556,45 +559,43 @@ accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something
 --   unify_ tv (blk' ^. blkType)
 --   pure $ RTBlock blk' tv
 
--- -- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
--- withBuiltins :: Eval a -> Eval a
--- withBuiltins m = do
---   ts <- traverse sequenceA binds
---   tBuiltins <- deferVal . VAttr $ M.fromList ts
---   local (bindThunk "builtins" tBuiltins) m
---   where
---     binds :: [(Name, Eval ThunkID)]
---     binds =
---       [ ("types", deferAttrs (fmap VType <$> types)),
---         ("struct", fn1 bStruct),
---         ("typeOf", fn1 bTypeOf),
---         ("matchType", fn2 matchType),
---         ("error", fn1 bError),
---         ("import", fn1 (bImport step)),
---         ("attrNames", fn1 attrNames),
---         ("listToAttrs", fn1 bListToAttrs),
---         ("lookup", fn2 bLookup),
---         ("index", fn2 bIndex),
---         ("length", fn1 bLength)
---       ]
---     types :: [(Name, Type)]
---     types =
---       [ ("int", TInt),
---         ("double", TDouble),
---         ("void", TVoid),
---         ("bool", TBool)
---       ]
---     fn1 :: (LazyValue -> Eval LazyValue) -> Eval ThunkID
---     fn1 f = deferVal $ VClosure' $ force >=> f
---     -- TODO express in terms of fn1
---     fn2 :: (LazyValue -> LazyValue -> Eval LazyValue) -> Eval ThunkID
---     fn2 f = deferVal $
---       VClosure' $ \t1 ->
---         pure $
---           VClosure' $ \t2 -> do
---             v1 <- force t1
---             v2 <- force t2
---             f v1 v2
+-- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
+mkBuiltins :: Eval ThunkID
+mkBuiltins = do
+  ts <- traverse sequenceA binds
+  deferVal . VAttr $ M.fromList ts
+  where
+    binds :: [(Name, Eval ThunkID)]
+    binds =
+      [ ("types", deferAttrs (fmap VType <$> types)),
+        ("struct", fn1 bStruct),
+        -- ("typeOf", fn1 bTypeOf),
+        -- ("matchType", fn2 matchType),
+        ("error", fn1 bError),
+        -- ("import", fn1 (bImport step)),
+        ("attrNames", fn1 attrNames),
+        ("listToAttrs", fn1 bListToAttrs),
+        ("lookup", fn2 bLookup),
+        ("index", fn2 bIndex),
+        ("length", fn1 bLength)
+      ]
+    types :: [(Name, Type)]
+    types =
+      [ ("int", TInt),
+        ("double", TDouble),
+        ("void", TVoid),
+        ("bool", TBool)
+      ]
+    fn1 :: Builtin1 -> Eval ThunkID
+    fn1 f = deferVal $ VClosure' $ \de t -> force t >>= f de
+    fn2 :: Builtin2 -> Eval ThunkID
+    fn2 f = deferVal $
+      VClosure' $ \_ t1 ->
+        pure $
+          VClosure' $ \_ t2 -> do
+            v1 <- force t1
+            v2 <- force t2
+            f v1 v2
 
 -- -- TODO _is_ this a type? i.e. church-encode types?
 -- matchType :: LazyValue -> LazyValue -> Eval LazyValue
