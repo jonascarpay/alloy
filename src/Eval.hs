@@ -1,4 +1,3 @@
--- TODO expot list
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -9,10 +8,7 @@
 module Eval where
 
 import Control.Monad.Except
-import Control.Monad.RWS as RWS
-import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Writer
 import Coroutine
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -25,20 +21,69 @@ import Expr
 import Lens.Micro.Platform
 import Program
 
+-- | The evaluation monad, minus the environment
+-- It is used in two places, first with an Environment reader to create the Eval monad proper.
+-- Second, when we defer a value, in which case we never want make sure we don't accidentally
+-- inherit the environment of the evaluation site.
+newtype Eval a = Eval
+  {unEval :: Coroutine (StateT EvalState (ExceptT String IO)) a}
+  deriving (Functor, MonadIO, Applicative, Monad, MonadError String, MonadState EvalState, MonadCoroutine)
+
+newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
+
+data EvalState = EvalState
+  { _thunks :: Map ThunkID Thunk,
+    _idSource :: Int
+  }
+
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  -- TODO can this be Stat ThunkID, not force evaluation?
-  | VClosure' (ThunkID -> Stat LazyValue)
+  | VClosure' (ThunkID -> DynamicEnv -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
-  | VRTVar VarID
-  | VBlockLabel LabelID
-  | VSelf Int
-  | VBlock StaticEnv (Block Name Name (Maybe Expr) Expr)
-  | VFunc Dependencies (Either TempFuncID GUID)
   | VList (Seq val)
+  | VRT RTExprV
+  | VFunc Dependencies (Either TempFuncID GUID)
+  | VBlock Int
+  | VVar Int
+  | VRecCall Int
   deriving (Functor, Foldable, Traversable)
+
+type RTExprV = ExpressionEnv () -> (Dependencies, RTExpr Int Int PreCall () ())
+
+type Value = Fix ValueF
+
+type LazyValue = ValueF ThunkID
+
+data Thunk
+  = Deferred (Eval LazyValue)
+  | Computed LazyValue
+
+newtype TypeVar = TypeVar (UF.Point (Set Type))
+
+type Bindings = Map Name ThunkID
+
+data StaticEnv = StaticEnv
+  { _statBinds :: Map Name ThunkID,
+    _statName :: Maybe Name,
+    _statFile :: FilePath
+  }
+
+type DynamicEnv = [FunctionSig]
+
+type FunctionSig = ([(Name, TypeVar)], TypeVar)
+
+data ExpressionEnv tv = ExpressionEnv
+  { _eeVarStack :: [tv],
+    _eeBlockStack :: [tv],
+    _eeExpr :: tv,
+    _eeFn :: tv
+  }
+
+makeLenses ''StaticEnv
+makeLenses ''ExpressionEnv
+makeLenses ''EvalState
 
 arithInt :: ArithOp -> Int -> Int -> Int
 arithInt Add = (+)
@@ -60,10 +105,6 @@ comp Gt = (>)
 comp Leq = (<=)
 comp Geq = (>=)
 
-type Value = Fix ValueF
-
-type LazyValue = ValueF ThunkID
-
 describeValue :: ValueF f -> String
 describeValue (VPrim (PInt _)) = "integer"
 describeValue (VPrim (PDouble _)) = "double"
@@ -73,223 +114,49 @@ describeValue VClosure {} = "closure"
 describeValue VClosure' {} = "closure"
 describeValue VType {} = "type"
 describeValue VAttr {} = "attribute set"
-describeValue VRTVar {} = "runtime variable"
-describeValue VBlockLabel {} = "block label"
-describeValue VSelf {} = "recursive function reference"
-describeValue VBlock {} = "code block"
+describeValue VVar {} = "runtime variable"
+describeValue VBlock {} = "block label"
+describeValue VRecCall {} = "recursive function reference"
+describeValue VRT {} = "code block"
 describeValue VFunc {} = "runtime function"
 describeValue VList {} = "list"
 
--- | The evaluation monad, minus the environment
--- It is used in two places, first with an Environment reader to create the Stat monad proper.
--- Second, when we defer a value, in which case we never want make sure we don't accidentally
--- inherit the environment of the evaluation site.
-newtype EvalControl a = EvalControl
-  { unEvalControl :: Coroutine (StateT EvalState (ExceptT String IO)) a
-  }
-  deriving (Functor, MonadIO, Applicative, Monad, MonadError String, MonadState EvalState, MonadCoroutine)
-
-newtype ThunkID = ThunkID Int deriving (Eq, Show, Ord)
-
-class Monad m => MonadEval m where
-  liftEval :: EvalControl a -> m a
-
-instance MonadEval EvalControl where
-  liftEval = id
-
-instance MonadEval m => MonadEval (ReaderT r m) where
-  liftEval = lift . liftEval
-
-instance (Monoid w, MonadEval m) => MonadEval (WriterT w m) where
-  liftEval = lift . liftEval
-
-instance (Monoid w, MonadEval m) => MonadEval (RWST r w s m) where
-  liftEval = lift . liftEval
-
-data EvalState = EvalState
-  { _thunks :: Map ThunkID Thunk,
-    _idSource :: Int
-  }
-
-data Thunk
-  = Deferred (EvalControl LazyValue)
-  | Computed LazyValue
-
-newtype Stat a = Stat {unStat :: ReaderT Environment EvalControl a}
-  deriving (Functor, MonadIO, Applicative, Monad, MonadReader Environment, MonadError String, MonadEval, MonadCoroutine)
-
-newtype TypeVar = TypeVar (UF.Point (Set Type))
-
-type Env = Map Name ThunkID
-
-data StaticEnv = StaticEnv
-  { _statBinds :: Map Name ThunkID,
-    _statName :: Maybe Name,
-    _statFile :: FilePath
-  }
-
-type FunctionSig = ([(Name, TypeVar)], TypeVar)
-
--- TODO Remove Maybes, make entire _dynamicEnv :: Maybe DynamicEnv
-data DynamicEnv = DynamicEnv
-  { _dynFnStack :: [FunctionSig],
-    _dynBlockVar :: Maybe TypeVar,
-    _dynExprVar :: Maybe TypeVar,
-    _dynVars :: Map VarID TypeVar,
-    _dynLabels :: Map LabelID TypeVar
-  }
-
-data Environment = Environment
-  { _staticEnv :: StaticEnv,
-    _dynamicEnv :: DynamicEnv
-  }
-
-makeLenses ''StaticEnv
-makeLenses ''DynamicEnv
-makeLenses ''Environment
-makeLenses ''EvalState
-
-envBinds :: Lens' Environment (Map Name ThunkID)
-envBinds = staticEnv . statBinds
-
-envName :: Lens' Environment (Maybe Name)
-envName = staticEnv . statName
-
-envExprVar :: Lens' Environment (Maybe TypeVar)
-envExprVar = dynamicEnv . dynExprVar
-
-envBlockVar :: Lens' Environment (Maybe TypeVar)
-envBlockVar = dynamicEnv . dynBlockVar
-
-envFnStack :: Lens' Environment [FunctionSig]
-envFnStack = dynamicEnv . dynFnStack
-
-envFile :: Lens' Environment FilePath
-envFile = staticEnv . statFile
-
-envRTVar :: VarID -> Lens' Environment (Maybe TypeVar)
-envRTVar tid = dynamicEnv . dynVars . at tid
-
-envRTLabel :: LabelID -> Lens' Environment (Maybe TypeVar)
-envRTLabel tid = dynamicEnv . dynLabels . at tid
-
-withName :: Name -> Stat a -> Stat a
-withName name = local (envName ?~ name)
-
-lookupVar ::
-  (MonadReader Environment m, MonadError String m) =>
-  Name ->
-  (ThunkID -> m r) ->
-  m r
-lookupVar name kct = do
-  view (envBinds . at name) >>= \case
-    Nothing -> throwError $ "undefined variable " <> show name
-    Just tid -> kct tid
-
-bindThunk :: Name -> ThunkID -> Environment -> Environment
-bindThunk name tid = envBinds . at name ?~ tid
-
-bindThunks :: [(Name, ThunkID)] -> Environment -> Environment
-bindThunks = appEndo . mconcat . fmap (Endo . uncurry bindThunk)
-
-bindRtvar ::
-  Name ->
-  TypeVar ->
-  RTEval a ->
-  RTEval (VarID, a)
-bindRtvar name tv k = do
-  tmpid <- freshVarId
-  thunk <- lift $ deferVal (VRTVar tmpid)
-  a <- flip local k $ \env ->
-    env & dynamicEnv . dynVars . at tmpid ?~ tv
-      & staticEnv . statBinds . at name ?~ thunk
-  pure (tmpid, a)
-
-bindLabel ::
-  Name ->
-  TypeVar ->
-  (LabelID -> RTEval a) ->
-  RTEval a
-bindLabel name tv k = do
-  tmpid <- freshLblId
-  thunk <- lift $ deferVal (VBlockLabel tmpid)
-  flip local (k tmpid) $ \env ->
-    env & dynamicEnv . dynLabels . at tmpid ?~ tv
-      & staticEnv . statBinds . at name ?~ thunk
-
-runEvalControl :: EvalControl a -> IO (Either String a)
-runEvalControl (EvalControl m) =
+runEval :: Eval a -> IO (Either String a)
+runEval (Eval m) =
   runExceptT $
     flip evalStateT st0 $
       runCoroutine m
   where
     st0 = EvalState mempty 0
 
-runEval :: FilePath -> Stat a -> IO (Either String a)
-runEval fp (Stat m) = runEvalControl $ runReaderT m env0
-  where
-    env0 =
-      Environment
-        (StaticEnv mempty Nothing fp)
-        (DynamicEnv mempty Nothing Nothing mempty mempty)
-
-deferAttrs :: [(Name, ValueF Void)] -> Stat ThunkID
+deferAttrs :: [(Name, ValueF Void)] -> Eval ThunkID
 deferAttrs attrs = do
   attrs' <- (traverse . traverse) (deferVal . fmap absurd) attrs
   deferVal $ VAttr $ M.fromList attrs'
 
-deepEval :: MonadEval m => ThunkID -> m Value
+deepEval :: ThunkID -> Eval Value
 deepEval tid = Fix <$> (force tid >>= traverse deepEval)
 
-freshId :: MonadEval m => m Int
-freshId = liftEval $ state (\(EvalState ts n) -> (n, EvalState ts (n + 1)))
+freshId :: Eval Int
+freshId = state (\(EvalState ts n) -> (n, EvalState ts (n + 1)))
 
-freshThunkId :: MonadEval m => m ThunkID
+freshThunkId :: Eval ThunkID
 freshThunkId = ThunkID <$> freshId
 
-freshVarId :: MonadEval m => m VarID
+freshVarId :: Eval VarID
 freshVarId = VarID <$> freshId
 
-freshLblId :: MonadEval m => m LabelID
+freshLblId :: Eval LabelID
 freshLblId = LabelID <$> freshId
 
-freshFuncId :: MonadEval m => m TempFuncID
+freshFuncId :: Eval TempFuncID
 freshFuncId = TempFuncID <$> freshId
 
-type RTEval = WriterT Dependencies Stat -- TODO rename this
-
-{-# ANN resolveToRuntimeVar "hlint: ignore" #-}
-resolveToRuntimeVar :: Name -> RTEval (VarID, TypeVar)
-resolveToRuntimeVar name =
-  lift $
-    lookupVar name $ \thunk ->
-      liftEval (force thunk) >>= \case
-        VRTVar tpid ->
-          view (envRTVar tpid) >>= \case
-            Just tv -> pure (tpid, tv)
-            Nothing -> err
-        _ -> err
-  where
-    err = throwError $ "Variable " <> show name <> " did not resolve to runtime variable"
-
-{-# ANN resolveToBlockLabel "hlint: ignore" #-}
-resolveToBlockLabel :: Name -> RTEval (LabelID, TypeVar)
-resolveToBlockLabel name = lift $
-  lookupVar name $ \thunk ->
-    liftEval (force thunk) >>= \case
-      VBlockLabel tpid ->
-        view (envRTLabel tpid) >>= \case
-          Just tv -> pure (tpid, tv)
-          Nothing -> err
-      _ -> err
-  where
-    err = throwError $ "Variable " <> show name <> " did not resolve to block label"
-
-mkThunk :: Thunk -> EvalControl ThunkID
+mkThunk :: Thunk -> Eval ThunkID
 mkThunk thunk = state $ \(EvalState ts n) -> (ThunkID n, EvalState (M.insert (ThunkID n) thunk ts) (n + 1))
 
-setThunk :: MonadEval m => ThunkID -> Thunk -> m ()
-setThunk tid thunk = liftEval $ thunks . at tid ?= thunk
+setThunk :: ThunkID -> Thunk -> Eval ()
+setThunk tid thunk = thunks . at tid ?= thunk
 
 fresh :: MonadIO m => m TypeVar
 fresh = liftIO $ TypeVar <$> UF.fresh mempty
@@ -306,13 +173,13 @@ tvarMay mty = do
   forM_ mty $ setType tv
   pure tv
 
-unify :: TypeVar -> TypeVar -> Stat TypeVar
+unify :: TypeVar -> TypeVar -> Eval TypeVar
 unify a b = a <$ unify_ a b
 
 unify_ :: MonadIO m => TypeVar -> TypeVar -> m ()
 unify_ (TypeVar a) (TypeVar b) = liftIO $ UF.union' a b (\sa sb -> pure (sa <> sb))
 
-getType :: Stat Type -> TypeVar -> Stat Type
+getType :: Eval Type -> TypeVar -> Eval Type
 getType def (TypeVar tv) = do
   tys <- liftIO $ UF.descriptor tv
   case S.toList tys of
@@ -320,28 +187,24 @@ getType def (TypeVar tv) = do
     [] -> def
     l -> throwError $ "Overdetermined: " <> show l
 
-deferVal :: MonadEval m => LazyValue -> m ThunkID
-deferVal = liftEval . mkThunk . Computed
+deferVal :: LazyValue -> Eval ThunkID
+deferVal = mkThunk . Computed
 
-close :: Stat a -> Stat (EvalControl a)
-close (Stat (ReaderT m)) = Stat $ ReaderT $ pure . m
-
-force :: MonadEval m => ThunkID -> m LazyValue
+force :: ThunkID -> Eval LazyValue
 force tid =
-  liftEval $
-    use (thunks . at tid) >>= \case
-      Just (Deferred m) -> do
-        thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
-        v <- m
-        thunks . at tid .= Just (Computed v)
-        pure v
-      Just (Computed x) -> pure x
-      Nothing -> throwError "Looking up invalid thunk?"
+  use (thunks . at tid) >>= \case
+    Just (Deferred m) -> do
+      thunks . at tid .= Just (Deferred $ throwError "Infinite recursion")
+      v <- m
+      thunks . at tid .= Just (Computed v)
+      pure v
+    Just (Computed x) -> pure x
+    Nothing -> throwError "Looking up invalid thunk?"
 
-getTypeSuspend :: TypeVar -> Stat Type
+getTypeSuspend :: TypeVar -> Eval Type
 getTypeSuspend tv = go retries
   where
     retries = 10
-    go :: Int -> Stat Type
+    go :: Int -> Eval Type
     go 0 = throwError "Underdetermined type variable"
     go n = getType (suspend $ go (n -1)) tv
