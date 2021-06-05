@@ -570,7 +570,7 @@ mkBuiltins = do
       [ ("types", deferAttrs (fmap VType <$> types)),
         ("struct", fn1 bStruct),
         -- ("typeOf", fn1 bTypeOf),
-        -- ("matchType", fn2 matchType),
+        ("matchType", fn2 matchType),
         ("error", fn1 bError),
         -- ("import", fn1 (bImport step)),
         ("attrNames", fn1 attrNames),
@@ -597,26 +597,26 @@ mkBuiltins = do
             v2 <- force t2
             f v1 v2
 
--- -- TODO _is_ this a type? i.e. church-encode types?
--- matchType :: LazyValue -> LazyValue -> Eval LazyValue
--- matchType (VAttr attrs) (VType typ) =
---   let getAttr attr = case M.lookup attr attrs of
---         Just x -> pure x
---         Nothing -> case M.lookup "default" attrs of
---           Nothing -> throwError $ "Attr " <> show attr <> " not present, no default case"
---           Just x -> pure x
---    in case typ of
---         TInt -> getAttr "int" >>= force
---         TDouble -> getAttr "double" >>= force
---         TVoid -> getAttr "void" >>= force
---         TBool -> getAttr "bool" >>= force
---         TStruct fields -> do
---           k <- getAttr "struct" >>= force
---           -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
---           fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
---           reduce k fields'
--- matchType _ (VType _) = throwError "first argument to matchType was not an attr set"
--- matchType _ _ = throwError "matching on not-a-type"
+-- TODO _is_ this a type? i.e. church-encode types?
+matchType :: Builtin2
+matchType (VAttr attrs) (VType typ) =
+  let getAttr attr = case M.lookup attr attrs of
+        Just x -> pure x
+        Nothing -> case M.lookup "default" attrs of
+          Nothing -> throwError $ "Attr " <> show attr <> " not present, no default case"
+          Just x -> pure x
+   in case typ of
+        TInt -> getAttr "int" >>= force
+        TDouble -> getAttr "double" >>= force
+        TVoid -> getAttr "void" >>= force
+        TBool -> getAttr "bool" >>= force
+        TStruct fields -> do
+          k <- getAttr "struct" >>= force
+          -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
+          fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
+          reduce k fields' []
+matchType (VAttr _) val = throwError $ "second argument to matchType was a " <> describeValue val <> ", but expected a type"
+matchType val _ = throwError $ "first argument to matchType was a " <> describeValue val <> ", but expected an attribute set"
 
 -- bTypeOf :: LazyValue -> Eval LazyValue
 -- bTypeOf (VRTVar tid) =
