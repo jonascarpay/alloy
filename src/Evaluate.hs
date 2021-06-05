@@ -18,6 +18,7 @@ import Control.Monad.Writer
 import Coroutine
 import Data.Bifunctor
 import Data.Bitraversable
+import Data.ByteString.Char8 qualified as BS8
 import Data.Foldable
 import Data.Hashable
 import Data.Map (Map)
@@ -67,8 +68,9 @@ step (App f x) se de = do
   tf <- step f se de
   tx <- deferExpr x se de
   reduce tf tx de
-
--- step (Var x) = lookupVar x force
+step (Var x) se _ =
+  maybe (throwError $ "unknown variable " <> BS8.unpack x) force $
+    se ^. statBinds . at x
 
 -- step (Lam arg body) = VClosure arg body <$> view staticEnv
 -- step (Let binds body) = step (With (Attr binds) body)
