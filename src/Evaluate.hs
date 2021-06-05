@@ -79,16 +79,16 @@ step (BinExpr bop a b) se de = do
   va <- step a se de
   vb <- step b se de
   stepBinExpr bop va vb
+step (With bind body) se de = do
+  step bind se de >>= \case
+    VAttr m -> step body (se & statBinds %~ (m <>)) de
+    _ -> throwError "Binder in `with` expression did not evaluate to an attrset"
 
 -- step (BlockExpr b) = do
 --   env <- view staticEnv
 --   pure $ VBlock env b
 -- step (List l) = VList <$> traverse deferExpr l
 
--- step (With bind body) = do
---   step bind >>= \case
---     VAttr m -> local (bindThunks (M.toList m)) (step body)
---     _ -> throwError "Expression in `with` expression did not evaluate to an attrset"
 -- step (Cond cond tr fl) = do
 --   step cond >>= \case
 --     VPrim (PBool True) -> step tr
