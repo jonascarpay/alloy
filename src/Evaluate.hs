@@ -83,12 +83,12 @@ step se de (With bind body) =
     VAttr m -> step (se & statBinds %~ (m <>)) de body
     _ -> throwError "Binder in `with` expression did not evaluate to an attrset"
 step se de (List l) = VList <$> traverse (deferExpr se de) l
+step se de (Cond cond tr fl) = do
+  step se de cond >>= \case
+    VPrim (PBool True) -> step se de tr
+    VPrim (PBool False) -> step se de fl
+    _ -> throwError "Did not evaluate to a boolean"
 
--- step (Cond cond tr fl) = do
---   step cond >>= \case
---     VPrim (PBool True) -> step tr
---     VPrim (PBool False) -> step fl
---     _ -> throwError "Did not evaluate to a boolean"
 -- step (Func args ret bodyExpr) = do
 --   args' <- forM args $ \(name, expr) -> do
 --     typ <- evalType expr
