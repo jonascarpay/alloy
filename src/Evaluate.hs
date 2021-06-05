@@ -7,7 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 
-module Evaluate () where
+module Evaluate (eval) where
 
 import Builtins
 import Control.Monad.Except
@@ -28,11 +28,13 @@ import Expr
 import Lens.Micro.Platform
 import Program
 
--- eval :: FilePath -> Expr -> IO (Either String Value)
--- eval fp eRoot = runEval fp $ deepEvalExpr eRoot
-
--- deepEvalExpr :: Expr -> Eval Value
--- deepEvalExpr = deferExpr >=> deepEval
+eval :: FilePath -> Expr -> IO (Either String Value)
+eval fp eRoot =
+  runEval $
+    fmap Fix $
+      step eRoot se0 [] >>= traverse deepEval
+  where
+    se0 = StaticEnv mempty Nothing fp
 
 deferExpr ::
   Expr ->
@@ -61,13 +63,13 @@ step ::
   DynamicEnv ->
   Eval LazyValue
 step (Prim p) _ _ = pure $ VPrim p
-
--- step (App f x) = do
---   tf <- step f
---   tx <- deferExpr x
---   reduce tf tx
+step (App f x) se de = do
+  tf <- step f se de
+  tx <- deferExpr x se de
+  reduce tf tx de
 
 -- step (Var x) = lookupVar x force
+
 -- step (Lam arg body) = VClosure arg body <$> view staticEnv
 -- step (Let binds body) = step (With (Attr binds) body)
 -- step (BinExpr bop a b) = do
