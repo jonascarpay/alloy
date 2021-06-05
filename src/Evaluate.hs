@@ -69,10 +69,17 @@ step (App f x) se de = do
   tx <- deferExpr x se de
   reduce tf tx de
 step (Var x) se _ =
-  maybe (throwError $ "unknown variable " <> BS8.unpack x) force $
+  maybe (throwError $ "unknown variable " <> show x) force $
     se ^. statBinds . at x
 step (Lam arg body) se _ = pure $ VClosure arg body se
 step (Let binds body) se de = step (With (Attr binds) body) se de
+step (Attr binds) se de = VAttr <$> stepAttrs binds se de
+
+-- step (Acc f em) = step em >>= accessor f >>= force
+-- step (BlockExpr b) = do
+--   env <- view staticEnv
+--   pure $ VBlock env b
+-- step (List l) = VList <$> traverse deferExpr l
 
 -- step (BinExpr bop a b) = do
 --   va <- step a
@@ -91,12 +98,6 @@ step (Let binds body) se de = step (With (Attr binds) body) se de
 --     (Concat, VList la, VList lb) -> pure $ VList $ la <> lb
 --     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
 --     (Concat, lhs, rhs) -> throwError $ unwords ["Cannot concatenate a", describeValue lhs, "and a", describeValue rhs]
--- step (Attr binds) = VAttr <$> stepAttrs binds
--- step (Acc f em) = step em >>= accessor f >>= force
--- step (BlockExpr b) = do
---   env <- view staticEnv
---   pure $ VBlock env b
--- step (List l) = VList <$> traverse deferExpr l
 -- step (With bind body) = do
 --   step bind >>= \case
 --     VAttr m -> local (bindThunks (M.toList m)) (step body)
@@ -130,42 +131,44 @@ step (Let binds body) se de = step (With (Attr binds) body) se de
 --       funDef = FunDef (farg <$> args') retType name typedBlk
 --   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
--- stepAttrs :: [Binding] -> Eval (Map Name ThunkID)
--- stepAttrs bindings =
---   case desugarBinds bindings of
---     Left name -> throwError $ "Double declaration of name " <> show name
---     Right (DesugaredBindings binds inherits inheritFroms) -> do
---       inherits' :: [(Name, ThunkID)] <- forM inherits $ \name ->
---         view (envBinds . at name) >>= \case
---           Nothing -> throwError $ "inherited variable " <> show name <> " is not present in the surrounding scope"
---           Just thunk -> pure (name, thunk)
---       binds' :: [((Name, ThunkID), Expr)] <- forM binds $ \(name, expr) -> do
---         thunk <- freshThunkId
---         pure ((name, thunk), expr)
---       inheritFroms' :: [((Expr, ThunkID), [(Name, ThunkID)])] <- forM inheritFroms $ \(expr, attrs) -> do
---         exprThunk <- freshThunkId
---         attrs' <- forM attrs $ \attr -> do
---           thunk <- freshThunkId
---           pure (attr, thunk)
---         pure ((expr, exprThunk), attrs')
---       let env' :: [(Name, ThunkID)] = inherits' <> (fst <$> binds') <> (inheritFroms' >>= snd)
---       local (bindThunks env') $ do
---         forM_ inheritFroms' $ \((expr, exprThunk), attrs) -> do
---           close (step expr) >>= setThunk exprThunk . Deferred
---           forM_ attrs $ \(attr, attrThunk) ->
---             withName attr $
---               close (force exprThunk >>= accessor attr >>= force) >>= setThunk attrThunk . Deferred
---         forM_ binds' $ \((name, thunk), expr) ->
---           withName name $
---             close (step expr) >>= setThunk thunk . Deferred
---       pure $ M.fromList env'
+stepAttrs ::
+  [Binding] ->
+  StaticEnv ->
+  DynamicEnv ->
+  Eval (Map Name ThunkID)
+stepAttrs bindings se de =
+  case desugarBinds bindings of
+    Left name -> throwError $ "Double declaration of name " <> show name
+    Right (DesugaredBindings binds inherits inheritFroms) -> do
+      inherits' :: [(Name, ThunkID)] <- forM inherits $ \name ->
+        case se ^. statBinds . at name of
+          Nothing -> throwError $ "inherited variable " <> show name <> " is not present in the surrounding scope"
+          Just thunk -> pure (name, thunk)
+      binds' :: [((Name, ThunkID), Expr)] <- forM binds $ \(name, expr) -> do
+        thunk <- freshThunkId
+        pure ((name, thunk), expr)
+      inheritFroms' :: [((Expr, ThunkID), [(Name, ThunkID)])] <- forM inheritFroms $ \(expr, attrs) -> do
+        exprThunk <- freshThunkId
+        attrs' <- forM attrs $ \attr -> do
+          thunk <- freshThunkId
+          pure (attr, thunk)
+        pure ((expr, exprThunk), attrs')
+      let env' :: [(Name, ThunkID)] = inherits' <> (fst <$> binds') <> (inheritFroms' >>= snd)
+      let se' = se & statBinds %~ (M.fromList env' <>)
+      forM_ inheritFroms' $ \((expr, exprThunk), attrs) -> do
+        setThunk exprThunk $ Deferred $ step expr se' de
+        forM_ attrs $ \(attr, attrThunk) ->
+          setThunk attrThunk $ Deferred $ force exprThunk >>= accessor attr >>= force
+      forM_ binds' $ \((name, thunk), expr) ->
+        setThunk thunk $ Deferred $ step expr (se & statName ?~ name) de
+      pure $ M.fromList env'
 
--- accessor :: Name -> LazyValue -> Eval ThunkID
--- accessor attr (VAttr attrs) =
---   case M.lookup attr attrs of
---     Just t -> pure t
---     _ -> throwError $ "field " <> show attr <> " not present"
--- accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something that's not an attribute set"
+accessor :: Name -> LazyValue -> Eval ThunkID
+accessor attr (VAttr attrs) =
+  case M.lookup attr attrs of
+    Just t -> pure t
+    _ -> throwError $ "field " <> show attr <> " not present"
+accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something that's not an attribute set"
 
 -- functionBodyEnv :: [(Name, typ, ThunkID, VarID, TypeVar)] -> TypeVar -> Environment -> Environment
 -- functionBodyEnv typedArgs ret (Environment (StaticEnv ctx ctxName fp) (DynamicEnv fns _ _ _ _)) =
