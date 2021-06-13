@@ -10,6 +10,7 @@
 module Evaluate (eval) where
 
 import Builtins
+import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.RWS as RWS
 import Control.Monad.Reader
@@ -34,13 +35,17 @@ eval fp eRoot =
   runEval $ do
     tbuiltin <- mkBuiltins
     fmap Fix $
-      step (se0 & statBinds . at "builtins" ?~ tbuiltin) [] eRoot >>= traverse deepEval
+      step
+        (se0 & statBinds . at "builtins" ?~ tbuiltin)
+        emptyEE
+        eRoot
+        >>= traverse deepEval
   where
     se0 = StaticEnv mempty Nothing fp
 
 deferExpr ::
   StaticEnv ->
-  DynamicEnv ->
+  ExpressionEnv ->
   Expr ->
   Eval ThunkID
 deferExpr expr se de = do
@@ -52,7 +57,7 @@ deferExpr expr se de = do
 reduce ::
   LazyValue ->
   ThunkID ->
-  DynamicEnv ->
+  ExpressionEnv ->
   Eval LazyValue
 reduce (VClosure arg body se) tid de = step (se & statBinds . at arg ?~ tid) de body
 reduce (VClosure' m) tid de = m de tid
@@ -60,7 +65,7 @@ reduce _ _ _ = throwError "Calling a non-function"
 
 step ::
   StaticEnv ->
-  DynamicEnv ->
+  ExpressionEnv ->
   Expr ->
   Eval LazyValue
 step _ _ (Prim p) = pure $ VPrim p
@@ -116,6 +121,27 @@ step _ _ (Func _ _ _) = throwError "TODO: func expression"
 --       funDef = FunDef (farg <$> args') retType name typedBlk
 --   uncurry VFunc <$> mkFunction freshFuncId recDepth deps funDef
 
+arith :: ArithOp -> LazyValue -> LazyValue -> Eval LazyValue
+arith op (VPrim (PInt pa)) (VPrim (PInt pb)) = pure . VPrim . PInt $ arithInt op pa pb
+arith op (VPrim (PDouble pa)) (VPrim (PDouble pb)) = pure . VPrim . PDouble $ arithFloat op pa pb
+arith op (VRT lhs) rhs = do
+  rhs' <- compileVal rhs
+  pure $
+    VRT $ do
+      a <- view eeExpr >>= forceTv
+      l <- lhs
+      r <- rhs'
+      pure $ RTBin (ArithOp op) l r a
+arith op lhs (VRT rhs) = do
+  lhs' <- compileVal lhs
+  pure $
+    VRT $ do
+      a <- view eeExpr >>= forceTv
+      l <- lhs'
+      r <- rhs
+      pure $ RTBin (ArithOp op) l r a
+arith _ lhs rhs = throwError $ "Error performing arithmatic on a " <> describeValue lhs <> " and a " <> describeValue rhs
+
 -- TODO just pattern match in the arguments directly
 stepBinExpr ::
   BinOp ->
@@ -124,9 +150,7 @@ stepBinExpr ::
   Eval LazyValue
 stepBinExpr bop va vb =
   case (bop, va, vb) of
-    (ArithOp op, VPrim (PInt pa), VPrim (PInt pb)) -> pure . VPrim . PInt $ arithInt op pa pb
-    (ArithOp op, VPrim (PDouble pa), VPrim (PDouble pb)) -> pure . VPrim . PDouble $ arithFloat op pa pb
-    (ArithOp _, lhs, rhs) -> throwError $ unwords ["Arithmetic on a", describeValue lhs, "and a", describeValue rhs]
+    (ArithOp op, lhs, rhs) -> arith op lhs rhs
     (CompOp Eq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa == pb
     (CompOp Neq, VPrim pa, VPrim pb) -> pure . VPrim . PBool $ pa /= pb
     (CompOp Eq, VType ta, VType tb) -> pure . VPrim . PBool $ ta == tb
@@ -138,10 +162,17 @@ stepBinExpr bop va vb =
     (Concat, VPrim (PString sa), VPrim (PString sb)) -> pure $ VPrim $ PString $ sa <> sb
     (Concat, lhs, rhs) -> throwError $ unwords ["Cannot concatenate a", describeValue lhs, "and a", describeValue rhs]
 
+compileVal :: LazyValue -> Eval RTExprV
+compileVal (VRT e) = pure e
+compileVal (VPrim p) = compilePrim p
+
+compilePrim :: Prim -> Eval RTExprV
+compilePrim = undefined
+
 stepAttrs ::
   [Binding] ->
   StaticEnv ->
-  DynamicEnv ->
+  ExpressionEnv ->
   Eval (Map Name ThunkID)
 stepAttrs bindings se de =
   case desugarBinds bindings of
@@ -614,7 +645,7 @@ matchType (VAttr attrs) (VType typ) =
           k <- getAttr "struct" >>= force
           -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
           fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
-          reduce k fields' []
+          reduce k fields' emptyEE
 matchType (VAttr _) val = throwError $ "second argument to matchType was a " <> describeValue val <> ", but expected a type"
 matchType val _ = throwError $ "first argument to matchType was a " <> describeValue val <> ", but expected an attribute set"
 

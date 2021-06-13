@@ -8,6 +8,7 @@
 module Eval where
 
 import Control.Monad.Except
+import Control.Monad.RWS
 import Control.Monad.State
 import Coroutine
 import Data.Map (Map)
@@ -39,7 +40,7 @@ data EvalState = EvalState
 data ValueF val
   = VPrim Prim
   | VClosure Name Expr StaticEnv -- TODO benchmark if we can safely remove this
-  | VClosure' (DynamicEnv -> ThunkID -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
+  | VClosure' (ExpressionEnv -> ThunkID -> Eval LazyValue) -- TODO can this be Eval ThunkID, not force evaluation?
   | VType Type
   | VAttr (Map Name val)
   | VList (Seq val)
@@ -50,7 +51,12 @@ data ValueF val
   | VRecCall Int
   deriving (Functor, Foldable, Traversable)
 
-type RTExprV = ExpressionEnv () -> (Dependencies, RTExpr Int Int PreCall () ())
+-- TODO
+-- this currently uses eval to work with type variables and binding, but all actual IO (minus type stuff)/forcing/evaluation should have already happened.
+-- in the future, make this as weak as possible
+-- unless coroutines?
+
+type RTExprV = RWST ExpressionEnv Dependencies () Eval (RTExpr Int Int PreCall TypeVar TypeVar)
 
 type Value = Fix ValueF
 
@@ -70,20 +76,23 @@ data StaticEnv = StaticEnv
     _statFile :: FilePath
   }
 
-type DynamicEnv = [FunctionSig]
-
 type FunctionSig = ([(Name, TypeVar)], TypeVar)
 
-data ExpressionEnv tv = ExpressionEnv
-  { _eeVarStack :: [tv],
-    _eeBlockStack :: [tv],
-    _eeExpr :: tv,
-    _eeFn :: tv
+type Stack a = [a]
+
+data ExpressionEnv = ExpressionEnv
+  { _eeVarStack :: Stack TypeVar,
+    _eeBlockStack :: Stack TypeVar,
+    _eeFunStack :: Stack FunctionSig,
+    _eeExpr :: Maybe TypeVar
   }
 
 makeLenses ''StaticEnv
 makeLenses ''ExpressionEnv
 makeLenses ''EvalState
+
+emptyEE :: ExpressionEnv
+emptyEE = ExpressionEnv [] [] [] Nothing
 
 arithInt :: ArithOp -> Int -> Int -> Int
 arithInt Add = (+)
@@ -189,6 +198,9 @@ getType def (TypeVar tv) = do
 
 deferVal :: LazyValue -> Eval ThunkID
 deferVal = mkThunk . Computed
+
+forceTv :: MonadError String m => Maybe TypeVar -> m TypeVar
+forceTv = maybe (throwError "impossible: runtime expression without expression type") pure
 
 force :: ThunkID -> Eval LazyValue
 force tid =

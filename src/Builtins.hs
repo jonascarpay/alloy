@@ -19,7 +19,7 @@ import Lens.Micro.Platform
 import Parser.Parser
 import System.FilePath
 
-type Builtin1 = DynamicEnv -> LazyValue -> Eval LazyValue
+type Builtin1 = ExpressionEnv -> LazyValue -> Eval LazyValue
 
 type Builtin2 = LazyValue -> LazyValue -> Eval LazyValue
 
