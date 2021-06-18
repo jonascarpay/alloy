@@ -56,7 +56,9 @@ data ValueF val
 -- in the future, make this as weak as possible
 -- unless coroutines?
 
-type RTExprV = RWST ExpressionEnv Dependencies () Eval (RTExpr Int Int PreCall TypeVar TypeVar)
+type RTExprV = RTExprM (RTExpr Int Int PreCall TypeVar TypeVar)
+
+type RTExprM = RWST ExpressionEnv Dependencies () Eval
 
 type Value = Fix ValueF
 
@@ -80,6 +82,11 @@ type FunctionSig = ([(Name, TypeVar)], TypeVar)
 
 type Stack a = [a]
 
+stLookup :: Int -> Stack a -> Maybe a
+stLookup i st = if i < n then Just (st !! (n - i -1)) else Nothing
+  where
+    n = length st
+
 data ExpressionEnv = ExpressionEnv
   { _eeVarStack :: Stack TypeVar,
     _eeBlockStack :: Stack TypeVar,
@@ -93,6 +100,12 @@ makeLenses ''EvalState
 
 emptyEE :: ExpressionEnv
 emptyEE = ExpressionEnv [] [] [] Nothing
+
+stVar :: Int -> RTExprM TypeVar
+stVar i =
+  view (eeVarStack . to (stLookup i)) >>= \case
+    Nothing -> throwError "impossible: stVar lookup"
+    Just a -> pure a
 
 arithInt :: ArithOp -> Int -> Int -> Int
 arithInt Add = (+)

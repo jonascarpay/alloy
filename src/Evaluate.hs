@@ -54,17 +54,30 @@ deferExpr expr se de = do
   pure tid
 
 -- TODO once we only have non-Expr closures, this can be moved to Eval
-reduce ::
+stepApp ::
   LazyValue ->
   ThunkID ->
   ExpressionEnv ->
   Eval LazyValue
-reduce (VClosure arg body se) tid de = step (se & statBinds . at arg ?~ tid) de body
-reduce (VClosure' m) tid de = m de tid
-reduce _ _ _ = throwError "Calling a non-function"
+stepApp (VClosure arg body se) tid de = step (se & statBinds . at arg ?~ tid) de body
+stepApp (VClosure' m) tid de = m de tid
+stepApp (VRecCall n) tid de = throwError "TODO: recursive function application"
+stepApp (VFunc deps call) tid de =
+  force tid >>= \case
+    VList args ->
+      pure $
+        VRT $ do
+          tv <- view eeExpr >>= forceTv
+          tell deps
+          (argTypes, retType) <- undefined
+
+          pure $ RTCall (either CallTemp CallKnown call) _args tv
+    args -> throwError $ "Applying a " <> describeValue args <> " to a runtime function"
+stepApp val _ _ = throwError $ "Calling a value to a non-function " <> describeValue val
 
 step ::
   StaticEnv ->
+  -- TODO the ExpressionEnv argument might just be a collection of integers instead
   ExpressionEnv ->
   Expr ->
   Eval LazyValue
@@ -72,7 +85,7 @@ step _ _ (Prim p) = pure $ VPrim p
 step se de (App f x) = do
   tf <- step se de f
   tx <- deferExpr se de x
-  reduce tf tx de
+  stepApp tf tx de
 step se _ (Var x) =
   let err = (throwError $ "unknown variable " <> show x)
    in maybe err force $ se ^. statBinds . at x
@@ -165,6 +178,10 @@ stepBinExpr bop va vb =
 compileVal :: LazyValue -> Eval RTExprV
 compileVal (VRT e) = pure e
 compileVal (VPrim p) = compilePrim p
+compileVal (VVar vid) = pure $ do
+  -- This feels weird, this is always resolved at runtime expression evaluation time  even though it could be done statically?
+  tv <- stVar vid
+  pure $ RTVar vid tv
 
 compilePrim :: Prim -> Eval RTExprV
 compilePrim = undefined
@@ -492,7 +509,7 @@ accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something
 --               argVars
 --           pure $ RTCall (CallRec n) rtArgExprs retVar
 --         _ -> throwError "Trying to call a function with a non-list-like-thing"
---     val -> lift (deferExpr x >>= reduce val) >>= compileVal
+--     val -> lift (deferExpr x >>= stepApp val) >>= compileVal
 -- compileExpr (Acc field attrExpr) = do
 --   fieldType <- askVar
 --   structType <- fresh
@@ -590,7 +607,7 @@ accessor attr _ = throwError $ "Accessing field " <> show attr <> " of something
 --   unify_ tv (blk' ^. blkType)
 --   pure $ RTBlock blk' tv
 
--- TODO Builtins are in this module only because matchType -> reduce -> step -> Expr
+-- TODO Builtins are in this module only because matchType -> stepApp -> step -> Expr
 mkBuiltins :: Eval ThunkID
 mkBuiltins = do
   ts <- traverse sequenceA binds
@@ -645,7 +662,7 @@ matchType (VAttr attrs) (VType typ) =
           k <- getAttr "struct" >>= force
           -- TODO re-deferring the fields of a fully evaluated type here is kinda ugly
           fields' <- traverse (deferVal . VType) fields >>= deferVal . VAttr
-          reduce k fields' emptyEE
+          stepApp k fields' emptyEE
 matchType (VAttr _) val = throwError $ "second argument to matchType was a " <> describeValue val <> ", but expected a type"
 matchType val _ = throwError $ "first argument to matchType was a " <> describeValue val <> ", but expected an attribute set"
 
