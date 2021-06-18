@@ -50,6 +50,7 @@ library
   hs-source-dirs:     src
   exposed-modules:
     Expr
+    Lib.Bound
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
