@@ -19,6 +19,23 @@ import Data.Sequence (Seq)
 import Data.Set qualified as Set
 import GHC.Generics (Generic)
 import Lens.Micro.Platform
+import Lib.Bound
+
+data Expr a
+  = Var a
+  | App (Expr a) (Expr a)
+  | Lam (Scope () Expr a)
+  | Let [Binding] (Expr a)
+  | Prim Prim
+  | Func [(Name, (Expr a))] (Expr a) (Expr a)
+  | List (Seq (Expr a))
+  | BinExpr BinOp (Expr a) (Expr a)
+  | Attr [Binding]
+  | Acc Name (Expr a)
+  | With (Expr a) (Expr a)
+  | BlockExpr (Block Name Name (Maybe (Expr a)) (Expr a))
+  | Cond (Expr a) (Expr a) (Expr a)
+  deriving (Eq, Show)
 
 newtype Fix f = Fix {unFix :: f (Fix f)}
 
@@ -50,22 +67,6 @@ data Binding
   = Binding Name [Name] Expr
   | Inherit [Name]
   | InheritFrom Expr [Name]
-  deriving (Eq, Show)
-
-data Expr
-  = Var Name
-  | App Expr Expr
-  | Lam Name Expr
-  | Let [Binding] Expr
-  | Prim Prim
-  | Func [(Name, Expr)] Expr Expr
-  | List (Seq Expr)
-  | BinExpr BinOp Expr Expr
-  | Attr [Binding]
-  | Acc Name Expr
-  | With Expr Expr
-  | BlockExpr (Block Name Name (Maybe Expr) Expr)
-  | Cond Expr Expr Expr
   deriving (Eq, Show)
 
 data BinOp = ArithOp ArithOp | CompOp CompOp | Concat
@@ -106,27 +107,3 @@ data DesugaredBindings = DesugaredBindings
 
 makeLenses ''Block
 makeLenses ''DesugaredBindings
-
-desugarBinds ::
-  [Binding] ->
-  Either Name DesugaredBindings
-desugarBinds binds = snd <$> execStateT (mapM_ go binds) (mempty, DesugaredBindings [] [] [])
-  where
-    check name =
-      gets (Set.member name . fst) >>= \case
-        True -> throwError name
-        False -> _1 %= Set.insert name
-    go (Binding name args body) = do
-      check name
-      let expr = foldr Lam body args
-      _2 . bindSimple %= ((name, expr) :)
-    go (Inherit names) = forM_ names $ \name -> do
-      check name
-      _2 . bindInherit %= (name :)
-    go (InheritFrom expr names) = do
-      forM_ names check
-      _2 . bindInheritFrom %= ((expr, names) :)
-
--- go bs is fs [] = pure (bs, is, fs)
--- -- go bs is fs (Binding name args body : t) = check name >> go bs is fs t
--- go bs is fs (Inherit ns : t) = check name >> go bs is fs t
