@@ -49,18 +49,11 @@ library
   import:             common-options
   hs-source-dirs:     src
   exposed-modules:
-    Builtins
-    Coroutine
-    Eval
-    Evaluate
     Expr
-    Lib
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
     Parser.Token
-    Print
-    Program
 
   build-tool-depends: alex:alex >=3.2.5
 
