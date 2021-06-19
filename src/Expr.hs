@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
@@ -32,8 +33,8 @@ data Expr a
   = Var a
   | App (Expr a) (Expr a)
   | Lam (Scope () Expr a)
+  | Func [Expr a] (Expr a) (Scope (Maybe Int) Expr a) -- Nothing is rec call, Just n is arg
   | -- | Prim Prim
-    -- | Func [(Name, Expr a)] (Expr a) (Scope Int Expr a)
     -- | BinExpr BinOp (Expr a) (Expr a)
     Run (RVal Expr Expr Expr Expr Expr a)
   deriving (Functor, Foldable, Traversable)
@@ -45,7 +46,7 @@ data Place typ plc val lbl fun a
 
 data RVal typ plc val lbl fun a
   = RBin BinOp (val a) (val a)
-  | Block (Prog typ plc val (Scope () lbl) fun a)
+  | Block (Prog (Scope () typ) (Scope () plc) (Scope () val) (Scope () lbl) (Scope () fun) a)
   | Call (fun a) [val a]
   | Place (plc a)
   deriving (Functor, Foldable, Traversable)
@@ -54,7 +55,7 @@ data Prog typ plc val lbl fun a
   = Decl
       (typ a)
       (val a)
-      (Prog typ (Scope () plc) val lbl fun a)
+      (Prog (Scope () typ) (Scope () plc) (Scope () val) (Scope () lbl) (Scope () fun) a)
   | Assign
       (plc a)
       (val a)
@@ -75,36 +76,28 @@ instance Monad Expr where
   Var a >>= f = f a
   App l r >>= f = App (l >>= f) (r >>= f)
   Lam body >>= f = Lam (body >>= lift . f)
-  Run run >>= f = Run $ bindVal f f f f f run
+  Run run >>= f = Run $ hoistVal f run
+  Func argTypes retType body >>= f = Func ((>>= f) <$> argTypes) (retType >>= f) (body >>= lift . f)
 
-bindVal ::
-  (Monad typ, Monad plc, Monad val, Monad lbl, Monad fun) =>
-  (a -> typ b) ->
-  (a -> plc b) ->
-  (a -> val b) ->
-  (a -> lbl b) ->
-  (a -> fun b) ->
-  RVal typ plc val lbl fun a ->
-  RVal typ plc val lbl fun b
-bindVal ft fp fv fl ff = go
-  where
-    go (RBin op l r) = RBin op (l >>= fv) (r >>= fv)
-    go (Block p) = Block (bProg ft fp fv (lift . fl) p)
-    go (Call f x) = Call (f >>= ff) ((>>= fv) <$> x)
-    go (Place p) = Place (p >>= fp)
+hoistVal ::
+  Monad f =>
+  (a -> f b) ->
+  RVal f f f f f a ->
+  RVal f f f f f b
+hoistVal f (RBin op l r) = RBin op (l >>= f) (r >>= f)
+hoistVal f (Block p) = Block (hoistProg (lift . f) p)
+hoistVal f (Call fn vs) = Call (fn >>= f) ((>>= f) <$> vs)
+hoistVal f (Place p) = Place (p >>= f)
 
-bProg ::
-  (Monad typ, Monad plc, Monad val, Monad lbl) =>
-  (a -> typ b) ->
-  (a -> plc b) ->
-  (a -> val b) ->
-  (a -> lbl b) ->
-  Prog typ plc val lbl fun a ->
-  Prog typ plc val lbl fun b
-bProg ft fp fv fl (Decl t v k) = Decl (t >>= ft) (v >>= fv) (bProg ft (lift . fp) fv fl k)
-bProg ft fp fv fl (Assign p v k) = Assign (p >>= fp) (v >>= fv) (bProg ft fp fv fl k)
-bProg ft fp fv fl (Expr v k) = Expr (v >>= fv) (bProg ft fp fv fl k)
-bProg _ _ fv fl (Break l v) = Break (l >>= fl) (v >>= fv)
+hoistProg ::
+  Monad f =>
+  (a -> f b) ->
+  Prog f f f f f a ->
+  Prog f f f f f b
+hoistProg f (Decl t v k) = Decl (t >>= f) (v >>= f) (hoistProg (lift . f) k)
+hoistProg f (Assign p v k) = Assign (p >>= f) (v >>= f) (hoistProg f k)
+hoistProg f (Break l v) = Break (l >>= f) (v >>= f)
+hoistProg f (Expr v k) = Expr (v >>= f) (hoistProg f k)
 
 -- newtype Fix f = Fix {unFix :: f (Fix f)}
 
