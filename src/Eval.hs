@@ -1,64 +1,69 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Eval where
 
 import Bound.Scope.Simple
 import Control.Applicative
 import Control.Monad.Except
-import Control.Monad.State
-import Data.Hashable
-import Data.Hashable.Lifted
-import Data.IntMap (IntMap)
+import Control.Monad.Writer
 import Data.Void
+import EvalTypes
 import Expr
-import GHC.Generics
-import Lib.Fix
+import Lens.Micro.Platform
 
-data ValueF f
-  = VClosure (Scope () Expr Void)
-  | VRun (RValV Void)
+defer :: Expr ThunkID -> Eval ThunkID
+defer expr = do
+  tid <- freshThunk
+  thunk tid ?= Deferred (whnf expr)
+  pure tid
 
-data Thunk
-  = Computed WHNF
-  | Deferred (Eval WHNF)
+force :: ThunkID -> Eval WHNF
+force tid =
+  use (thunk tid) >>= \case
+    Nothing -> throwError "impossible"
+    Just (Computed v) -> pure v
+    Just (Deferred m) -> do
+      v <- m
+      thunk tid ?= Computed v
+      pure v
 
-newtype ThunkID = ThunkID Int
+whnf :: Expr ThunkID -> Eval WHNF
+whnf (Var a) = force a
+whnf (App l r) =
+  whnf l >>= \case
+    VClosure b -> do
+      tr <- defer r
+      whnf $ instantiate (const $ pure tr) b
+    val -> throwError $ "Expected a closure, but got a " <> describeValue val
+whnf (Lam body) = pure $ VClosure body
+whnf (Type typ) = pure $ VType typ
+whnf (Run run) = do
+  (rv, deps) <- runWriterT $ compile run
+  pure $ VRun deps rv
+whnf (Func args ret body) = undefined
 
-newtype Eval a = Eval (ExceptT String (State (IntMap Thunk)) a)
+compileVal :: WHNF -> Comp (RValV Void)
+compileVal VClosure {} = throwError "no"
+compileVal (VRun deps rv) = rv <$ tell deps
+compileVal (VType _) = throwError "no"
+compileVal (VFunc _ _) = throwError "no"
 
-type WHNF = ValueF Thunk
+compileFunc :: WHNF -> Comp FuncID
+compileFunc (VFunc deps fid) = fid <$ tell deps
+compileFunc _ = throwError "calling not a function"
 
-type NF = Fix ValueF
+compile :: RVal Expr Expr Expr Expr Expr ThunkID -> Comp (RValV Void)
+compile (RBin op l r) = do
+  l' <- lift (whnf l) >>= compileVal
+  r' <- lift (whnf r) >>= compileVal
+  pure $ RValV $ RBin op l' r'
+compile (Call fn args) = do
+  fn' <- lift (whnf fn) >>= compileFunc
+  args' <- traverse (lift . whnf >=> compileVal) args
+  pure $ RValV $ Call (Const fn') args'
 
-newtype LabelID = LabelID Int
-  deriving newtype (Hashable)
+-- compile (Block prog) = do
+--   pure $ RValV $ Block $ hoistProg _ prog
+-- compile (Place plc) = undefined
 
-newtype FuncID = FuncID Int
-  deriving newtype (Hashable)
-
-data Func = Func
-  { funcArgs :: [Type],
-    funcRet :: Type,
-    funcBody :: Scope (Maybe Int) RValV Void
-  }
-  deriving stock (Generic)
-  deriving anyclass (Hashable)
-
-newtype RValV a
-  = RValV
-      ( RVal
-          (Const Type)
-          (Place RValV)
-          RValV
-          (Const LabelID)
-          (Const FuncID)
-          a
-      )
-  deriving stock (Generic, Generic1)
-  deriving anyclass (Hashable1)
-
-whnf :: Expr Void -> Eval WHNF
-whnf = undefined
+-- compileProg ::

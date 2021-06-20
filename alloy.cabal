@@ -51,6 +51,7 @@ library
   hs-source-dirs:     src
   exposed-modules:
     Eval
+    EvalTypes
     Expr
     Lib.Fix
     Parser.Lexer
