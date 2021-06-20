@@ -25,6 +25,7 @@ common common-options
   build-depends:
     , array
     , base                >=4.9 && <5
+    , bound
     , bytestring
     , containers
     , directory
@@ -51,7 +52,6 @@ library
   exposed-modules:
     Eval
     Expr
-    Lib.Bound
     Lib.Fix
     Parser.Lexer
     Parser.Parsec
