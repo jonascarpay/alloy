@@ -8,6 +8,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -75,29 +76,38 @@ instance Monad Expr where
   Var a >>= f = f a
   App l r >>= f = App (l >>= f) (r >>= f)
   Lam body >>= f = Lam (body >>= lift . f)
-  Run run >>= f = Run $ hoistVal f run
+  Run run >>= f = Run $ bindVal f run
   Func argTypes retType body >>= f = Func ((>>= f) <$> argTypes) (retType >>= f) (body >>= lift . f)
   Type typ >>= _ = Type typ
 
-hoistVal ::
+bindVal ::
   Monad f =>
   (a -> f b) ->
   RVal f f f f f a ->
   RVal f f f f f b
-hoistVal f (RBin op l r) = RBin op (l >>= f) (r >>= f)
-hoistVal f (Block p) = Block (hoistProg (lift . f) p)
-hoistVal f (Call fn vs) = Call (fn >>= f) ((>>= f) <$> vs)
-hoistVal f (Place p) = Place (p >>= f)
+bindVal f (RBin op l r) = RBin op (l >>= f) (r >>= f)
+bindVal f (Block p) = Block (bindProg (lift . f) p)
+bindVal f (Call fn vs) = Call (fn >>= f) ((>>= f) <$> vs)
+bindVal f (Place p) = Place (p >>= f)
 
-hoistProg ::
+bindProg ::
   Monad f =>
   (a -> f b) ->
   Prog f f f f f a ->
   Prog f f f f f b
-hoistProg f (Decl t v k) = Decl (t >>= f) (v >>= f) (hoistProg (lift . f) k)
-hoistProg f (Assign p v k) = Assign (p >>= f) (v >>= f) (hoistProg f k)
-hoistProg f (Break l v) = Break (l >>= f) (v >>= f)
-hoistProg f (Expr v k) = Expr (v >>= f) (hoistProg f k)
+bindProg f (Decl t v k) = Decl (t >>= f) (v >>= f) (bindProg (lift . f) k)
+bindProg f (Assign p v k) = Assign (p >>= f) (v >>= f) (bindProg f k)
+bindProg f (Break l v) = Break (l >>= f) (v >>= f)
+bindProg f (Expr v k) = Expr (v >>= f) (bindProg f k)
+
+hoistProg ::
+  (forall a. m a -> n a) ->
+  Prog m m m m m a ->
+  Prog n n n n n a
+hoistProg f (Decl t v k) = Decl (f t) (f v) (hoistProg (hoistScope f) k)
+hoistProg f (Assign p v k) = Assign (f p) (f v) (hoistProg f k)
+hoistProg f (Break l v) = Break (f l) (f v)
+hoistProg f (Expr v k) = Expr (f v) (hoistProg f k)
 
 -- newtype Fix f = Fix {unFix :: f (Fix f)}
 
