@@ -134,22 +134,3 @@ data ArithOp = Add | Sub | Mul | Div
 data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
   deriving (Eq, Show, Generic)
   deriving anyclass (Hashable)
-
--- data Stmt var lbl typ expr
---   = Return expr
---   | Decl var typ expr
---   | Assign var expr
---   | ExprStmt expr
---   | Continue (Maybe lbl) -- TODO Maybe lbl -> lbl
---   | Break (Maybe lbl) (Maybe expr) -- TODO Maybe lbl -> lbl
---   deriving (Eq, Show, Generic)
---   deriving anyclass (Hashable)
-
--- data DesugaredBindings = DesugaredBindings
---   { _bindSimple :: [(Name, Expr)],
---     _bindInherit :: [Name],
---     _bindInheritFrom :: [(Expr, [Name])]
---   }
-
--- makeLenses ''Block
--- makeLenses ''DesugaredBindings

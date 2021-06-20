@@ -49,8 +49,10 @@ library
   import:             common-options
   hs-source-dirs:     src
   exposed-modules:
+    Eval
     Expr
     Lib.Bound
+    Lib.Fix
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
