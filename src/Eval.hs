@@ -23,6 +23,7 @@ force tid =
     Nothing -> throwError "impossible"
     Just (Computed v) -> pure v
     Just (Deferred m) -> do
+      thunk tid ?= Deferred (throwError "infinite recursion")
       v <- m
       thunk tid ?= Computed v
       pure v
@@ -42,28 +43,50 @@ whnf (Run run) = do
   pure $ VRun deps rv
 whnf (Func args ret body) = undefined
 
-compileVal :: WHNF -> Comp (RValV Void)
-compileVal VClosure {} = throwError "no"
-compileVal (VRun deps rv) = rv <$ tell deps
-compileVal (VType _) = throwError "no"
-compileVal (VFunc _ _) = throwError "no"
+compileToVal :: WHNF -> Comp (RValV Void)
+compileToVal VClosure {} = throwError "no"
+compileToVal (VRun deps rv) = rv <$ tell deps
+compileToVal (VType _) = throwError "no"
+compileToVal (VFunc _ _) = throwError "no"
 
-compileFunc :: WHNF -> Comp FuncID
-compileFunc (VFunc deps fid) = fid <$ tell deps
-compileFunc _ = throwError "calling not a function"
+compileToFunc :: WHNF -> Comp FuncID
+compileToFunc (VFunc deps fid) = fid <$ tell deps
+compileToFunc _ = throwError "calling not a function"
 
-compile :: RVal Expr Expr Expr Expr Expr ThunkID -> Comp (RValV Void)
+compileToPlace :: WHNF -> Comp (Place RValV Void)
+compileToPlace = undefined
+
+compile ::
+  RVal Expr Expr Expr Expr Expr ThunkID ->
+  Comp (RValV Void)
 compile (RBin op l r) = do
-  l' <- lift (whnf l) >>= compileVal
-  r' <- lift (whnf r) >>= compileVal
+  l' <- lift (whnf l) >>= compileToVal
+  r' <- lift (whnf r) >>= compileToVal
   pure $ RValV $ RBin op l' r'
 compile (Call fn args) = do
-  fn' <- lift (whnf fn) >>= compileFunc
-  args' <- traverse (lift . whnf >=> compileVal) args
+  fn' <- lift (whnf fn) >>= compileToFunc
+  args' <- traverse (lift . whnf >=> compileToVal) args
   pure $ RValV $ Call (Const fn') args'
+compile (Block prog) = RValV . Block <$> compileBlock prog
+compile (Place plc) = do
+  plc' <- lift (whnf plc) >>= compileToPlace
+  pure $ RValV $ Place plc'
 
--- compile (Block prog) = do
---   pure $ RValV $ Block $ hoistProg _ prog
--- compile (Place plc) = undefined
-
--- compileProg ::
+compileBlock ::
+  Prog
+    (Scope () Expr)
+    (Scope () Expr)
+    (Scope () Expr)
+    (Scope () Expr)
+    (Scope () Expr)
+    ThunkID ->
+  Comp
+    ( Prog
+        (Scope () (Const Type))
+        (Scope () (Place RValV))
+        (Scope () RValV)
+        (Scope () (Const LabelID))
+        (Scope () (Const FuncID))
+        a
+    )
+compileBlock = undefined
