@@ -102,8 +102,8 @@ bindProg f (Expr v k) = Expr (v >>= f) (bindProg f k)
 
 hoistProg ::
   (forall a. m a -> n a) ->
-  Prog m m m m m a ->
-  Prog n n n n n a
+  Prog m m m m m b ->
+  Prog n n n n n b
 hoistProg f (Decl t v k) = Decl (f t) (f v) (hoistProg (hoistScope f) k)
 hoistProg f (Assign p v k) = Assign (f p) (f v) (hoistProg f k)
 hoistProg f (Break l v) = Break (f l) (f v)
