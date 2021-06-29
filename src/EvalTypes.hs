@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -10,23 +12,22 @@ module EvalTypes where
 import Bound.Scope.Simple
 import Control.Applicative
 import Control.Monad.Except
-import Control.Monad.State
 import Control.Monad.Writer
 import Data.Hashable
 import Data.Hashable.Lifted
-import Data.IntMap (IntMap)
+import Data.IORef
 import Data.Map (Map)
 import Data.Void
 import Expr
 import GHC.Generics
-import Lens.Micro.Platform
-import Lib.Fix
 
-data ValueF f
-  = VClosure (Scope () Expr ThunkID)
-  | VRun Deps (RValV Void)
+data Value f e
+  = VExt e
+  | VClosure (Scope () (Expr e) (Thunk (Lazy e))) -- TODO the first f can/should be Thunk I think
+  | VRun Deps (RValV e)
   | VFunc Deps FuncID
   | VType Type
+  | VAttr (Map String (f (Value f e)))
 
 newtype Hash = Hash Int
   deriving newtype (Eq, Ord, Hashable)
@@ -34,25 +35,26 @@ newtype Hash = Hash Int
 newtype Deps = Deps (Map Hash Fundef)
   deriving newtype (Semigroup, Monoid)
 
-data Thunk
-  = Computed WHNF
-  | Deferred (Eval WHNF)
+newtype Thunk a = Thunk (IORef (Either (Eval a) a))
 
-newtype ThunkID = ThunkID Int
+type Lazy = Value Thunk
 
-newtype Eval a = Eval (ExceptT String (State EvalState) a)
-  deriving newtype (Functor, Applicative, Monad, MonadState EvalState, MonadError String)
+defer :: Eval a -> Eval (Thunk a)
+defer = fmap Thunk . liftIO . newIORef . Left
+
+force :: Thunk a -> Eval a
+force (Thunk ref) = do
+  liftIO (readIORef ref) >>= \case
+    Right a -> pure a
+    Left m -> do
+      a <- m
+      liftIO $ writeIORef ref (Right a)
+      pure a
+
+newtype Eval a = Eval (ExceptT String IO a)
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError String)
 
 type Comp = WriterT Deps Eval
-
-data EvalState = EvalState
-  { _evalThunks :: IntMap Thunk,
-    _evalSource :: Int
-  }
-
-type WHNF = ValueF Thunk
-
-type NF = Fix ValueF
 
 newtype LabelID = LabelID Int
   deriving newtype (Hashable)
@@ -78,21 +80,10 @@ newtype RValV a
           (Const FuncID)
           a
       )
-  deriving stock (Generic, Generic1)
+  deriving stock (Generic, Generic1, Functor, Foldable, Traversable)
   deriving anyclass (Hashable1)
 
-makeLenses ''EvalState
-
-thunk :: ThunkID -> Lens' EvalState (Maybe Thunk)
-thunk (ThunkID t) = evalThunks . at t
-
-fresh :: Eval Int
-fresh = state (\(EvalState m n) -> (n, EvalState m (succ n)))
-
-freshThunk :: Eval ThunkID
-freshThunk = ThunkID <$> fresh
-
-describeValue :: ValueF a -> String
+describeValue :: Value f a -> String
 describeValue VClosure {} = "closure"
 describeValue VRun {} = "runtime expression"
 describeValue VFunc {} = "runtime function"
