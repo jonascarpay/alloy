@@ -5,17 +5,10 @@
 module Eval where
 
 import Bound.Scope.Simple
-import Bound.Var
-import Control.Applicative
 import Control.Lens
 import Control.Monad.Except
-import Control.Monad.Writer
-import Data.Void
 import EvalTypes
 import Expr
-
--- B a -> pure $ VExt $ B a
--- F a -> force a
 
 whnf ::
   forall s.
@@ -32,5 +25,5 @@ whnf prm = go
           r' <- defer $ go r
           go $ review prm <$> instantiate1 (pure r') l'
         val -> throwError $ "Cannot reduce a " <> describeValue val
-    go (Lam body) = VClosure <$> traverse (either (defer . pure . VExt) pure . matching prm) body
+    go (Lam body) = VClosure <$> traverse (either (refer . VExt) pure . matching prm) body
     go _ = undefined
