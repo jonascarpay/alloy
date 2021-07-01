@@ -42,6 +42,9 @@ type Lazy = Value Thunk
 defer :: Eval a -> Eval (Thunk a)
 defer = fmap Thunk . liftIO . newIORef . Left
 
+refer :: a -> Eval (Thunk a)
+refer = fmap Thunk . liftIO . newIORef . Right
+
 force :: Thunk a -> Eval a
 force (Thunk ref) = do
   liftIO (readIORef ref) >>= \case
