@@ -32,7 +32,7 @@ common common-options
     , filepath
     , hashable
     , haskeline
-    , microlens-platform
+    , lens
     , mtl
     , parser-combinators
     , prettyprinter
