@@ -26,16 +26,15 @@ import GHC.Generics
 
 type Name = ShortByteString
 
-data Expr e a
+data Expr a
   = Pure a
-  | Ext e
-  | App (Expr e a) (Expr e a)
-  | Lam (Scope () (Expr e) a)
-  | Func [Expr e a] (Expr e a) (Scope (Maybe Int) (Expr e) a) -- Nothing is rec call, Just n is arg
+  | App (Expr a) (Expr a)
+  | Lam (Scope () Expr a)
+  | Func [Expr a] (Expr a) (Scope (Maybe Int) Expr a) -- Nothing is rec call, Just n is arg
   | Type Type
   | -- | Prim Prim
     -- | BinExpr BinOp (Expr a) (Expr a)
-    Run (RVal (Expr e) (Expr e) (Expr e) (Expr e) (Expr e) a)
+    Run (RVal Expr Expr Expr Expr Expr a)
   deriving (Functor, Foldable, Traversable)
 
 data Place val a
@@ -78,13 +77,12 @@ data Prog typ plc val lbl fun a
   deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable1)
 
-instance Applicative (Expr e) where
+instance Applicative Expr where
   pure = Pure
   (<*>) = ap
 
-instance Monad (Expr e) where
+instance Monad Expr where
   Pure a >>= f = f a
-  Ext e >>= _ = Ext e
   App l r >>= f = App (l >>= f) (r >>= f)
   Lam body >>= f = Lam (body >>= lift . f)
   Run run >>= f = Run $ bindVal f run

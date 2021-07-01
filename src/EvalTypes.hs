@@ -21,13 +21,13 @@ import Data.Void
 import Expr
 import GHC.Generics
 
-data Value f e
-  = VExt e
-  | VClosure (Scope () (Expr e) (Thunk (Lazy e))) -- TODO the first f can/should be Thunk I think
-  | VRun Deps (RValV e)
+data Value f a
+  = VExt a
+  | VClosure (Scope () Expr (Thunk (Lazy a)))
+  | VRun Deps (RValV a)
   | VFunc Deps FuncID
   | VType Type
-  | VAttr (Map String (f (Value f e)))
+  | VAttr (Map String (f (Value f a)))
 
 newtype Hash = Hash Int
   deriving newtype (Eq, Ord, Hashable)
