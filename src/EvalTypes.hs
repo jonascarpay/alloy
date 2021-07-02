@@ -13,8 +13,8 @@ import Bound.Scope.Simple
 import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Writer
+import Data.Functor.Identity
 import Data.Hashable
-import Data.Hashable.Lifted
 import Data.IORef
 import Data.Map (Map)
 import Data.Void
@@ -24,7 +24,7 @@ import GHC.Generics
 data Value f a
   = VExt a
   | VClosure (Scope () Expr (Thunk (Lazy a)))
-  | VRun Deps (RValV a)
+  | VRun Deps (RVal Identity Identity Identity Identity a)
   | VFunc Deps FuncID
   | VType Type
   | VAttr (Map String (f (Value f a)))
@@ -68,23 +68,14 @@ newtype FuncID = FuncID Hash
 data Fundef = Fundef
   { funcArgs :: [Type],
     funcRet :: Type,
-    funcBody :: Scope (Maybe Int) RValV Void
+    funcBody ::
+      Scope
+        (Maybe Int)
+        (RVal (Const Type) Identity (Const LabelID) (Const FuncID))
+        Void
   }
   deriving stock (Generic)
   deriving anyclass (Hashable)
-
-newtype RValV a
-  = RValV
-      ( RVal
-          (Const Type)
-          (Place RValV)
-          RValV
-          (Const LabelID)
-          (Const FuncID)
-          a
-      )
-  deriving stock (Generic, Generic1, Functor, Foldable, Traversable)
-  deriving anyclass (Hashable1)
 
 describeValue :: Value f a -> String
 describeValue VClosure {} = "closure"
