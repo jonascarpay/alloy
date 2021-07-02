@@ -1,3 +1,4 @@
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -10,6 +11,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Expr where
@@ -34,20 +36,20 @@ data Expr a
   | Type Type
   | -- | Prim Prim
     -- | BinExpr BinOp (Expr a) (Expr a)
-    Run (RVal Expr Expr Expr Expr Expr a)
+    Run (RVal Expr Expr Expr Expr a)
   deriving (Functor, Foldable, Traversable)
 
-data Place val a
-  = Place a
-  | Deref (val a)
+data Place typ var lbl fun a
+  = Place (var a)
+  | Deref (RVal typ var lbl fun a)
   deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable1)
 
-data RVal typ plc val lbl fun a
-  = RBin BinOp (val a) (val a)
-  | Block (Scope Label (Prog typ plc val lbl fun) a)
-  | Call (fun a) [val a]
-  | PlaceVal (plc a)
+data RVal typ var lbl fun a
+  = RBin BinOp (RVal typ var lbl fun a) (RVal typ var lbl fun a)
+  | Block (Scope Label (Prog typ var lbl fun) a)
+  | Call (fun a) [RVal typ var lbl fun a]
+  | PlaceVal (Place typ var lbl fun a)
   deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable1)
 
@@ -59,21 +61,21 @@ data RVar = RVar
   deriving stock (Generic)
   deriving anyclass (Hashable)
 
-data Prog typ plc val lbl fun a
+data Prog typ plc lbl fun a
   = Decl
       (typ a)
-      (val a)
-      (Scope RVar (Prog typ plc val lbl fun) a)
+      (RVal typ plc lbl fun a)
+      (Scope RVar (Prog typ plc lbl fun) a)
   | Assign
-      (plc a)
-      (val a)
-      (Prog typ plc val lbl fun a)
+      (Place typ plc lbl fun a)
+      (RVal typ plc lbl fun a)
+      (Prog typ plc lbl fun a)
   | Break
       (lbl a)
-      (val a)
+      (RVal typ plc lbl fun a)
   | Expr
-      (val a)
-      (Prog typ plc val lbl fun a)
+      (RVal typ plc lbl fun a)
+      (Prog typ plc lbl fun a)
   deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable1)
 
@@ -85,29 +87,68 @@ instance Monad Expr where
   Pure a >>= f = f a
   App l r >>= f = App (l >>= f) (r >>= f)
   Lam body >>= f = Lam (body >>= lift . f)
-  Run run >>= f = Run $ bindVal f run
+  Run run >>= f = Run $ bindA f run
   Func argTypes retType body >>= f = Func ((>>= f) <$> argTypes) (retType >>= f) (body >>= lift . f)
   Type typ >>= _ = Type typ
 
-bindVal ::
-  Monad f =>
-  (a -> f b) ->
-  RVal f f f f f a ->
-  RVal f f f f f b
-bindVal f (RBin op l r) = RBin op (l >>= f) (r >>= f)
-bindVal f (Block (Scope p)) = Block (Scope $ bindProg (traverse f) p)
-bindVal f (Call fn vs) = Call (fn >>= f) ((>>= f) <$> vs)
-bindVal f (PlaceVal p) = PlaceVal (p >>= f)
+class ASTT ast where
+  bindA :: Monad f => (a -> f b) -> ast f f f f a -> ast f f f f b
 
-bindProg ::
-  Monad f =>
-  (a -> f b) ->
-  Prog f f f f f a ->
-  Prog f f f f f b
-bindProg f (Decl t v (Scope k)) = Decl (t >>= f) (v >>= f) (Scope $ bindProg (traverse f) k)
-bindProg f (Assign p v k) = Assign (p >>= f) (v >>= f) (bindProg f k)
-bindProg f (Break l v) = Break (l >>= f) (v >>= f)
-bindProg f (Expr v k) = Expr (v >>= f) (bindProg f k)
+  -- Mainly acts as proof that scoping an entire prog is equivalent to scoping all subexpressions
+  -- TODO potentially simplify, combine/rewrite hoistScope'
+  -- TODO these might be generalizable. MonadTransControl doesn't work directly, since it places Monad constraints on the inner thing
+  unscopeA ::
+    (Functor t, Functor p, Functor l, Functor f) =>
+    Scope b (ast t p l f) a ->
+    ast (Scope b t) (Scope b p) (Scope b l) (Scope b f) a
+  scopeA ::
+    (Functor t, Functor p, Functor l, Functor f) =>
+    ast (Scope b t) (Scope b p) (Scope b l) (Scope b f) a ->
+    Scope b (ast t p l f) a
+
+instance ASTT Place where
+  bindA f (Place p) = Place (p >>= f)
+  bindA f (Deref v) = Deref (bindA f v)
+
+  unscopeA (Scope (Place a)) = Place (Scope a)
+  unscopeA (Scope (Deref v)) = Deref (unscopeA $ Scope v)
+
+  scopeA (Place (Scope a)) = Scope (Place a)
+  scopeA (Deref v) = Scope (Deref (fromScope $ scopeA v))
+
+type Traversal s t a b = forall f. Applicative f => (a -> f b) -> (s -> f t)
+
+instance ASTT RVal where
+  bindA f (RBin op l r) = RBin op (bindA f l) (bindA f r)
+  bindA f (Block (Scope p)) = Block (Scope $ bindA (traverse f) p)
+  bindA f (Call fn vs) = Call (fn >>= f) (bindA f <$> vs)
+  bindA f (PlaceVal p) = PlaceVal (bindA f p)
+
+  unscopeA (Scope (RBin op l r)) = RBin op (unscopeA $ Scope l) (unscopeA $ Scope r)
+  unscopeA (Scope (Block blk)) = Block (hoistScope unscopeA $ swapScope $ Scope blk)
+  unscopeA (Scope (Call fn args)) = Call (Scope fn) (unscopeA . Scope <$> args)
+  unscopeA (Scope (PlaceVal plc)) = PlaceVal (unscopeA . Scope $ plc)
+
+  scopeA (RBin op l r) = Scope $ RBin op (fromScope . scopeA $ l) (fromScope . scopeA $ r)
+  scopeA (Block blk) = Scope $ Block $ unscope $ swapScope $ hoistScope scopeA blk
+  scopeA (Call (Scope fn) args) = Scope $ Call fn (fromScope . scopeA <$> args)
+  scopeA (PlaceVal p) = Scope $ PlaceVal (fromScope $ scopeA p)
+
+instance ASTT Prog where
+  bindA f (Decl t v (Scope k)) = Decl (t >>= f) (bindA f v) (Scope $ bindA (traverse f) k)
+  bindA f (Assign p v k) = Assign (bindA f p) (bindA f v) (bindA f k)
+  bindA f (Break l v) = Break (l >>= f) (bindA f v)
+  bindA f (Expr v k) = Expr (bindA f v) (bindA f k)
+
+  unscopeA (Scope (Decl t v k)) = Decl (Scope t) (unscopeA $ Scope v) (hoistScope unscopeA $ swapScope $ Scope k)
+  unscopeA (Scope (Assign p v k)) = Assign (unscopeA $ Scope p) (unscopeA $ Scope v) (unscopeA $ Scope k)
+  unscopeA (Scope (Break l v)) = Break (Scope l) (unscopeA $ Scope v)
+  unscopeA (Scope (Expr v k)) = Expr (unscopeA $ Scope v) (unscopeA $ Scope k)
+
+  scopeA (Decl (Scope t) v k) = Scope $ Decl t (fromScope $ scopeA v) (unscope $ swapScope $ hoistScope scopeA k)
+  scopeA (Assign p v k) = Scope $ Assign (fromScope $ scopeA p) (fromScope $ scopeA v) (unscope $ scopeA k)
+  scopeA (Break (Scope l) v) = Scope $ Break l (fromScope $ scopeA v)
+  scopeA (Expr v k) = Scope $ Expr (fromScope $ scopeA v) (unscope $ scopeA k)
 
 swapScope :: Functor f => Scope p (Scope q f) a -> Scope q (Scope p f) a
 swapScope = hoistScope' . hoistScope' $ fmap sequence
@@ -124,44 +165,6 @@ hoistScopeM ::
   Scope b f a ->
   m (Scope b' f' a')
 hoistScopeM mf (Scope f) = Scope <$> mf f
-
--- Mainly acts as proof that scoping an entire prog is equivalent to scoping all subexpressions
--- TODO potentially simplify, combine/rewrite hoistScope'
-unscopeProg ::
-  (Functor t, Functor p, Functor v, Functor l, Functor f) =>
-  Scope b (Prog t p v l f) a ->
-  Prog (Scope b t) (Scope b p) (Scope b v) (Scope b l) (Scope b f) a
-unscopeProg (Scope (Decl t v k)) = Decl (Scope t) (Scope v) (hoistScope unscopeProg $ swapScope $ Scope k)
-unscopeProg (Scope (Assign p v k)) = Assign (Scope p) (Scope v) (unscopeProg $ Scope k)
-unscopeProg (Scope (Break l v)) = Break (Scope l) (Scope v)
-unscopeProg (Scope (Expr v k)) = Expr (Scope v) (unscopeProg $ Scope k)
-
-scopeProg ::
-  (Functor t, Functor p, Functor v, Functor l, Functor f) =>
-  Prog (Scope b t) (Scope b p) (Scope b v) (Scope b l) (Scope b f) a ->
-  Scope b (Prog t p v l f) a
-scopeProg (Decl (Scope t) (Scope v) k) = Scope $ Decl t v (unscope $ swapScope $ hoistScope scopeProg k)
-scopeProg (Assign (Scope p) (Scope v) k) = Scope $ Assign p v (unscope $ scopeProg k)
-scopeProg (Break (Scope l) (Scope v)) = Scope $ Break l v
-scopeProg (Expr (Scope v) k) = Scope $ Expr v (unscope $ scopeProg k)
-
-unscopeVal ::
-  (Functor t, Functor p, Functor v, Functor l, Functor f) =>
-  Scope b (RVal t p v l f) a ->
-  RVal (Scope b t) (Scope b p) (Scope b v) (Scope b l) (Scope b f) a
-unscopeVal (Scope (RBin op l r)) = RBin op (Scope l) (Scope r)
-unscopeVal (Scope (Block blk)) = Block (hoistScope unscopeProg $ swapScope $ Scope blk)
-unscopeVal (Scope (Call fn args)) = Call (Scope fn) (Scope <$> args)
-unscopeVal (Scope (PlaceVal plc)) = PlaceVal (Scope plc)
-
-scopeVal ::
-  (Functor t, Functor p, Functor v, Functor l, Functor f) =>
-  RVal (Scope b t) (Scope b p) (Scope b v) (Scope b l) (Scope b f) a ->
-  Scope b (RVal t p v l f) a
-scopeVal (RBin op (Scope l) (Scope r)) = Scope $ RBin op l r
-scopeVal (Block blk) = Scope $ Block $ unscope $ swapScope $ hoistScope scopeProg blk
-scopeVal (Call (Scope fn) args) = Scope $ Call fn (unscope <$> args)
-scopeVal (PlaceVal (Scope plc)) = Scope $ PlaceVal plc
 
 -- TODO Strings aren't prim
 data Prim
@@ -181,9 +184,7 @@ data Type
   deriving stock (Eq, Show, Ord, Generic)
   deriving anyclass (Hashable)
 
--- deriving anyclass (Hashable)
-
--- -- TODO move to orphan module
+-- TODO move to orphan module
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
   hashWithSalt salt m = hashWithSalt salt (M.toList m)
 
