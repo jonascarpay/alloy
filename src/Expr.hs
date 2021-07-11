@@ -16,60 +16,32 @@
 
 module Expr where
 
-import Bound.Scope.Simple
-import Bound.Var
-import Control.Monad.Except
 import Data.ByteString.Short (ShortByteString)
 import Data.Hashable
-import Data.Hashable.Lifted
 import Data.Map (Map)
 import Data.Map qualified as M
 import GHC.Generics
 
 type Name = ShortByteString
 
-data Expr a
-  = Pure a
-  | App (Expr a) (Expr a)
-  | Lam (Scope () Expr a)
-  | Func [Expr a] (Expr a) (Scope (Maybe Int) Expr a) -- Nothing is rec call, Just n is arg
+data Expr
+  = Var Name
+  | App Expr Expr
+  | Lam Name Expr
+  | Func [Expr] Expr Expr
+  | BinExpr BinOp Expr Expr
   | Type Type
-  | -- | Prim Prim
-    -- | BinExpr BinOp (Expr a) (Expr a)
-    Run (Prog Expr Expr Expr Expr a)
-  deriving (Functor, Foldable, Traversable)
+  | Run ProgE
+  deriving stock (Generic)
+  deriving anyclass (Hashable)
 
-data Prog typ plc val lbl a
-  = Decl
-      (typ a)
-      (val a)
-      (Scope RVar (Prog typ plc val lbl) a)
-  | Assign
-      (plc a)
-      (val a)
-      (Prog typ plc val lbl a)
-  | Break
-      (lbl a)
-      (val a)
-  | Expr
-      (val a)
-      (Prog typ plc val lbl a)
-  deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
-  deriving anyclass (Hashable1)
-
-data Place val a
-  = Place a
-  | Deref (val a)
-  deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
-  deriving anyclass (Hashable1)
-
-data RVal plc fun prg a
-  = RBin BinOp (RVal plc fun prg a) (RVal plc fun prg a)
-  | Block (Scope Label prg a)
-  | Call (fun a) [RVal plc fun prg a]
-  | PlaceVal (plc a)
-  deriving stock (Functor, Foldable, Traversable, Generic, Generic1)
-  deriving anyclass (Hashable1)
+data ProgE
+  = DeclE Expr Expr ProgE
+  | AssignE Expr Expr ProgE
+  | BreakE Expr Expr
+  | ExprE Expr ProgE
+  deriving stock (Generic)
+  deriving anyclass (Hashable)
 
 data Label = Label
   deriving stock (Generic)
@@ -78,40 +50,6 @@ data Label = Label
 data RVar = RVar
   deriving stock (Generic)
   deriving anyclass (Hashable)
-
-instance Applicative Expr where
-  pure = Pure
-  (<*>) = ap
-
-instance Monad Expr where
-  Pure a >>= f = f a
-  App l r >>= f = App (l >>= f) (r >>= f)
-  Lam body >>= f = Lam (body >>= lift . f)
-  Run prg >>= f = Run $ bindProg f prg
-  Func argTypes retType body >>= f = Func ((>>= f) <$> argTypes) (retType >>= f) (body >>= lift . f)
-  Type typ >>= _ = Type typ
-
-bindProg :: Monad f => (a -> f b) -> Prog f f f f a -> Prog f f f f b
-bindProg f (Decl t v (Scope k)) = Decl (t >>= f) (v >>= f) (Scope $ bindProg (traverse f) k)
-bindProg f (Assign p v k) = Assign (p >>= f) (v >>= f) (bindProg f k)
-bindProg f (Break l v) = Break (l >>= f) (v >>= f)
-bindProg f (Expr v k) = Expr (v >>= f) (bindProg f k)
-
-swapScope :: Functor f => Scope p (Scope q f) a -> Scope q (Scope p f) a
-swapScope = hoistScope' . hoistScope' $ fmap sequence
-
-hoistScope' ::
-  (f (Var b a) -> f' (Var b' a')) ->
-  Scope b f a ->
-  Scope b' f' a'
-hoistScope' fn (Scope f) = Scope (fn f)
-
-hoistScopeM ::
-  Functor m =>
-  (f (Var b a) -> m (f' (Var b' a'))) ->
-  Scope b f a ->
-  m (Scope b' f' a')
-hoistScopeM mf (Scope f) = Scope <$> mf f
 
 -- TODO Strings aren't prim
 data Prim

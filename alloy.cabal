@@ -25,14 +25,13 @@ common common-options
   build-depends:
     , array
     , base                >=4.9 && <5
-    , bound
     , bytestring
     , containers
     , directory
     , filepath
     , hashable
     , haskeline
-    , lens
+    , microlens-platform
     , mtl
     , parser-combinators
     , prettyprinter
@@ -51,7 +50,9 @@ library
   hs-source-dirs:     src
   exposed-modules:
     Eval
-    EvalTypes
+    Eval.Lenses
+    Eval.Lib
+    Eval.Types
     Expr
     Lib.Fix
     Parser.Lexer
