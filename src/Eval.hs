@@ -7,7 +7,6 @@ module Eval where
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer
-import Data.Void
 import Eval.Lenses
 import Eval.Lib
 import Eval.Types
@@ -36,6 +35,14 @@ compileBlock (DeclE name typ val k) = do
   k' <- localVar name $ \ix ->
     bindVar ix <$> compileBlock k
   pure (Decl typ' val' k')
+compileBlock (AssignE lhs rhs k) = do
+  lhs' <- compilePlace lhs
+  rhs' <- compileValue rhs
+  k' <- compileBlock k
+  pure $ Assign lhs' rhs' k'
 
 compileValue :: Expr -> Comp (RTVal VarIX LabelIX FuncIX)
 compileValue = undefined
+
+compilePlace :: Expr -> Comp (RTPlace VarIX LabelIX FuncIX)
+compilePlace = undefined

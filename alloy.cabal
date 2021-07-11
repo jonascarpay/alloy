@@ -54,7 +54,6 @@ library
     Eval.Lib
     Eval.Types
     Expr
-    Lib.Fix
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
