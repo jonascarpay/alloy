@@ -8,7 +8,7 @@ import Data.IORef
 import Eval.Lenses
 import Eval.Types
 import Expr (Name)
-import Lens.Micro.Platform
+import Lens.Micro.Platform hiding (ix)
 
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
@@ -39,3 +39,24 @@ force (Thunk ref) = do
       a <- m
       liftIO $ writeIORef ref (Right a)
       pure a
+
+localLabel ::
+  Name -> (LabelIX -> Comp a) -> Comp a
+localLabel lbl k = do
+  ix <- view lblSource
+  tix <- lift . lift $ refer (VLbl ix)
+  flip local (k ix) $ \env ->
+    env
+      & binds . at lbl ?~ tix
+      & lblSource %~ succ
+
+shiftLabel ::
+  RTProg VarIX LabelIX FuncIX ->
+  RTProg VarIX (Bind () LabelIX) FuncIX
+shiftLabel = over rtProgLabels Free
+
+bindLabel ::
+  LabelIX ->
+  RTProg VarIX LabelIX FuncIX ->
+  RTProg VarIX (Bind () LabelIX) FuncIX
+bindLabel cap = over rtProgLabels (\ix -> if ix == cap then Bound () else Free ix)
