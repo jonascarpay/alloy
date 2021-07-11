@@ -15,6 +15,7 @@ import Control.Monad.Except
 import Control.Monad.Writer
 import Data.Functor.Identity
 import Data.Hashable
+import Data.Hashable.Lifted
 import Data.IORef
 import Data.Map (Map)
 import Data.Void
@@ -24,7 +25,7 @@ import GHC.Generics
 data Value f a
   = VExt a
   | VClosure (Scope () Expr (Thunk (Lazy a)))
-  | VRun Deps (RVal Identity Identity Identity Identity a)
+  | VRun Deps (CompVal a)
   | VFunc Deps FuncID
   | VType Type
   | VAttr (Map String (f (Value f a)))
@@ -71,11 +72,34 @@ data Fundef = Fundef
     funcBody ::
       Scope
         (Maybe Int)
-        (RVal (Const Type) Identity (Const LabelID) (Const FuncID))
+        CompVal
         Void
   }
   deriving stock (Generic)
   deriving anyclass (Hashable)
+
+newtype CompVal a
+  = CompVal
+      ( RVal
+          (Place CompVal)
+          (Either FuncID)
+          CompProg
+          a
+      )
+  deriving stock (Generic1)
+  deriving anyclass (Hashable1)
+
+newtype CompProg a
+  = CompProg
+      ( Prog
+          (Either Type)
+          (Place CompVal)
+          CompVal
+          (Either Label)
+          a
+      )
+  deriving stock (Generic1)
+  deriving anyclass (Hashable1)
 
 describeValue :: Value f a -> String
 describeValue VClosure {} = "closure"

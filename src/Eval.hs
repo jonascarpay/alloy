@@ -33,10 +33,9 @@ whnf prm = go
 compileBlock ::
   Prism' a (Thunk (Lazy a)) ->
   Prog Expr Expr Expr Expr a ->
-  Comp (Prog typ plc var fun a)
+  Comp (CompProg a)
 compileBlock prm (Break lbl val) = do
   lbl' <-
     lift (whnf prm lbl) >>= \case
-      _ -> undefined
-  val' <- undefined
-  pure $ Break lbl' val'
+      VExt a -> pure $ pure a
+  pure $ CompProg $ Break lbl' undefined
