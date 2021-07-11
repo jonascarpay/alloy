@@ -30,4 +30,12 @@ whnf (Run mlbl prog) = do
   pure $ VRun deps (Block prog')
 
 compileBlock :: ProgE -> Comp (RTProg VarIX LabelIX FuncIX)
-compileBlock = undefined
+compileBlock (DeclE name typ val k) = do
+  typ' <- lift (whnf typ) >>= ensureType
+  val' <- compileValue val
+  k' <- localVar name $ \ix ->
+    bindVar ix <$> compileBlock k
+  pure (Decl typ' val' k')
+
+compileValue :: Expr -> Comp (RTVal VarIX LabelIX FuncIX)
+compileValue = undefined

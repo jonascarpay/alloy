@@ -39,6 +39,7 @@ newtype Thunk = Thunk (IORef (Either (EvalBase Lazy) Lazy))
 type Lazy = Value Thunk
 
 newtype VarIX = VarIX Int
+  deriving newtype (Eq, Enum)
 
 newtype LabelIX = LabelIX Int
   deriving newtype (Eq, Enum)

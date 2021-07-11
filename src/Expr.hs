@@ -36,7 +36,7 @@ data Expr
   deriving anyclass (Hashable)
 
 data ProgE
-  = DeclE Expr Expr ProgE
+  = DeclE Name Expr Expr ProgE
   | AssignE Expr Expr ProgE
   | BreakE Expr Expr
   | ExprE Expr ProgE

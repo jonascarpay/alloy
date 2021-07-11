@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Eval.Lib where
@@ -7,7 +8,7 @@ import Control.Monad.Reader
 import Data.IORef
 import Eval.Lenses
 import Eval.Types
-import Expr (Name)
+import Expr (Name, Type)
 import Lens.Micro.Platform hiding (ix)
 
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
@@ -55,8 +56,31 @@ shiftLabel ::
   RTProg VarIX (Bind () LabelIX) FuncIX
 shiftLabel = over rtProgLabels Free
 
+bind :: Eq a => a -> a -> Bind () a
+bind sub a = if a == sub then Bound () else Free a
+
 bindLabel ::
   LabelIX ->
   RTProg VarIX LabelIX FuncIX ->
   RTProg VarIX (Bind () LabelIX) FuncIX
-bindLabel cap = over rtProgLabels (\ix -> if ix == cap then Bound () else Free ix)
+bindLabel cap = over rtProgLabels (bind cap)
+
+localVar ::
+  Name -> (VarIX -> Comp a) -> Comp a
+localVar var k = do
+  ix <- view varSource
+  tix <- lift . lift $ refer (VVar ix)
+  flip local (k ix) $ \env ->
+    env
+      & binds . at var ?~ tix
+      & varSource %~ succ
+
+bindVar ::
+  VarIX ->
+  RTProg VarIX LabelIX FuncIX ->
+  RTProg (Bind () VarIX) LabelIX FuncIX
+bindVar cap = over rtProgVars (bind cap)
+
+ensureType :: MonadError String m => Lazy -> m Type
+ensureType (VType typ) = pure typ
+ensureType val = throwError $ "Expected a type, but got a " <> describeValue val
