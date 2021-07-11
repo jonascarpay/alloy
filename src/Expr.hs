@@ -38,16 +38,8 @@ data Expr
 data ProgE
   = DeclE Name Expr Expr ProgE
   | AssignE Expr Expr ProgE
-  | BreakE Expr Expr
+  | BreakE (Maybe Expr) Expr
   | ExprE Expr ProgE
-  deriving stock (Generic)
-  deriving anyclass (Hashable)
-
-data Label = Label
-  deriving stock (Generic)
-  deriving anyclass (Hashable)
-
-data RVar = RVar
   deriving stock (Generic)
   deriving anyclass (Hashable)
 

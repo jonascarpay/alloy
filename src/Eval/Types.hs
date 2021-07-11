@@ -21,11 +21,11 @@ import GHC.Generics
 -- Maybe there is some type-level way to make clearer that that is not possible in this case.
 data Value f
   = VClosure Name Expr
-  | VRun Deps (RTVal VarIX LabelIX FuncIX)
+  | VRun Deps (RTVal VarIX BlockIX FuncIX)
   | VFunc Deps FuncIX
   | VType Type
   | VVar VarIX
-  | VLbl LabelIX
+  | VBlk BlockIX
   | VAttr (Map Name f)
 
 newtype Hash = Hash Int
@@ -41,7 +41,7 @@ type Lazy = Value Thunk
 newtype VarIX = VarIX Int
   deriving newtype (Eq, Enum)
 
-newtype LabelIX = LabelIX Int
+newtype BlockIX = BlockIX Int
   deriving newtype (Eq, Enum)
 
 newtype FuncIX = FuncIX Int
@@ -52,25 +52,25 @@ data Bind b a
   deriving stock (Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
-data RTProg var lbl fun
-  = Decl Type (RTVal var lbl fun) (RTProg (Bind () var) lbl fun)
-  | Assign (RTPlace var lbl fun) (RTVal var lbl fun) (RTProg var lbl fun)
-  | Break lbl (RTVal var lbl fun)
-  | ExprStmt (RTVal var lbl fun) (RTProg var lbl fun)
+data RTProg var blk fun
+  = Decl Type (RTVal var blk fun) (RTProg (Bind () var) blk fun)
+  | Assign (RTPlace var blk fun) (RTVal var blk fun) (RTProg var blk fun)
+  | Break blk (RTVal var blk fun)
+  | ExprStmt (RTVal var blk fun) (RTProg var blk fun)
   deriving stock (Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
-data RTVal var lbl fun
-  = RBin BinOp (RTVal var lbl fun) (RTVal var lbl fun)
-  | Call fun [RTVal var lbl fun]
-  | PlaceVal (RTPlace var lbl fun)
-  | Block (RTProg var (Bind () lbl) fun)
+data RTVal var blk fun
+  = RBin BinOp (RTVal var blk fun) (RTVal var blk fun)
+  | Call fun [RTVal var blk fun]
+  | PlaceVal (RTPlace var blk fun)
+  | Block (RTProg var (Bind () blk) fun)
   deriving stock (Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
-data RTPlace var lbl fun
+data RTPlace var blk fun
   = Place var
-  | Deref (RTVal var lbl fun)
+  | Deref (RTVal var blk fun)
   deriving stock (Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
@@ -94,5 +94,5 @@ type Comp = WriterT Deps Eval
 data EvalEnv = EvalEnv
   { _binds :: Map Name Thunk,
     _varSource :: VarIX,
-    _lblSource :: LabelIX
+    _blkSource :: BlockIX
   }

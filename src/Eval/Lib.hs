@@ -41,29 +41,19 @@ force (Thunk ref) = do
       liftIO $ writeIORef ref (Right a)
       pure a
 
-localLabel ::
-  Name -> (LabelIX -> Comp a) -> Comp a
-localLabel lbl k = do
-  ix <- view lblSource
-  tix <- lift . lift $ refer (VLbl ix)
-  flip local (k ix) $ \env ->
-    env
-      & binds . at lbl ?~ tix
-      & lblSource %~ succ
-
-shiftLabel ::
-  RTProg VarIX LabelIX FuncIX ->
-  RTProg VarIX (Bind () LabelIX) FuncIX
-shiftLabel = over rtProgLabels Free
+localBlock :: MonadReader EvalEnv m => (BlockIX -> m a) -> m a
+localBlock k = do
+  ix <- view blkSource
+  local (blkSource %~ succ) (k ix)
 
 bind :: Eq a => a -> a -> Bind () a
 bind sub a = if a == sub then Bound () else Free a
 
-bindLabel ::
-  LabelIX ->
-  RTProg VarIX LabelIX FuncIX ->
-  RTProg VarIX (Bind () LabelIX) FuncIX
-bindLabel cap = over rtProgLabels (bind cap)
+bindBlock ::
+  BlockIX ->
+  RTProg VarIX BlockIX FuncIX ->
+  RTProg VarIX (Bind () BlockIX) FuncIX
+bindBlock cap = over rtProgLabels (bind cap)
 
 localVar ::
   Name -> (VarIX -> Comp a) -> Comp a
@@ -77,14 +67,14 @@ localVar var k = do
 
 bindVar ::
   VarIX ->
-  RTProg VarIX LabelIX FuncIX ->
-  RTProg (Bind () VarIX) LabelIX FuncIX
+  RTProg VarIX BlockIX FuncIX ->
+  RTProg (Bind () VarIX) BlockIX FuncIX
 bindVar cap = over rtProgVars (bind cap)
 
 ensureType :: MonadError String m => Lazy -> m Type
 ensureType (VType typ) = pure typ
 ensureType val = throwError $ "Expected a type, but got a " <> describeValue val
 
-ensureLabel :: MonadError String m => Lazy -> m LabelIX
-ensureLabel (VLbl ix) = pure ix
-ensureLabel val = throwError $ "Expected a label, but got a " <> describeValue val
+ensureBlock :: MonadError String m => Lazy -> m BlockIX
+ensureBlock (VBlk ix) = pure ix
+ensureBlock val = throwError $ "Expected a label, but got a " <> describeValue val
