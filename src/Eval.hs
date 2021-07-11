@@ -22,35 +22,46 @@ whnf (App f x) = do
     val -> throwError $ "Applying a value to a " <> describeValue val
 whnf (Lam arg body) = pure (VClosure arg body)
 whnf (Type typ) = pure (VType typ)
-whnf (Run mlbl prog) = do
-  (prog', deps) <- runWriterT $ case mlbl of
-    Nothing -> shiftLabel <$> compileBlock prog
-    Just lbl -> localLabel lbl $ \ix -> bindLabel ix <$> compileBlock prog
-  pure $ VRun deps (Block prog')
+whnf (Run mlbl prog) =
+  localBlock $ \blk -> do
+    (prog', deps) <- runWriterT $
+      case mlbl of
+        Nothing -> compileBlock blk prog
+        Just lbl -> do
+          t <- lift . lift $ refer (VBlk blk)
+          local (binds . at lbl ?~ t) (compileBlock blk prog)
+    pure $ VRun deps (Block (bindBlock blk prog'))
 
-compileBlock :: ProgE -> Comp (RTProg VarIX LabelIX FuncIX)
-compileBlock (DeclE name typ val k) = do
-  typ' <- lift (whnf typ) >>= ensureType
-  val' <- compileValue val
-  k' <- localVar name $ \ix ->
-    bindVar ix <$> compileBlock k
-  pure (Decl typ' val' k')
-compileBlock (AssignE lhs rhs k) = do
-  lhs' <- compilePlace lhs
-  rhs' <- compileValue rhs
-  k' <- compileBlock k
-  pure $ Assign lhs' rhs' k'
-compileBlock (BreakE lbl val) = do
-  lbl' <- lift (whnf lbl) >>= ensureLabel
-  val' <- compileValue val
-  pure $ Break lbl' val'
-compileBlock (ExprE val k) = do
-  val' <- compileValue val
-  k' <- compileBlock k
-  pure $ ExprStmt val' k'
+compileBlock ::
+  BlockIX ->
+  ProgE ->
+  Comp (RTProg VarIX BlockIX FuncIX)
+compileBlock blk = go
+  where
+    go (DeclE name typ val k) = do
+      typ' <- lift (whnf typ) >>= ensureType
+      val' <- compileValue val
+      k' <- localVar name $ \ix ->
+        bindVar ix <$> go k
+      pure (Decl typ' val' k')
+    go (AssignE lhs rhs k) = do
+      lhs' <- compilePlace lhs
+      rhs' <- compileValue rhs
+      k' <- go k
+      pure $ Assign lhs' rhs' k'
+    go (BreakE mlbl val) = do
+      lbl' <- case mlbl of
+        Nothing -> pure blk
+        Just lbl -> lift (whnf lbl) >>= ensureBlock
+      val' <- compileValue val
+      pure $ Break lbl' val'
+    go (ExprE val k) = do
+      val' <- compileValue val
+      k' <- go k
+      pure $ ExprStmt val' k'
 
-compileValue :: Expr -> Comp (RTVal VarIX LabelIX FuncIX)
+compileValue :: Expr -> Comp (RTVal VarIX BlockIX FuncIX)
 compileValue = undefined
 
-compilePlace :: Expr -> Comp (RTPlace VarIX LabelIX FuncIX)
+compilePlace :: Expr -> Comp (RTPlace VarIX BlockIX FuncIX)
 compilePlace = undefined
