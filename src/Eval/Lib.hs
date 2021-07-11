@@ -66,10 +66,18 @@ bindVar ::
   RTProg (Bind () VarIX) BlockIX FuncIX
 bindVar cap = over rtProgVars (capture cap)
 
+-- TODO prisms?
+ensureValue :: MonadError String m => String -> (Lazy -> Maybe r) -> Lazy -> m r
+ensureValue ex f v = case f v of
+  Just r -> pure r
+  Nothing -> throwError $ "Expected a " <> ex <> ", but got a " <> describeValue v
+
 ensureType :: MonadError String m => Lazy -> m Type
-ensureType (VType typ) = pure typ
-ensureType val = throwError $ "Expected a type, but got a " <> describeValue val
+ensureType = ensureValue "type" $ \case
+  VType typ -> Just typ
+  _ -> Nothing
 
 ensureBlock :: MonadError String m => Lazy -> m BlockIX
-ensureBlock (VBlk ix) = pure ix
-ensureBlock val = throwError $ "Expected a label, but got a " <> describeValue val
+ensureBlock = ensureValue "block" $ \case
+  VBlk blk -> Just blk
+  _ -> Nothing
