@@ -26,10 +26,10 @@ lookupName name =
     Nothing -> throwError $ "Unknown variable: " <> show name
     Just t -> pure t
 
-defer :: EvalBase Lazy -> EvalBase Thunk
+defer :: MonadIO m => EvalBase Lazy -> m Thunk
 defer = fmap Thunk . liftIO . newIORef . Left
 
-refer :: Lazy -> EvalBase Thunk
+refer :: MonadIO m => Lazy -> m Thunk
 refer = fmap Thunk . liftIO . newIORef . Right
 
 force :: Thunk -> EvalBase Lazy

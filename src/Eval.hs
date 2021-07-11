@@ -16,7 +16,7 @@ import Lens.Micro.Platform hiding (ix)
 whnf :: Expr -> Eval Lazy
 whnf (Var name) = lookupName name >>= lift . force
 whnf (App f x) = do
-  tx <- close (whnf x) >>= lift . defer
+  tx <- close (whnf x) >>= defer
   whnf f >>= \case
     VClosure arg body -> local (binds . at arg ?~ tx) (whnf body)
     val -> throwError $ "Applying a value to a " <> describeValue val
@@ -28,7 +28,7 @@ whnf (Run mlbl prog) =
       case mlbl of
         Nothing -> compileBlock blk prog
         Just lbl -> do
-          t <- lift . lift $ refer (VBlk blk)
+          t <- refer (VBlk blk)
           local (binds . at lbl ?~ t) (compileBlock blk prog)
     pure $ VRun deps (Block (bindBlock blk prog'))
 
@@ -42,8 +42,8 @@ compileBlock blk = go
       typ' <- lift (whnf typ) >>= ensureType
       val' <- compileValue val
       k' <- localVar $ \ix -> do
-        tix <- lift . lift $ refer (VVar ix)
-        local (binds . at name ?~ tix) $
+        t <- refer (VVar ix)
+        local (binds . at name ?~ t) $
           bindVar ix <$> go k
       pure (Decl typ' val' k')
     go (AssignE lhs rhs k) = do
