@@ -46,3 +46,6 @@ rtPlace fv fl ff = go
 
 rtProgLabels :: Traversal (RTProg var lbl fun) (RTProg var lbl' fun) lbl lbl'
 rtProgLabels f = rtProg pure f pure
+
+rtProgVars :: Traversal (RTProg var lbl fun) (RTProg var' lbl fun) var var'
+rtProgVars f = rtProg f pure pure
