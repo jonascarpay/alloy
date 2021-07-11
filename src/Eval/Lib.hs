@@ -46,6 +46,11 @@ localBlock k = do
   ix <- view blkSource
   local (blkSource %~ succ) (k ix)
 
+localVar :: MonadReader EvalEnv m => (VarIX -> m a) -> m a
+localVar k = do
+  ix <- view varSource
+  local (varSource %~ succ) (k ix)
+
 capture :: Eq a => a -> a -> Bind () a
 capture sub a = if a == sub then Bound () else Free a
 
@@ -54,16 +59,6 @@ bindBlock ::
   RTProg VarIX BlockIX FuncIX ->
   RTProg VarIX (Bind () BlockIX) FuncIX
 bindBlock cap = over rtProgLabels (capture cap)
-
-localVar ::
-  Name -> (VarIX -> Comp a) -> Comp a
-localVar var k = do
-  ix <- view varSource
-  tix <- lift . lift $ refer (VVar ix)
-  flip local (k ix) $ \env ->
-    env
-      & binds . at var ?~ tix
-      & varSource %~ succ
 
 bindVar ::
   VarIX ->
