@@ -38,30 +38,33 @@ compileBlock blk = go
   where
     go (DeclE name typ val k) = do
       typ' <- lift (whnf typ) >>= ensureType
-      val' <- compileValue val
+      val' <- lift (whnf val) >>= compileValue
       k' <- localVar $ \ix -> do
         t <- refer (VVar ix)
         local (binds . at name ?~ t) $
           bindVar ix <$> go k
       pure (Decl typ' val' k')
     go (AssignE lhs rhs k) = do
-      lhs' <- compilePlace lhs
-      rhs' <- compileValue rhs
+      lhs' <- lift (whnf lhs) >>= compilePlace
+      rhs' <- lift (whnf rhs) >>= compileValue
       k' <- go k
       pure $ Assign lhs' rhs' k'
     go (BreakE mlbl val) = do
       lbl' <- case mlbl of
         Nothing -> pure blk
         Just lbl -> lift (whnf lbl) >>= ensureBlock
-      val' <- compileValue val
+      val' <- lift (whnf val) >>= compileValue
       pure $ Break lbl' val'
     go (ExprE val k) = do
-      val' <- compileValue val
+      val' <- lift (whnf val) >>= compileValue
       k' <- go k
       pure $ ExprStmt val' k'
 
-compileValue :: Expr -> Comp (RTVal VarIX BlockIX FuncIX)
-compileValue = undefined
+compileValue :: Lazy -> Comp (RTVal VarIX BlockIX FuncIX)
+compileValue (VRun deps val) = val <$ tell deps
+compileValue (VVar var) = pure $ PlaceVal $ Place var
+compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
 
-compilePlace :: Expr -> Comp (RTPlace VarIX BlockIX FuncIX)
-compilePlace = undefined
+compilePlace :: Lazy -> Comp (RTPlace VarIX BlockIX FuncIX)
+compilePlace (VVar var) = pure $ Place var
+compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val

@@ -19,6 +19,9 @@ describeValue VClosure {} = "closure"
 describeValue VRun {} = "runtime expression"
 describeValue VFunc {} = "runtime function"
 describeValue VType {} = "type"
+describeValue VVar {} = "runtime variable"
+describeValue VBlk {} = "runtime block"
+describeValue VAttr {} = "attribute set"
 
 lookupName :: Name -> Eval Thunk
 lookupName name =
