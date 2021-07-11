@@ -28,7 +28,8 @@ rtVal ::
   (RTVal var lbl fun -> m (RTVal var' lbl' fun'))
 rtVal fv fl ff = go
   where
-    go (RBin op l r) = RBin op <$> go l <*> go r
+    go (RTArith op l r) = RTArith op <$> go l <*> go r
+    go (RTComp op l r) = RTComp op <$> go l <*> go r
     go (Call fun args) = Call <$> ff fun <*> traverse go args
     go (PlaceVal plc) = PlaceVal <$> rtPlace fv fl ff plc
     go (Block blk) = Block <$> rtProg fv (traverse fl) ff blk

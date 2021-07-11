@@ -2,6 +2,7 @@
 
 module Eval where
 
+import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer
@@ -29,6 +30,22 @@ whnf (Run mlbl prog) =
           t <- refer (VBlk blk)
           local (binds . at lbl ?~ t) (compileBlock blk prog)
     pure $ VRun deps (Block (bindBlock blk prog'))
+whnf (BinExpr op a b) = do
+  a' <- whnf a
+  b' <- whnf b
+  binOp op a' b'
+
+binOp :: BinOp -> Lazy -> Lazy -> Eval Lazy
+binOp (ArithOp op) a@VRun {} b = uncompileVal $ liftA2 (RTArith op) (compileValue a) (compileValue b)
+binOp (ArithOp op) a b@VRun {} = uncompileVal $ liftA2 (RTArith op) (compileValue a) (compileValue b)
+binOp (CompOp op) a@VRun {} b = uncompileVal $ liftA2 (RTComp op) (compileValue a) (compileValue b)
+binOp (CompOp op) a b@VRun {} = uncompileVal $ liftA2 (RTComp op) (compileValue a) (compileValue b)
+binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
+binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
+binOp Concat l r = throwError $ unwords ["cannot concatenate a", describeValue l, "and a", describeValue r]
+
+uncompileVal :: Comp (RTVal VarIX BlockIX FuncIX) -> Eval Lazy
+uncompileVal m = (\(val, dep) -> VRun dep val) <$> runWriterT m
 
 compileBlock ::
   BlockIX ->
