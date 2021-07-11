@@ -46,14 +46,14 @@ localBlock k = do
   ix <- view blkSource
   local (blkSource %~ succ) (k ix)
 
-bind :: Eq a => a -> a -> Bind () a
-bind sub a = if a == sub then Bound () else Free a
+capture :: Eq a => a -> a -> Bind () a
+capture sub a = if a == sub then Bound () else Free a
 
 bindBlock ::
   BlockIX ->
   RTProg VarIX BlockIX FuncIX ->
   RTProg VarIX (Bind () BlockIX) FuncIX
-bindBlock cap = over rtProgLabels (bind cap)
+bindBlock cap = over rtProgLabels (capture cap)
 
 localVar ::
   Name -> (VarIX -> Comp a) -> Comp a
@@ -69,7 +69,7 @@ bindVar ::
   VarIX ->
   RTProg VarIX BlockIX FuncIX ->
   RTProg (Bind () VarIX) BlockIX FuncIX
-bindVar cap = over rtProgVars (bind cap)
+bindVar cap = over rtProgVars (capture cap)
 
 ensureType :: MonadError String m => Lazy -> m Type
 ensureType (VType typ) = pure typ
