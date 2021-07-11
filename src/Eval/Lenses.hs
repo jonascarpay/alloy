@@ -43,3 +43,6 @@ rtPlace fv fl ff = go
   where
     go (Place var) = Place <$> fv var
     go (Deref val) = Deref <$> rtVal fv fl ff val
+
+rtProgLabels :: Traversal (RTProg var lbl fun) (RTProg var lbl' fun) lbl lbl'
+rtProgLabels f = rtProg pure f pure

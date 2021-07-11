@@ -31,7 +31,7 @@ data Expr
   | Func [Expr] Expr Expr
   | BinExpr BinOp Expr Expr
   | Type Type
-  | Run ProgE
+  | Run (Maybe Name) ProgE
   deriving stock (Generic)
   deriving anyclass (Hashable)
 

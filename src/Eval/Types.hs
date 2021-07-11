@@ -8,6 +8,7 @@ module Eval.Types where
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.Writer
 import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
@@ -40,6 +41,7 @@ type Lazy = Value Thunk
 newtype VarIX = VarIX Int
 
 newtype LabelIX = LabelIX Int
+  deriving newtype (Eq, Enum)
 
 newtype FuncIX = FuncIX Int
 
@@ -86,14 +88,10 @@ newtype EvalBase a = EvalBase (ExceptT String IO a)
 --   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError String, MonadReader EvalEnv)
 type Eval = ReaderT EvalEnv EvalBase
 
+type Comp = WriterT Deps Eval
+
 data EvalEnv = EvalEnv
   { _binds :: Map Name Thunk,
     _varSource :: VarIX,
     _lblSource :: LabelIX
   }
-
-newtype LabelID = LabelID Int
-  deriving newtype (Hashable)
-
-newtype FuncID = FuncID Hash
-  deriving newtype (Hashable)
