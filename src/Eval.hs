@@ -41,8 +41,10 @@ compileBlock blk = go
     go (DeclE name typ val k) = do
       typ' <- lift (whnf typ) >>= ensureType
       val' <- compileValue val
-      k' <- localVar name $ \ix ->
-        bindVar ix <$> go k
+      k' <- localVar $ \ix -> do
+        tix <- lift . lift $ refer (VVar ix)
+        local (binds . at name ?~ tix) $
+          bindVar ix <$> go k
       pure (Decl typ' val' k')
     go (AssignE lhs rhs k) = do
       lhs' <- compilePlace lhs
