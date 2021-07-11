@@ -44,6 +44,10 @@ compileBlock (BreakE lbl val) = do
   lbl' <- lift (whnf lbl) >>= ensureLabel
   val' <- compileValue val
   pure $ Break lbl' val'
+compileBlock (ExprE val k) = do
+  val' <- compileValue val
+  k' <- compileBlock k
+  pure $ ExprStmt val' k'
 
 compileValue :: Expr -> Comp (RTVal VarIX LabelIX FuncIX)
 compileValue = undefined
