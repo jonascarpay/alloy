@@ -16,7 +16,7 @@ rtProg ::
 rtProg fv fl ff = go
   where
     go (Decl typ val k) = Decl typ <$> rtVal fv fl ff val <*> rtProg (traverse fv) fl ff k
-    go (Assign plc) = Assign <$> rtPlace fv fl ff plc
+    go (Assign lhs rhs k) = Assign <$> rtPlace fv fl ff lhs <*> rtVal fv fl ff rhs <*> go k
     go (Break lbl val) = Break <$> fl lbl <*> rtVal fv fl ff val
     go (ExprStmt val k) = ExprStmt <$> rtVal fv fl ff val <*> go k
 

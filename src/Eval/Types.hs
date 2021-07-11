@@ -54,7 +54,7 @@ data Bind b a
 
 data RTProg var lbl fun
   = Decl Type (RTVal var lbl fun) (RTProg (Bind () var) lbl fun)
-  | Assign (RTPlace var lbl fun)
+  | Assign (RTPlace var lbl fun) (RTVal var lbl fun) (RTProg var lbl fun)
   | Break lbl (RTVal var lbl fun)
   | ExprStmt (RTVal var lbl fun) (RTProg var lbl fun)
   deriving stock (Functor, Foldable, Traversable, Generic)
