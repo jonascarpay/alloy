@@ -84,3 +84,7 @@ bindVar cap = over rtProgVars (bind cap)
 ensureType :: MonadError String m => Lazy -> m Type
 ensureType (VType typ) = pure typ
 ensureType val = throwError $ "Expected a type, but got a " <> describeValue val
+
+ensureLabel :: MonadError String m => Lazy -> m LabelIX
+ensureLabel (VLbl ix) = pure ix
+ensureLabel val = throwError $ "Expected a label, but got a " <> describeValue val

@@ -40,6 +40,10 @@ compileBlock (AssignE lhs rhs k) = do
   rhs' <- compileValue rhs
   k' <- compileBlock k
   pure $ Assign lhs' rhs' k'
+compileBlock (BreakE lbl val) = do
+  lbl' <- lift (whnf lbl) >>= ensureLabel
+  val' <- compileValue val
+  pure $ Break lbl' val'
 
 compileValue :: Expr -> Comp (RTVal VarIX LabelIX FuncIX)
 compileValue = undefined
