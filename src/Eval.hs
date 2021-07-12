@@ -14,10 +14,11 @@ import Lens.Micro.Platform hiding (ix)
 
 whnf :: Expr -> Eval Lazy
 whnf (Var name) = lookupName name >>= lift . force
-whnf (App f x) = do
-  tx <- close (whnf x) >>= defer
+whnf (App f x) =
   whnf f >>= \case
-    VClosure arg body -> local (binds . at arg ?~ tx) (whnf body)
+    VClosure arg body -> do
+      tx <- close (whnf x) >>= defer
+      local (binds . at arg ?~ tx) (whnf body)
     val -> throwError $ "Applying a value to a " <> describeValue val
 whnf (Lam arg body) = pure (VClosure arg body)
 whnf (Type typ) = pure (VType typ)
