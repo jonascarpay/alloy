@@ -29,11 +29,12 @@ whnf (Run mlbl prog) =
         Just lbl -> do
           t <- refer (VBlk blk)
           local (binds . at lbl ?~ t) (compileBlock blk prog)
-    pure $ VRun deps (Block (bindBlock blk prog'))
+    pure $ VRun deps (Block (abstract1Over rtProgLabels blk prog'))
 whnf (BinExpr op a b) = do
   a' <- whnf a
   b' <- whnf b
   binOp op a' b'
+whnf (Func args ret body) = undefined
 
 binOp :: BinOp -> Lazy -> Lazy -> Eval Lazy
 binOp (ArithOp op) a@VRun {} b = uncompileVal $ liftA2 (RTArith op) (compileValue a) (compileValue b)
@@ -59,7 +60,7 @@ compileBlock blk = go
       k' <- localVar $ \ix -> do
         t <- refer (VVar ix)
         local (binds . at name ?~ t) $
-          bindVar ix <$> go k
+          abstract1Over rtProgVars ix <$> go k
       pure (Decl typ' val' k')
     go (AssignE lhs rhs k) = do
       lhs' <- lift (whnf lhs) >>= compilePlace
