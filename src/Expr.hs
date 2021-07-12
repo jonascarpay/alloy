@@ -18,7 +18,7 @@ data Expr
   = Var Name
   | App Expr Expr
   | Lam Name Expr
-  | Func [Expr] Expr Expr
+  | Func [(Name, Expr)] Expr Expr
   | BinExpr BinOp Expr Expr
   | Type Type
   | Run (Maybe Name) ProgE
