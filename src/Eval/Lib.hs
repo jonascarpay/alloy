@@ -40,6 +40,7 @@ force (Thunk ref) = do
   liftIO (readIORef ref) >>= \case
     Right a -> pure a
     Left m -> do
+      liftIO $ writeIORef ref (Left $ throwError "infinite recursion")
       a <- m
       liftIO $ writeIORef ref (Right a)
       pure a
