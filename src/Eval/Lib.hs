@@ -56,11 +56,22 @@ localVar k = do
   ix <- view varSource
   local (varSource %~ succ) (k ix)
 
+-- TODO maybe just Int -> ([VarIX] -> m a) -> m a
+localVars :: MonadReader EvalEnv m => [a] -> ([(a, VarIX)] -> m r) -> m r
+localVars as m = do
+  let n = length as
+  VarIX ix <- view varSource
+  let ixs = VarIX <$> [ix ..]
+  local (varSource .~ VarIX (ix + n)) (m $ zip as ixs)
+
 abstractOver :: Traversal s t a (Bind b a) -> (a -> Maybe b) -> s -> t
 abstractOver t f = over t (\a -> maybe (Free a) Bound (f a))
 
 abstract1Over :: Eq a => Traversal s t a (Bind () a) -> a -> s -> t
 abstract1Over t a = over t (\var -> if var == a then Bound () else Free var)
+
+closedOver :: Traversal s t a b -> s -> Maybe t
+closedOver t = t (const Nothing)
 
 -- TODO prisms?
 ensureValue :: MonadError String m => String -> (Lazy -> Maybe r) -> Lazy -> m r

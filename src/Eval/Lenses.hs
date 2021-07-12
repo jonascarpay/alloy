@@ -7,6 +7,7 @@ import Lens.Micro.Platform
 
 makeLenses ''EvalEnv
 
+--  TODO maybe just make a type class for these
 rtProg ::
   Applicative m =>
   (var -> m var') ->
@@ -50,3 +51,9 @@ rtProgLabels f = rtProg pure f pure
 
 rtProgVars :: Traversal (RTProg var lbl fun) (RTProg var' lbl fun) var var'
 rtProgVars f = rtProg f pure pure
+
+rtValVars :: Traversal (RTVal var lbl fun) (RTVal var' lbl fun) var var'
+rtValVars f = rtVal f pure pure
+
+rtValLabels :: Traversal (RTVal var lbl fun) (RTVal var lbl' fun) lbl lbl'
+rtValLabels f = rtVal pure f pure

@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 module Eval where
 
@@ -6,6 +7,9 @@ import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer
+import Data.Hashable
+import Data.List (findIndex)
+import Data.Map qualified as M
 import Eval.Lenses
 import Eval.Lib
 import Eval.Types
@@ -24,35 +28,54 @@ whnf (Lam arg body) = pure (VClosure arg body)
 whnf (Type typ) = pure (VType typ)
 whnf (Run mlbl prog) =
   localBlock $ \blk -> do
-    (prog', deps) <- runWriterT $
+    fromComp (\deps prog' -> VRun deps (Block (abstract1Over rtProgLabels blk prog'))) $
       case mlbl of
         Nothing -> compileBlock blk prog
         Just lbl -> do
           t <- refer (VBlk blk)
           local (binds . at lbl ?~ t) (compileBlock blk prog)
-    pure $ VRun deps (Block (abstract1Over rtProgLabels blk prog'))
 whnf (BinExpr op a b) = do
   a' <- whnf a
   b' <- whnf b
   binOp op a' b'
-whnf (Func args ret body) = undefined
+whnf (Func args ret body) = fromComp VFunc $ compileFunc args ret body
+
+compileFunc :: [(Name, Expr)] -> Expr -> Expr -> Comp Hash
+compileFunc args ret body = do
+  ret' <- lift (whnf ret) >>= ensureType
+  args' <- forM args $ traverse $ lift . whnf >=> ensureType
+  localVars args' $ \ixs -> do
+    body' <- bindVars ixs $ lift (whnf body) >>= compileValue
+    let f ix = findIndex ((== ix) . snd) ixs
+        scoped = abstractOver rtValVars f body'
+    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver rtValVars scoped
+    closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
+    let fundef = RTFunc (snd <$> args') ret' closedBlks
+        guid = Hash $ hash fundef
+    tell $ Deps $ M.singleton guid fundef
+    pure guid
+  where
+    bindVars :: [((Name, Type), VarIX)] -> Comp a -> Comp a
+    bindVars argIxs m = do
+      argThunks <- forM argIxs $ \((name, _), ix) -> (name,) <$> refer (VVar ix)
+      local (binds %~ mappend (M.fromList argThunks)) m
 
 binOp :: BinOp -> Lazy -> Lazy -> Eval Lazy
-binOp (ArithOp op) a@VRun {} b = uncompileVal $ liftA2 (RTArith op) (compileValue a) (compileValue b)
-binOp (ArithOp op) a b@VRun {} = uncompileVal $ liftA2 (RTArith op) (compileValue a) (compileValue b)
-binOp (CompOp op) a@VRun {} b = uncompileVal $ liftA2 (RTComp op) (compileValue a) (compileValue b)
-binOp (CompOp op) a b@VRun {} = uncompileVal $ liftA2 (RTComp op) (compileValue a) (compileValue b)
+binOp (ArithOp op) a@VRun {} b = fromComp VRun $ liftA2 (RTArith op) (compileValue a) (compileValue b)
+binOp (ArithOp op) a b@VRun {} = fromComp VRun $ liftA2 (RTArith op) (compileValue a) (compileValue b)
+binOp (CompOp op) a@VRun {} b = fromComp VRun $ liftA2 (RTComp op) (compileValue a) (compileValue b)
+binOp (CompOp op) a b@VRun {} = fromComp VRun $ liftA2 (RTComp op) (compileValue a) (compileValue b)
 binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
 binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
 binOp Concat l r = throwError $ unwords ["cannot concatenate a", describeValue l, "and a", describeValue r]
 
-uncompileVal :: Comp (RTVal VarIX BlockIX FuncIX) -> Eval Lazy
-uncompileVal m = (\(val, dep) -> VRun dep val) <$> runWriterT m
+fromComp :: (Deps -> a -> r) -> Comp a -> Eval r
+fromComp f m = (\(a, dep) -> f dep a) <$> runWriterT m
 
 compileBlock ::
   BlockIX ->
   ProgE ->
-  Comp (RTProg VarIX BlockIX FuncIX)
+  Comp (RTProg VarIX BlockIX Hash)
 compileBlock blk = go
   where
     go (DeclE name typ val k) = do
@@ -79,11 +102,12 @@ compileBlock blk = go
       k' <- go k
       pure $ ExprStmt val' k'
 
-compileValue :: Lazy -> Comp (RTVal VarIX BlockIX FuncIX)
+compileValue :: Lazy -> Comp (RTVal VarIX BlockIX Hash)
 compileValue (VRun deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
 compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
 
-compilePlace :: Lazy -> Comp (RTPlace VarIX BlockIX FuncIX)
+-- TODO there should probably be a place value
+compilePlace :: Lazy -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val

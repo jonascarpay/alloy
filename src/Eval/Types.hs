@@ -19,12 +19,12 @@ import GHC.Generics
 -- VVar and VLbl can never escape the scope in which they're defined, because they can only occur after a definer in a runtime expression, and so the surrounding context must evaluate to a runtime expression.
 -- However, this definition makes it seem like we can have free-floating vars/lbls, similar to how a normal value can escape its lexical scope through closures.
 -- Maybe there is some type-level way to make clearer that that is not possible in this case.
--- Maybe they exist as a different binding in a different transformer.
+-- Maybe they exist as a different binding in a different transformer, it's hard to really call them thunks in the first place
 -- In any case, it needs to be stressed that for these, their dynamc scope is their lexical scope.
 data Value f
   = VClosure Name Expr
-  | VRun Deps (RTVal VarIX BlockIX FuncIX)
-  | VFunc Deps FuncIX
+  | VRun Deps (RTVal VarIX BlockIX Hash)
+  | VFunc Deps Hash
   | VType Type
   | VVar VarIX
   | VBlk BlockIX
