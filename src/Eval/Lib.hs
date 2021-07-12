@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Eval.Lib where
 
@@ -55,20 +56,11 @@ localVar k = do
   ix <- view varSource
   local (varSource %~ succ) (k ix)
 
-capture :: Eq a => a -> a -> Bind () a
-capture sub a = if a == sub then Bound () else Free a
+abstractOver :: Traversal s t a (Bind b a) -> (a -> Maybe b) -> s -> t
+abstractOver t f = over t (\a -> maybe (Free a) Bound (f a))
 
-bindBlock ::
-  BlockIX ->
-  RTProg VarIX BlockIX FuncIX ->
-  RTProg VarIX (Bind () BlockIX) FuncIX
-bindBlock cap = over rtProgLabels (capture cap)
-
-bindVar ::
-  VarIX ->
-  RTProg VarIX BlockIX FuncIX ->
-  RTProg (Bind () VarIX) BlockIX FuncIX
-bindVar cap = over rtProgVars (capture cap)
+abstract1Over :: Eq a => Traversal s t a (Bind () a) -> a -> s -> t
+abstract1Over t a = over t (\var -> if var == a then Bound () else Free var)
 
 -- TODO prisms?
 ensureValue :: MonadError String m => String -> (Lazy -> Maybe r) -> Lazy -> m r
