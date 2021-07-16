@@ -35,6 +35,7 @@ whnf (App f x) =
     val -> throwError $ "Applying a value to a " <> describeValue val
 whnf (Lam arg body) = pure (VClosure arg body)
 whnf (Type typ) = pure (VType typ)
+whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) =
   localBlock $ \blk -> do
     fromComp (\deps prog' -> VRun deps (Block (abstract1Over rtProgLabels blk prog'))) $
