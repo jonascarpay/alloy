@@ -24,6 +24,8 @@ data Expr
   | Type Type -- TODO remove
   | Run (Maybe Name) ProgE
   | Let [Binding] Expr
+  | Attr [Binding]
+  | Acc Expr Name
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 

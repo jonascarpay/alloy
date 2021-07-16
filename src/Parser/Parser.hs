@@ -75,8 +75,8 @@ pBinExpr =
 --     (token T.With *> termSemicolon pExpr)
 --     pExpr
 
--- pAttr :: Parser Expr
--- pAttr = braces $ Attr <$> sepEndBy pBinding' (token T.Comma)
+pAttr :: Parser Expr
+pAttr = braces $ Attr <$> many pBinding
 
 pFunc :: Parser Expr
 pFunc = do
@@ -97,14 +97,12 @@ pTerm = do
     choice
       [ Prim <$> pAtom,
         -- pList,
-        -- pAttr,
+        pAttr,
         -- pBlock,
         parens pExpr,
         pVar
       ]
-  -- accessors <- many (token T.Dot *> pIdent)
-  -- pure $ foldl' (flip Acc) val accessors
-  pure val
+  foldl' Acc val <$> many (token T.Dot *> pIdent)
 
 -- pBlock :: Parser Expr
 -- pBlock = do
@@ -115,8 +113,8 @@ pTerm = do
 --     let exprStmt = BreakE Nothing . Just
 --     pure $ Block label (stmts <> toList (exprStmt <$> terminator)) Nothing
 
-termSemicolon :: Parser a -> Parser a
-termSemicolon = (<* token T.Semicolon)
+semicolon :: Parser ()
+semicolon = token T.Semicolon
 
 -- pStatement :: Parser ProgE
 -- pStatement = choice (fmap termSemicolon [pReturn, pBreak, pDecl, ExprStmt <$> pExpr, pAssign, pContinue])
@@ -167,7 +165,7 @@ pAtom = expect "atom" $ \case
   _ -> Nothing
 
 pBinding :: Parser Binding
-pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
+pBinding = choice (fmap (<* semicolon) [pBind, pInherit, pInheritFrom])
   where
     pBind = do
       name <- pIdent

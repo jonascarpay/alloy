@@ -54,21 +54,34 @@ whnf (Func args ret body) = fromComp VFunc $ compileFunc args ret body
 whnf (Let bindings body) = do
   env <- resolveBindings bindings
   local (binds %~ mappend env) (whnf body)
+whnf (Attr bindings) = VAttr <$> resolveBindings bindings
+whnf (Acc attr field) =
+  whnf attr >>= \case
+    VAttr m -> case m ^. at field of
+      Nothing -> throwError $ "Attribute set does not contain field " <> show field
+      Just t -> lift $ force t
+    val -> throwError $ "Accessing field " <> show field <> " of a " <> describeValue val <> " instead of an attribute set"
 
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
-resolveBindings bindings = mfix $ \env ->
+resolveBindings bindings = mfix $ \env -> -- witchcraft
   flip execStateT mempty $
     forM bindings $
       binding
         (\name body -> lift (close (local (binds %~ mappend env) (whnf body)) >>= defer) >>= tell1 name)
         (mapM_ $ \name -> lift (lookupName name) >>= tell1 name)
-        ( \attrExpr attrs ->
-            lift (local (binds %~ mappend env) (whnf attrExpr)) >>= \case
-              VAttr attrSet -> forM_ attrs $ \name ->
-                case attrSet ^. at name of
-                  Nothing -> throwError $ "Attribute set did not contain attribute " <> show name
-                  Just t -> tell1 name t
-              val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but a " <> describeValue val
+        -- Note that this implementation does not allow for inherit-from expressions to check whether the field is present.
+        -- That would simplify the code, but also force evaluation of `env`, and therefore cause infinite recursion.
+        -- So, to introduce the required indirection, we instead construct a new thunk for every name.
+        ( \attrExpr attrs -> do
+            tAttr <- lift (close (local (binds %~ mappend env) (whnf attrExpr)) >>= defer)
+            forM_ attrs $ \name ->
+              let acc =
+                    lift (force tAttr) >>= \case
+                      VAttr m -> case m ^. at name of
+                        Nothing -> throwError $ "Attribute set did not contain attribute " <> show name
+                        Just t -> lift (force t)
+                      val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but a " <> describeValue val
+               in lift (close acc >>= defer) >>= tell1 name
         )
   where
     tell1 :: Name -> Thunk -> StateT (Map Name Thunk) Eval ()
