@@ -9,7 +9,7 @@ import Control.Monad.Reader
 import Data.IORef
 import Eval.Lenses
 import Eval.Types
-import Expr (Name, Type)
+import Expr
 import Lens.Micro.Platform hiding (ix)
 
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
@@ -89,3 +89,12 @@ ensureBlock :: MonadError String m => WHNF -> m BlockIX
 ensureBlock = ensureValue "block" $ \case
   VBlk blk -> Just blk
   _ -> Nothing
+
+{-# INLINE compOp #-}
+compOp :: Ord a => CompOp -> a -> a -> Bool
+compOp Eq = (==)
+compOp Neq = (/=)
+compOp Lt = (<)
+compOp Gt = (>)
+compOp Leq = (<=)
+compOp Geq = (>=)
