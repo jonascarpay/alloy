@@ -88,7 +88,7 @@ evalTests =
         [r| let a = 9; # comment"
              in a
         |],
-      is9 "with-expression" "with builtins; 9",
+      is9 "with-expression" "with {a = 9;}; a",
       is9 "simple if true" "if true then 9 else 10",
       is9 "simple if false" "if false then 10 else 9",
       is9 "lazy if true" "if true then 9 else builtins.undefined",

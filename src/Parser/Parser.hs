@@ -36,7 +36,7 @@ pExpr =
     [ pLam,
       pLet,
       -- pIf,
-      -- pWith,
+      pWith,
       pFunc,
       pBinExpr
     ]
@@ -68,12 +68,12 @@ pBinExpr =
 --     (token T.Then *> pExpr)
 --     (token T.Else *> pExpr)
 
--- pWith :: Parser Expr
--- pWith =
---   liftA2
---     With
---     (token T.With *> termSemicolon pExpr)
---     pExpr
+pWith :: Parser Expr
+pWith =
+  liftA2
+    With
+    (token T.With *> pExpr <* semicolon)
+    pExpr
 
 pAttr :: Parser Expr
 pAttr = braces $ Attr <$> many pBinding
