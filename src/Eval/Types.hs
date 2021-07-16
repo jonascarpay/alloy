@@ -23,7 +23,7 @@ import GHC.Generics
 -- In any case, it needs to be stressed that for these, their dynamc scope is their lexical scope.
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
-  = VClosure Name Expr
+  = VClosure Name Expr (Map Name Thunk)
   | VRun Deps (RTVal VarIX BlockIX Hash)
   | VFunc Deps Hash
   | VType Type
@@ -31,12 +31,11 @@ data Value f
   | VVar VarIX
   | VBlk BlockIX
   | VAttr (Map Name f)
-  deriving (Eq, Functor, Foldable, Traversable)
+  deriving (Functor, Foldable, Traversable)
 
 type WHNF = Value Thunk
 
 newtype NF = NF {unNF :: Value NF}
-  deriving (Eq)
 
 newtype Hash = Hash Int
   deriving newtype (Eq, Ord, Hashable)

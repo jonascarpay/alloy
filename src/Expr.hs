@@ -23,7 +23,7 @@ data Expr
   | BinExpr BinOp Expr Expr
   | Type Type -- TODO remove
   | Run (Maybe Name) ProgE
-  deriving stock (Eq, Generic)
+  deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
 data ProgE
@@ -31,7 +31,7 @@ data ProgE
   | AssignE Expr Expr ProgE
   | BreakE (Maybe Expr) Expr
   | ExprE Expr ProgE
-  deriving stock (Eq, Generic)
+  deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
 -- TODO Strings aren't prim
