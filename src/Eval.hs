@@ -61,6 +61,10 @@ whnf (Acc attr field) =
       Nothing -> throwError $ "Attribute set does not contain field " <> show field
       Just t -> lift $ force t
     val -> throwError $ "Accessing field " <> show field <> " of a " <> describeValue val <> " instead of an attribute set"
+whnf (With attrs body) =
+  whnf attrs >>= \case
+    VAttr m -> local (binds %~ mappend m) (whnf body)
+    val -> throwError $ "Inner expression in with-expression did not evaluate to an attribute set but a " <> describeValue val
 
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft

@@ -26,6 +26,7 @@ data Expr
   | Let [Binding] Expr
   | Attr [Binding]
   | Acc Expr Name
+  | With Expr Expr
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
