@@ -56,7 +56,7 @@ data Type
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
   hashWithSalt salt m = hashWithSalt salt (M.toList m)
 
-data BinOp = ArithOp ArithOp | CompOp CompOp | Concat
+data BinOp = ArithOp ArithOp | CompOp CompOp
   deriving (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
