@@ -6,9 +6,11 @@ module Eval where
 import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer
 import Data.Hashable
 import Data.List (findIndex)
+import Data.Map (Map)
 import Data.Map qualified as M
 import Eval.Lenses
 import Eval.Lib
@@ -49,6 +51,31 @@ whnf (BinExpr op a b) = do
   b' <- whnf b
   binOp op a' b'
 whnf (Func args ret body) = fromComp VFunc $ compileFunc args ret body
+whnf (Let bindings body) = do
+  env <- resolveBindings bindings
+  local (binds %~ mappend env) (whnf body)
+
+resolveBindings :: [Binding] -> Eval (Map Name Thunk)
+resolveBindings bindings = mfix $ \env ->
+  flip execStateT mempty $
+    forM bindings $
+      binding
+        (\name body -> lift (close (local (binds %~ mappend env) (whnf body)) >>= defer) >>= tell1 name)
+        (mapM_ $ \name -> lift (lookupName name) >>= tell1 name)
+        ( \attrExpr attrs ->
+            lift (local (binds %~ mappend env) (whnf attrExpr)) >>= \case
+              VAttr attrSet -> forM_ attrs $ \name ->
+                case attrSet ^. at name of
+                  Nothing -> throwError $ "Attribute set did not contain attribute " <> show name
+                  Just t -> tell1 name t
+              val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but a " <> describeValue val
+        )
+  where
+    tell1 :: Name -> Thunk -> StateT (Map Name Thunk) Eval ()
+    tell1 name thunk = do
+      use (at name) >>= \case
+        Nothing -> at name ?= thunk
+        Just _ -> throwError $ "Double name: " <> show name
 
 compileFunc :: [(Name, Expr)] -> Expr -> Expr -> Comp Hash
 compileFunc args ret body = do

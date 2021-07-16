@@ -34,7 +34,7 @@ pExpr :: Parser Expr
 pExpr =
   choice
     [ pLam,
-      -- pLet,
+      pLet,
       -- pIf,
       -- pWith,
       pFunc,
@@ -151,12 +151,12 @@ pLam = do
   token T.Colon
   Lam arg <$> pExpr
 
--- pLet :: Parser Expr
--- pLet = do
---   token T.Let
---   binds <- many pBinding
---   token T.In
---   Let binds <$> pExpr
+pLet :: Parser Expr
+pLet = do
+  token T.Let
+  binds <- many pBinding
+  token T.In
+  Let binds <$> pExpr
 
 pAtom :: Parser Prim
 pAtom = expect "atom" $ \case
@@ -166,20 +166,20 @@ pAtom = expect "atom" $ \case
   T.TFalse -> Just $ PBool False
   _ -> Nothing
 
--- pBinding :: Parser Binding
--- pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
---   where
---     pBind = do
---       name <- pIdent
---       args <- many pIdent
---       token T.Assign
---       Binding name args <$> pExpr
---     pInherit = token T.Inherit *> (Inherit <$> many pIdent)
---     pInheritFrom = do
---       token T.Inherit
---       from <- parens pExpr
---       names <- many pIdent
---       pure $ InheritFrom from names
+pBinding :: Parser Binding
+pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
+  where
+    pBind = do
+      name <- pIdent
+      args <- many pIdent
+      token T.Assign
+      Binding name args <$> pExpr
+    pInherit = token T.Inherit *> (Inherit <$> many pIdent)
+    pInheritFrom = do
+      token T.Inherit
+      from <- parens pExpr
+      names <- many pIdent
+      pure $ InheritFrom from names
 
 parens :: Parser a -> Parser a
 parens p = token T.LParen *> p <* token T.RParen
