@@ -18,9 +18,10 @@ data Expr
   = Var Name
   | App Expr Expr
   | Lam Name Expr
+  | Prim Prim
   | Func [(Name, Expr)] Expr Expr
   | BinExpr BinOp Expr Expr
-  | Type Type
+  | Type Type -- TODO remove
   | Run (Maybe Name) ProgE
   deriving stock (Eq, Generic)
   deriving anyclass (Hashable)

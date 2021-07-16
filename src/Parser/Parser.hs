@@ -95,7 +95,7 @@ pTerm :: Parser Expr
 pTerm = do
   val <-
     choice
-      [ -- Prim <$> pAtom,
+      [ Prim <$> pAtom,
         -- pList,
         -- pAttr,
         -- pBlock,
@@ -158,13 +158,13 @@ pLam = do
 --   token T.In
 --   Let binds <$> pExpr
 
--- pAtom :: Parser Prim
--- pAtom = expect "atom" $ \case
---   T.Num n -> Just $ PInt n
---   T.String s -> Just $ PString s
---   T.TTrue -> Just $ PBool True
---   T.TFalse -> Just $ PBool False
---   _ -> Nothing
+pAtom :: Parser Prim
+pAtom = expect "atom" $ \case
+  T.Num n -> Just $ PInt n
+  -- T.String s -> Just $ PString s
+  T.TTrue -> Just $ PBool True
+  T.TFalse -> Just $ PBool False
+  _ -> Nothing
 
 -- pBinding :: Parser Binding
 -- pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
