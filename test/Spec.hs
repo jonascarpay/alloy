@@ -13,6 +13,6 @@ main =
     withFocus $
       testGroup
         "alloy-test"
-        [ evalTests,
-          rtTests
+        [ evalTests
+        -- , rtTests
         ]

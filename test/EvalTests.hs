@@ -4,7 +4,7 @@
 
 module EvalTests where
 
-import Eval
+import Eval.Types
 import Expr
 import Test.Tasty
 import Test.Tasty.Focus
@@ -17,7 +17,7 @@ is9 name prog =
   testCase name $
     assertParse prog
       >>= assertEval
-      >>= assertValueEq (Fix $ VPrim $ PInt 9)
+      >>= assertValueEq (NF $ VPrim $ PInt 9)
 
 evalTests :: TestTree
 evalTests =

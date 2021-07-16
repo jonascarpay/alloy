@@ -8,6 +8,7 @@ import Control.Applicative.Combinators
 import Control.Monad.Combinators.Expr
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as BSS
 import Data.Foldable (foldl', toList)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
@@ -33,9 +34,9 @@ pExpr :: Parser Expr
 pExpr =
   choice
     [ pLam,
-      pLet,
-      pIf,
-      pWith,
+      -- pLet,
+      -- pIf,
+      -- pWith,
       pFunc,
       pBinExpr
     ]
@@ -59,23 +60,23 @@ pBinExpr =
     comp :: Token -> CompOp -> Operator Parser Expr
     comp tk op = InfixN (BinExpr (CompOp op) <$ token tk)
 
-pIf :: Parser Expr
-pIf =
-  liftA3
-    Cond
-    (token T.If *> pExpr)
-    (token T.Then *> pExpr)
-    (token T.Else *> pExpr)
+-- pIf :: Parser Expr
+-- pIf =
+--   liftA3
+--     Cond
+--     (token T.If *> pExpr)
+--     (token T.Then *> pExpr)
+--     (token T.Else *> pExpr)
 
-pWith :: Parser Expr
-pWith =
-  liftA2
-    With
-    (token T.With *> termSemicolon pExpr)
-    pExpr
+-- pWith :: Parser Expr
+-- pWith =
+--   liftA2
+--     With
+--     (token T.With *> termSemicolon pExpr)
+--     pExpr
 
-pAttr :: Parser Expr
-pAttr = braces $ Attr <$> sepEndBy pBinding' (token T.Comma)
+-- pAttr :: Parser Expr
+-- pAttr = braces $ Attr <$> sepEndBy pBinding' (token T.Comma)
 
 pFunc :: Parser Expr
 pFunc = do
@@ -94,54 +95,55 @@ pTerm :: Parser Expr
 pTerm = do
   val <-
     choice
-      [ Prim <$> pAtom,
-        pList,
-        pAttr,
-        BlockExpr <$> pBlock,
+      [ -- Prim <$> pAtom,
+        -- pList,
+        -- pAttr,
+        -- pBlock,
         parens pExpr,
         pVar
       ]
-  accessors <- many (token T.Dot *> pIdent)
-  pure $ foldl' (flip Acc) val accessors
+  -- accessors <- many (token T.Dot *> pIdent)
+  -- pure $ foldl' (flip Acc) val accessors
+  pure val
 
-pBlock :: Parser (Block Name Name (Maybe Expr) Expr)
-pBlock = do
-  label <- optional $ pIdent <* token T.At
-  braces $ do
-    stmts <- many pStatement
-    terminator <- optional pExpr
-    let exprStmt = Break Nothing . Just
-    pure $ Block label (stmts <> toList (exprStmt <$> terminator)) Nothing
+-- pBlock :: Parser Expr
+-- pBlock = do
+--   label <- optional $ pIdent <* token T.At
+--   braces $ do
+--     stmts <- many pStatement
+--     terminator <- optional pExpr
+--     let exprStmt = BreakE Nothing . Just
+--     pure $ Block label (stmts <> toList (exprStmt <$> terminator)) Nothing
 
 termSemicolon :: Parser a -> Parser a
 termSemicolon = (<* token T.Semicolon)
 
-pStatement :: Parser (Stmt Name Name (Maybe Expr) Expr)
-pStatement = choice (fmap termSemicolon [pReturn, pBreak, pDecl, ExprStmt <$> pExpr, pAssign, pContinue])
-  where
-    pReturn = token T.Return *> (Return <$> pExpr)
-    pMLabel = optional $ token T.At *> pIdent
-    pBreak = token T.Break *> liftA2 Break pMLabel (optional pExpr)
-    pContinue = token T.Continue *> (Continue <$> pMLabel)
-    pAssign = liftA2 Assign pIdent (token T.Assign *> pExpr)
-    pDecl =
-      token T.Var
-        *> liftA3
-          Decl
-          pIdent
-          (optional $ token T.Colon *> pExpr)
-          (token T.Assign *> pExpr)
+-- pStatement :: Parser ProgE
+-- pStatement = choice (fmap termSemicolon [pReturn, pBreak, pDecl, ExprStmt <$> pExpr, pAssign, pContinue])
+--   where
+--     pReturn = token T.Return *> (Return <$> pExpr)
+--     pMLabel = optional $ token T.At *> pIdent
+--     pBreak = token T.Break *> liftA2 Break pMLabel (optional pExpr)
+--     pContinue = token T.Continue *> (Continue <$> pMLabel)
+--     pAssign = liftA2 Assign pIdent (token T.Assign *> pExpr)
+--     pDecl =
+--       token T.Var
+--         *> liftA3
+--           Decl
+--           pIdent
+--           (optional $ token T.Colon *> pExpr)
+--           (token T.Assign *> pExpr)
 
 pVar :: Parser Expr
 pVar = Var <$> pIdent
 
 pIdent :: Parser Name
 pIdent = expect "identifier" $ \case
-  (T.Ident name) -> Just name
+  (T.Ident name) -> Just $ BSS.toShort name
   _ -> Nothing
 
-pList :: Parser Expr
-pList = List . Seq.fromList <$> brackets (sepBy pExpr (token T.Comma))
+-- pList :: Parser Expr
+-- pList = List . Seq.fromList <$> brackets (sepBy pExpr (token T.Comma))
 
 pLam :: Parser Expr
 pLam = do
@@ -149,52 +151,35 @@ pLam = do
   token T.Colon
   Lam arg <$> pExpr
 
-pLet :: Parser Expr
-pLet = do
-  token T.Let
-  binds <- many pBinding
-  token T.In
-  Let binds <$> pExpr
+-- pLet :: Parser Expr
+-- pLet = do
+--   token T.Let
+--   binds <- many pBinding
+--   token T.In
+--   Let binds <$> pExpr
 
-pAtom :: Parser Prim
-pAtom = expect "atom" $ \case
-  T.Num n -> Just $ PInt n
-  T.String s -> Just $ PString s
-  T.TTrue -> Just $ PBool True
-  T.TFalse -> Just $ PBool False
-  _ -> Nothing
+-- pAtom :: Parser Prim
+-- pAtom = expect "atom" $ \case
+--   T.Num n -> Just $ PInt n
+--   T.String s -> Just $ PString s
+--   T.TTrue -> Just $ PBool True
+--   T.TFalse -> Just $ PBool False
+--   _ -> Nothing
 
--- TODO uses : and ,
--- used until we move attr sets back to = and ;
-pBinding' :: Parser Binding
-pBinding' = choice [pBind, pInherit, pInheritFrom]
-  where
-    pBind = do
-      name <- pIdent
-      args <- many pIdent
-      token T.Colon
-      Binding name args <$> pExpr
-    pInherit = token T.Inherit *> (Inherit <$> some pIdent)
-    pInheritFrom = do
-      token T.Inherit
-      from <- parens pExpr
-      names <- many pIdent
-      pure $ InheritFrom from names
-
-pBinding :: Parser Binding
-pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
-  where
-    pBind = do
-      name <- pIdent
-      args <- many pIdent
-      token T.Assign
-      Binding name args <$> pExpr
-    pInherit = token T.Inherit *> (Inherit <$> many pIdent)
-    pInheritFrom = do
-      token T.Inherit
-      from <- parens pExpr
-      names <- many pIdent
-      pure $ InheritFrom from names
+-- pBinding :: Parser Binding
+-- pBinding = choice (fmap termSemicolon [pBind, pInherit, pInheritFrom])
+--   where
+--     pBind = do
+--       name <- pIdent
+--       args <- many pIdent
+--       token T.Assign
+--       Binding name args <$> pExpr
+--     pInherit = token T.Inherit *> (Inherit <$> many pIdent)
+--     pInheritFrom = do
+--       token T.Inherit
+--       from <- parens pExpr
+--       names <- many pIdent
+--       pure $ InheritFrom from names
 
 parens :: Parser a -> Parser a
 parens p = token T.LParen *> p <* token T.RParen

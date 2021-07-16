@@ -21,37 +21,43 @@ import GHC.Generics
 -- Maybe there is some type-level way to make clearer that that is not possible in this case.
 -- Maybe they exist as a different binding in a different transformer, it's hard to really call them thunks in the first place
 -- In any case, it needs to be stressed that for these, their dynamc scope is their lexical scope.
+-- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
   = VClosure Name Expr
   | VRun Deps (RTVal VarIX BlockIX Hash)
   | VFunc Deps Hash
   | VType Type
+  | VPrim Prim
   | VVar VarIX
   | VBlk BlockIX
   | VAttr (Map Name f)
+  deriving (Eq, Functor, Foldable, Traversable)
+
+type WHNF = Value Thunk
+
+newtype NF = NF {unNF :: Value NF}
+  deriving (Eq)
 
 newtype Hash = Hash Int
   deriving newtype (Eq, Ord, Hashable)
 
 newtype Deps = Deps (Map Hash (RTFunc Hash))
-  deriving newtype (Semigroup, Monoid)
+  deriving newtype (Eq, Semigroup, Monoid)
 
-newtype Thunk = Thunk (IORef (Either (EvalBase Lazy) Lazy))
-
-type Lazy = Value Thunk
+newtype Thunk = Thunk (IORef (Either (EvalBase WHNF) WHNF))
 
 newtype VarIX = VarIX Int
-  deriving newtype (Eq, Enum)
+  deriving newtype (Eq, Enum, Hashable)
 
 newtype BlockIX = BlockIX Int
-  deriving newtype (Eq, Enum)
+  deriving newtype (Eq, Enum, Hashable)
 
 newtype FuncIX = FuncIX Int
 
 data Bind b a
   = Bound b
   | Free a
-  deriving stock (Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTProg var blk fun
@@ -59,7 +65,7 @@ data RTProg var blk fun
   | Assign (RTPlace var blk fun) (RTVal var blk fun) (RTProg var blk fun)
   | Break blk (RTVal var blk fun)
   | ExprStmt (RTVal var blk fun) (RTProg var blk fun)
-  deriving stock (Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTVal var blk fun
@@ -68,13 +74,13 @@ data RTVal var blk fun
   | Call fun [RTVal var blk fun]
   | PlaceVal (RTPlace var blk fun)
   | Block (RTProg var (Bind () blk) fun)
-  deriving stock (Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTPlace var blk fun
   = Place var
   | Deref (RTVal var blk fun)
-  deriving stock (Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTFunc fun = RTFunc
@@ -82,15 +88,20 @@ data RTFunc fun = RTFunc
     fnRet :: Type,
     fnBody :: RTVal (Bind Int Void) Void fun
   }
-  deriving stock (Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
-newtype EvalBase a = EvalBase (ExceptT String IO a)
+newtype EvalBase a = EvalBase {unEvalBase :: ExceptT String IO a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError String)
 
 -- newtype Eval a = Eval {unEval :: ReaderT EvalEnv EvalBase a}
 --   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError String, MonadReader EvalEnv)
 type Eval = ReaderT EvalEnv EvalBase
+
+unEval :: Eval a -> EvalBase a
+unEval = flip runReaderT env0
+  where
+    env0 = EvalEnv mempty (VarIX 0) (BlockIX 0)
 
 type Comp = WriterT Deps Eval
 

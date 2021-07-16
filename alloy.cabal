@@ -58,6 +58,7 @@ library
     Parser.Parsec
     Parser.Parser
     Parser.Token
+    Print
 
   build-tool-depends: alex:alex >=3.2.5
 
@@ -74,7 +75,9 @@ executable alloy-exe
 test-suite alloy-test
   import:         common-options
   type:           exitcode-stdio-1.0
-  hs-source-dirs: test src
+
+  -- hs-source-dirs: test src
+  hs-source-dirs: test
   main-is:        Spec.hs
   other-modules:
     EvalTests
