@@ -73,11 +73,11 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
       binding
         (\name body -> lift (close (local (binds %~ mappend env) (whnf body)) >>= defer) >>= tell1 name)
         (mapM_ $ \name -> lift (lookupName name) >>= tell1 name)
-        -- Note that this implementation does not allow for inherit-from expressions to check whether the field is present.
-        -- That would simplify the code, but also force evaluation of `env`, and therefore cause infinite recursion.
-        -- So, to introduce the required indirection, we instead construct a new thunk for every name.
         ( \attrExpr attrs -> do
             tAttr <- lift (close (local (binds %~ mappend env) (whnf attrExpr)) >>= defer)
+            -- Note that this implementation does not allow checking whether the field is present.
+            -- That would simplify the code, but also force evaluation of `env`, and therefore cause infinite recursion.
+            -- So, to introduce the required indirection, we instead construct a new thunk for every name.
             forM_ attrs $ \name ->
               let acc =
                     lift (force tAttr) >>= \case
