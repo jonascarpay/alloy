@@ -3,6 +3,7 @@
 module Eval.Lenses where
 
 import Eval.Types
+import Expr
 import Lens.Micro.Platform
 
 makeLenses ''EvalEnv
