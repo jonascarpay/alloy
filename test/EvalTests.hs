@@ -104,7 +104,7 @@ evalTests =
             with types;
             let t = struct { x = double; y = int; };
             in matchType {
-                 struct: ms: matchType  {
+                 struct = ms: matchType  {
                      int = 9;
                      default = undefined;
                    } ms.y;
@@ -113,7 +113,7 @@ evalTests =
         |],
       is9
         "matchType default"
-        "builtins.matchType { default = 9, } builtins.types.void",
+        "builtins.matchType { default = 9; } builtins.types.void",
       is9
         "attrset string lookup"
         [r| let attrs = { nine = 9; };
