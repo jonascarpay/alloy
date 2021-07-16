@@ -20,6 +20,7 @@ describeValue VClosure {} = "closure"
 describeValue VRun {} = "runtime expression"
 describeValue VFunc {} = "runtime function"
 describeValue VType {} = "type"
+describeValue VPrim {} = "primitive"
 describeValue VVar {} = "runtime variable"
 describeValue VBlk {} = "runtime block"
 describeValue VAttr {} = "attribute set"
@@ -30,13 +31,13 @@ lookupName name =
     Nothing -> throwError $ "Unknown variable: " <> show name
     Just t -> pure t
 
-defer :: MonadIO m => EvalBase Lazy -> m Thunk
+defer :: MonadIO m => EvalBase WHNF -> m Thunk
 defer = fmap Thunk . liftIO . newIORef . Left
 
-refer :: MonadIO m => Lazy -> m Thunk
+refer :: MonadIO m => WHNF -> m Thunk
 refer = fmap Thunk . liftIO . newIORef . Right
 
-force :: Thunk -> EvalBase Lazy
+force :: Thunk -> EvalBase WHNF
 force (Thunk ref) = do
   liftIO (readIORef ref) >>= \case
     Right a -> pure a
@@ -74,17 +75,17 @@ closedOver :: Traversal s t a b -> s -> Maybe t
 closedOver t = t (const Nothing)
 
 -- TODO prisms?
-ensureValue :: MonadError String m => String -> (Lazy -> Maybe r) -> Lazy -> m r
+ensureValue :: MonadError String m => String -> (WHNF -> Maybe r) -> WHNF -> m r
 ensureValue ex f v = case f v of
   Just r -> pure r
   Nothing -> throwError $ "Expected a " <> ex <> ", but got a " <> describeValue v
 
-ensureType :: MonadError String m => Lazy -> m Type
+ensureType :: MonadError String m => WHNF -> m Type
 ensureType = ensureValue "type" $ \case
   VType typ -> Just typ
   _ -> Nothing
 
-ensureBlock :: MonadError String m => Lazy -> m BlockIX
+ensureBlock :: MonadError String m => WHNF -> m BlockIX
 ensureBlock = ensureValue "block" $ \case
   VBlk blk -> Just blk
   _ -> Nothing

@@ -16,7 +16,16 @@ import Eval.Types
 import Expr
 import Lens.Micro.Platform hiding (ix)
 
-whnf :: Expr -> Eval Lazy
+runEval :: Expr -> IO (Either String NF)
+runEval expr = do
+  runExceptT $
+    unEvalBase $
+      unEval (whnf expr) >>= deepseq
+  where
+    deepseq :: WHNF -> EvalBase NF
+    deepseq = fmap NF . traverse (force >=> deepseq)
+
+whnf :: Expr -> Eval WHNF
 whnf (Var name) = lookupName name >>= lift . force
 whnf (App f x) =
   whnf f >>= \case
@@ -60,7 +69,7 @@ compileFunc args ret body = do
       argThunks <- forM argIxs $ \((name, _), ix) -> (name,) <$> refer (VVar ix)
       local (binds %~ mappend (M.fromList argThunks)) m
 
-binOp :: BinOp -> Lazy -> Lazy -> Eval Lazy
+binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp (ArithOp op) a@VRun {} b = fromComp VRun $ liftA2 (RTArith op) (compileValue a) (compileValue b)
 binOp (ArithOp op) a b@VRun {} = fromComp VRun $ liftA2 (RTArith op) (compileValue a) (compileValue b)
 binOp (CompOp op) a@VRun {} b = fromComp VRun $ liftA2 (RTComp op) (compileValue a) (compileValue b)
@@ -102,12 +111,12 @@ compileBlock blk = go
       k' <- go k
       pure $ ExprStmt val' k'
 
-compileValue :: Lazy -> Comp (RTVal VarIX BlockIX Hash)
+compileValue :: WHNF -> Comp (RTVal VarIX BlockIX Hash)
 compileValue (VRun deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
 compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
 
 -- TODO there should probably be a place value
-compilePlace :: Lazy -> Comp (RTPlace VarIX BlockIX Hash)
+compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
