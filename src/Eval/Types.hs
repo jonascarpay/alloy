@@ -68,6 +68,7 @@ data RTProg var blk fun
   deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
+-- TODO Rename to RTExpr
 data RTVal var blk fun
   = RTArith ArithOp (RTVal var blk fun) (RTVal var blk fun)
   | RTComp CompOp (RTVal var blk fun) (RTVal var blk fun)

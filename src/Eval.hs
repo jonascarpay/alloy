@@ -71,13 +71,35 @@ compileFunc args ret body = do
       local (binds %~ mappend (M.fromList argThunks)) m
 
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
-binOp (ArithOp op) a@VRun {} b = fromComp VRun $ liftA2 (RTArith op) (compileValue a) (compileValue b)
-binOp (ArithOp op) a b@VRun {} = fromComp VRun $ liftA2 (RTArith op) (compileValue a) (compileValue b)
-binOp (CompOp op) a@VRun {} b = fromComp VRun $ liftA2 (RTComp op) (compileValue a) (compileValue b)
-binOp (CompOp op) a b@VRun {} = fromComp VRun $ liftA2 (RTComp op) (compileValue a) (compileValue b)
+binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
 binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
 binOp Concat l r = throwError $ unwords ["cannot concatenate a", describeValue l, "and a", describeValue r]
+
+rtBinOp :: BinOp -> RTVal VarIX BlockIX Hash -> RTVal VarIX BlockIX Hash -> Comp (RTVal VarIX BlockIX Hash)
+rtBinOp (ArithOp op) l r = pure $ RTArith op l r
+rtBinOp (CompOp op) l r = pure $ RTComp op l r
+rtBinOp Concat _ _ = throwError "cannot concatenate runtime expressions"
+
+binPrim :: BinOp -> Prim -> Prim -> Eval WHNF
+binPrim (ArithOp op) (PInt a) (PInt b) = pure . VPrim . PInt $ arithInt op a b
+binPrim (ArithOp op) (PDouble a) (PDouble b) = pure . VPrim . PDouble $ arithDouble op a b
+binPrim (ArithOp op) (PDouble a) (PInt b) = pure . VPrim . PDouble $ arithDouble op a (fromIntegral b)
+binPrim (ArithOp op) (PInt a) (PDouble b) = pure . VPrim . PDouble $ arithDouble op (fromIntegral a) b
+
+arithInt :: ArithOp -> Int -> Int -> Int
+arithInt Add = (+)
+arithInt Sub = (-)
+arithInt Mul = (*)
+arithInt Div = div
+
+arithDouble :: ArithOp -> Double -> Double -> Double
+arithDouble Add = (+)
+arithDouble Sub = (-)
+arithDouble Mul = (*)
+arithDouble Div = (/)
 
 fromComp :: (Deps -> a -> r) -> Comp a -> Eval r
 fromComp f m = (\(a, dep) -> f dep a) <$> runWriterT m
