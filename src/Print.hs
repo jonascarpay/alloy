@@ -50,7 +50,7 @@ printNF = runIdentity . runNameT . runPrinterT . pNF
 pNF :: Monad m => NF -> PrinterT (NameT m) ()
 pNF = go . unNF
   where
-    go (VClosure _ _) = spit "<closure>"
+    go (VClosure _ _ _) = spit "<closure>"
     go (VFunc mod hash) = spit "<function>"
     go (VType typ) = spit "<type>"
     go (VVar ix) = spit "<var>"
