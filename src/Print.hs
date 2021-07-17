@@ -57,3 +57,4 @@ pNF = go . unNF
     go (VBlk blk) = spit "<block ref>"
     go (VAttr attr) = spit "<attr set>"
     go (VRun deps run) = spit "<runtime expression>"
+    go (VPrim prim) = spit "<primitive>"
