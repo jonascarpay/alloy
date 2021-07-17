@@ -27,6 +27,7 @@ data Expr
   | Attr [Binding]
   | Acc Expr Name
   | With Expr Expr
+  | Cond Expr Expr Expr
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 

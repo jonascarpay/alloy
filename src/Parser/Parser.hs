@@ -35,7 +35,7 @@ pExpr =
   choice
     [ pLam,
       pLet,
-      -- pIf,
+      pIf,
       pWith,
       pFunc,
       pBinExpr
@@ -60,13 +60,13 @@ pBinExpr =
     comp :: Token -> CompOp -> Operator Parser Expr
     comp tk op = InfixN (BinExpr (CompOp op) <$ token tk)
 
--- pIf :: Parser Expr
--- pIf =
---   liftA3
---     Cond
---     (token T.If *> pExpr)
---     (token T.Then *> pExpr)
---     (token T.Else *> pExpr)
+pIf :: Parser Expr
+pIf =
+  liftA3
+    Cond
+    (token T.If *> pExpr)
+    (token T.Then *> pExpr)
+    (token T.Else *> pExpr)
 
 pWith :: Parser Expr
 pWith =

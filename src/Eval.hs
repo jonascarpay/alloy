@@ -65,6 +65,16 @@ whnf (With attrs body) =
   whnf attrs >>= \case
     VAttr m -> local (binds %~ mappend m) (whnf body)
     val -> throwError $ "Inner expression in with-expression did not evaluate to an attribute set but a " <> describeValue val
+whnf (Cond cond true false) =
+  whnf cond >>= \case
+    (VPrim (PBool True)) -> whnf true
+    (VPrim (PBool False)) -> whnf false
+    (VRun deps cond') -> fromComp VRun $ do
+      tell deps
+      true' <- lift (whnf true) >>= compileValue
+      false' <- lift (whnf false) >>= compileValue
+      pure $ RTCond cond' true' false'
+    val -> throwError $ "Scrutinee is not a boolean or a runtime expression, but a " <> describeValue val
 
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
