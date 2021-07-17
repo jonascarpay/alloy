@@ -77,9 +77,9 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
       InheritFrom attrExpr names -> do
         tAttr <- lift (close (local (binds %~ mappend env) (whnf attrExpr)) >>= defer)
         -- Note that this implementation does not allow checking whether the field is actually present.
-        -- That would simplify the code, but also force evaluation of `env`, and therefore cause infinite recursion.
+        -- That was the first thing I tried, and it was shorter, but also forced evaluation of `env`, and therefore caused infinite recursion.
         -- So, to introduce the required indirection, we instead construct a new thunk for every name.
-        -- TODO We could take a more gradual approach than just `mfix`ing the entire thing.
+        -- Nix seems to have the same behaviour, so I'm OK with it for now, plus I'm not convinced it could feasibly work any other way.
         forM_ names $ \name ->
           let acc =
                 lift (force tAttr) >>= \case
