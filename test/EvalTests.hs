@@ -34,6 +34,7 @@ evalTests =
       is9 "id" "(x: x) 9",
       is9 "fst" "(x: y: x) 9 11",
       is9 "snd" "(x: y: y) 11 9",
+      is9 "snd (shadow)" "(x: x: x) 11 9",
       is9 "simple attribute set" "{foo = 9;}.foo",
       is9 "simple let binding" "let x = 9; in x",
       is9 "let with nonrecursive local reference" "let y = 9; x = y; in x",

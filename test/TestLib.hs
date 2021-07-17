@@ -28,7 +28,7 @@ assertEval expr = do
 shallowEq :: (f -> f -> Bool) -> Value f -> Value f -> Bool
 shallowEq f = go
   where
-    go (VClosure _ _ _) _ = False
+    go VClosure {} _ = False
     go (VRun _ a) (VRun _ b) = a == b
     go (VRun _ _) _ = False
     go (VFunc _ a) (VFunc _ b) = a == b
@@ -48,7 +48,14 @@ nfEq (NF a) (NF b) = shallowEq nfEq a b
 assertValueEq :: HasCallStack => NF -> NF -> Assertion
 assertValueEq exp got
   | nfEq exp got = pure ()
-  | otherwise = assertEqual "value mismatch" (printNF exp) (printNF got) -- TODO obviously a hack
+  | otherwise =
+    assertFailure $
+      unlines
+        [ "value mismatch, expected",
+          "  " <> BS8.unpack (printNF exp),
+          "but got",
+          "  " <> BS8.unpack (printNF got)
+        ]
 
 -- assertFunc :: HasCallStack => Value -> IO (Dependencies, GUID)
 -- assertFunc (Fix (VFunc deps (Right guid))) = pure (deps, guid)
