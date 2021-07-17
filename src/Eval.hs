@@ -69,24 +69,25 @@ whnf (With attrs body) =
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
   flip execStateT mempty $
-    forM bindings $
-      binding
-        (\name body -> lift (close (local (binds %~ mappend env) (whnf body)) >>= defer) >>= tell1 name)
-        (mapM_ $ \name -> lift (lookupName name) >>= tell1 name)
-        ( \attrExpr attrs -> do
-            tAttr <- lift (close (local (binds %~ mappend env) (whnf attrExpr)) >>= defer)
-            -- Note that this implementation does not allow checking whether the field is present.
-            -- That would simplify the code, but also force evaluation of `env`, and therefore cause infinite recursion.
-            -- So, to introduce the required indirection, we instead construct a new thunk for every name.
-            forM_ attrs $ \name ->
-              let acc =
-                    lift (force tAttr) >>= \case
-                      VAttr m -> case m ^. at name of
-                        Nothing -> throwError $ "Attribute set did not contain attribute " <> show name
-                        Just t -> lift (force t)
-                      val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but a " <> describeValue val
-               in lift (close acc >>= defer) >>= tell1 name
-        )
+    forM bindings $ \case
+      Simple name args body ->
+        let body' = foldr Lam body args
+         in lift (close (local (binds %~ mappend env) (whnf body')) >>= defer) >>= tell1 name
+      Inherit names -> forM_ names $ \name -> lift (lookupName name) >>= tell1 name
+      InheritFrom attrExpr names -> do
+        tAttr <- lift (close (local (binds %~ mappend env) (whnf attrExpr)) >>= defer)
+        -- Note that this implementation does not allow checking whether the field is actually present.
+        -- That would simplify the code, but also force evaluation of `env`, and therefore cause infinite recursion.
+        -- So, to introduce the required indirection, we instead construct a new thunk for every name.
+        -- TODO We could take a more gradual approach than just `mfix`ing the entire thing.
+        forM_ names $ \name ->
+          let acc =
+                lift (force tAttr) >>= \case
+                  VAttr m -> case m ^. at name of
+                    Nothing -> throwError $ "Attribute set did not contain attribute " <> show name
+                    Just t -> lift (force t)
+                  val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but a " <> describeValue val
+           in lift (close acc >>= defer) >>= tell1 name
   where
     tell1 :: Name -> Thunk -> StateT (Map Name Thunk) Eval ()
     tell1 name thunk = do
