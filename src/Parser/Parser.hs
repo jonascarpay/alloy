@@ -171,7 +171,7 @@ pBinding = choice (fmap (<* semicolon) [pBind, pInherit, pInheritFrom])
       name <- pIdent
       args <- many pIdent
       token T.Assign
-      Binding name args <$> pExpr
+      Simple name args <$> pExpr
     pInherit = token T.Inherit *> (Inherit <$> many pIdent)
     pInheritFrom = do
       token T.Inherit

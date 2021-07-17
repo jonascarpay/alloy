@@ -39,20 +39,11 @@ data ProgE
   deriving anyclass (Hashable)
 
 data Binding
-  = Binding Name [Name] Expr
+  = Simple Name [Name] Expr
   | Inherit [Name]
   | InheritFrom Expr [Name]
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
-
-binding ::
-  (Name -> Expr -> r) ->
-  ([Name] -> r) ->
-  (Expr -> [Name] -> r) ->
-  (Binding -> r)
-binding f _ _ (Binding name args expr) = f name (foldr Lam expr args)
-binding _ f _ (Inherit names) = f names
-binding _ _ f (InheritFrom body attrs) = f body attrs
 
 -- TODO Strings aren't prim
 data Prim
