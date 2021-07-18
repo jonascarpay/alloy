@@ -48,7 +48,9 @@ rtTests :: TestTree
 rtTests =
   testGroup
     "rt"
-    [ saFunc "trivial" "[] -> builtins.types.int { return 0; }",
+    [ saFunc "trivial break" "[] -> builtins.types.int { break 0; }",
+      saFunc "empty break" "[] -> builtins.types.void { break; }",
+      saFunc "trivial declaration" "with builtins.types; [] -> void { var i: int = 0; }", -- TODO Empty break
       pending $
         saFunc "empty function" "with builtins.types; [] -> void { }",
       saFunc "trivial with" "with builtins.types; [] -> int { return 0; }",

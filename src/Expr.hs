@@ -38,7 +38,7 @@ data Expr
 data ProgE
   = DeclE Name Expr Expr ProgE
   | AssignE Expr Expr ProgE
-  | BreakE (Maybe Expr) Expr -- TODO Maybe Expr
+  | BreakE (Maybe Expr) (Maybe Expr)
   | ExprE Expr ProgE
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
@@ -54,6 +54,7 @@ data Prim
   = PInt Int
   | PDouble Double
   | PBool Bool
+  | PVoid
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
