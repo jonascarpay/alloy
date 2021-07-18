@@ -568,7 +568,7 @@ rtTests =
                 [] -> int {
                   var x: int = 3;
                     (cond: loop@{
-                      if cond then {break @loop;} else {{ x = x + 1; }; continue @loop;};
+                      if cond then {break @loop;} else {dummy@{ x = x + 1; }; continue @loop;}; # TODO dummy
                     }) {x < 3};
                 }
             |],
@@ -579,7 +579,7 @@ rtTests =
                   var x: int = 3;
                   loop@{
                     if {x < 3} then {break @loop;} else {
-                      {x = x + 1;};
+                      x = x + 1;
                       continue @loop;
                     };
                   };
@@ -593,7 +593,7 @@ rtTests =
                     };
                 in [] -> int {
                   var x: int = 3;
-                  while {x < 3} {
+                  while {x < 3} dummy@{ # TODO dummy
                     x = x + 1;
                   };
                 }
