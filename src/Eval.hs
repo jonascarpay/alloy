@@ -49,7 +49,7 @@ whnf (App f x) =
             (lift . lift) (force arg) >>= compileValue
           pure $ Call func args'
         val -> throwError $ "Calling a runtime function with " <> describeValue val <> " as an argument instead of a list"
-    val -> throwError $ "Applying a value to a " <> describeValue val
+    val -> throwError $ "Applying a value to " <> describeValue val
 whnf (Lam arg body) = do
   env <- ask
   pure $ VClosure $ \t -> runReaderT (whnf body) (env & binds . at arg ?~ t)
@@ -76,11 +76,11 @@ whnf (Acc attr field) =
     VAttr m -> case m ^. at field of
       Nothing -> throwError $ "Attribute set does not contain field " <> show field
       Just t -> lift $ force t
-    val -> throwError $ "Accessing field " <> show field <> " of a " <> describeValue val <> " instead of an attribute set"
+    val -> throwError $ "Accessing field " <> show field <> " of " <> describeValue val <> " instead of an attribute set"
 whnf (With attrs body) =
   whnf attrs >>= \case
     VAttr m -> local (binds %~ mappend m) (whnf body)
-    val -> throwError $ "Inner expression in with-expression did not evaluate to an attribute set but a " <> describeValue val
+    val -> throwError $ "Inner expression in with-expression did not evaluate to an attribute set but " <> describeValue val
 whnf (Cond cond true false) =
   whnf cond >>= \case
     VPrim (PBool True) -> whnf true
@@ -102,8 +102,8 @@ binOp op a b@VRTPlace {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compi
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
-binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
-binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
+binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on ", describeValue l, "and ", describeValue r]
+binOp (CompOp _) l r = throwError $ unwords ["cannot compare ", describeValue l, "and ", describeValue r]
 
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
@@ -125,7 +125,7 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
                   VAttr m -> case m ^. at name of
                     Nothing -> throwError $ "Attribute set did not contain attribute " <> show name
                     Just t -> lift (force t)
-                  val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but a " <> describeValue val
+                  val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but " <> describeValue val
            in lift (close acc >>= defer) >>= tell1 name
   where
     tell1 :: Name -> Thunk -> StateT (Map Name Thunk) Eval ()
@@ -197,10 +197,10 @@ compileValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
 compileValue (VRTValue deps val) = val <$ tell deps
 compileValue (VRTPlace deps plc) = PlaceVal plc <$ tell deps
 compileValue (VPrim prim) = pure $ RTPrim prim
-compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
+compileValue val = throwError $ "Cannot create a runtime expression from " <> describeValue val
 
 -- TODO there should probably be a place value
 -- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VRTPlace deps plc) = plc <$ tell deps
-compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
+compilePlace val = throwError $ "Cannot create a place expression from " <> describeValue val
