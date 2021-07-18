@@ -97,6 +97,8 @@ whnf (List l) = VList <$> traverse (whnf >=> refer) l
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a@VVar {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a b@VVar {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
@@ -190,6 +192,7 @@ compileBlock blk = go
       pure $ ExprStmt val' k'
 
 -- TODO these should be renamed (forceValue?) and moved since they don't have any nested evaluation
+-- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compileValue :: WHNF -> Comp (RTVal VarIX BlockIX Hash)
 compileValue (VRun deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
@@ -197,6 +200,7 @@ compileValue (VPrim prim) = pure $ RTPrim prim
 compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
 
 -- TODO there should probably be a place value
+-- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val

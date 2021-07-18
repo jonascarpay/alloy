@@ -142,6 +142,7 @@ pBlock = do
       lhs <- pExpr
       token T.Assign
       rhs <- pExpr
+      semicolon
       AssignE lhs rhs <$> pStmts
 
     pExprStatement = do
