@@ -21,7 +21,6 @@ data Expr
   | Prim Prim
   | Func [(Name, Expr)] Expr Expr
   | BinExpr BinOp Expr Expr
-  | Type Type -- TODO remove
   | Run (Maybe Name) ProgE
   | Let [Binding] Expr
   | Attr [Binding]
@@ -46,12 +45,10 @@ data Binding
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
--- TODO Strings aren't prim
 data Prim
   = PInt Int
   | PDouble Double
   | PBool Bool
-  | PString ShortByteString
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 

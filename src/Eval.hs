@@ -40,7 +40,6 @@ whnf (App f x) =
 whnf (Lam arg body) = do
   env <- ask
   pure $ VClosure $ \t -> runReaderT (whnf body) (env & binds . at arg ?~ t)
-whnf (Type typ) = pure (VType typ)
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) =
   localBlock $ \blk -> do
@@ -209,6 +208,7 @@ compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
 
+-- TODO Fixpoint, since this can contain builtins.types.int
 builtins :: Map Name (Value a)
 builtins =
   M.fromList
