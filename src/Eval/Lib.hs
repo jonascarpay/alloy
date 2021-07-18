@@ -25,10 +25,10 @@ close (ReaderT f) = ReaderT $ \r -> pure (f r)
 describeValue :: Value f -> String
 describeValue VClosure {} = "closure"
 describeValue VRTValue {} = "runtime expression"
+describeValue VRTPlace {} = "runtime variable"
 describeValue VFunc {} = "runtime function"
 describeValue VType {} = "type"
 describeValue VPrim {} = "primitive"
-describeValue VVar {} = "runtime variable"
 describeValue VBlk {} = "runtime block"
 describeValue VAttr {} = "attribute set"
 describeValue VString {} = "string"

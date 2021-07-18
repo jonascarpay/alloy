@@ -18,7 +18,7 @@ import Data.Void
 import Expr
 import GHC.Generics
 
--- VVar and VLbl can never escape the scope in which they're defined, because they can only occur after a definer in a runtime expression, and so the surrounding context must evaluate to a runtime expression.
+-- VRTPlace and VLbl can never escape the scope in which they're defined, because they can only occur after a definer in a runtime expression, and so the surrounding context must evaluate to a runtime expression.
 -- However, this definition makes it seem like we can have free-floating vars/lbls, similar to how a normal value can escape its lexical scope through closures.
 -- Maybe there is some type-level way to make clearer that that is not possible in this case.
 -- Maybe they exist as a different binding in a different transformer, it's hard to really call them thunks in the first place
@@ -27,7 +27,7 @@ import GHC.Generics
 data Value f
   = VClosure (Thunk -> EvalBase WHNF) -- TODO params
   | VRTValue Deps (RTValue VarIX BlockIX Hash)
-  | VVar VarIX
+  | VRTPlace Deps (RTPlace VarIX BlockIX Hash)
   | VFunc Deps Hash
   | VType Type
   | VPrim Prim

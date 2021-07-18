@@ -31,6 +31,7 @@ shallowEq f = go
     go VClosure {} _ = False
     go (VRTValue _ a) (VRTValue _ b) = a == b
     go (VRTValue _ _) _ = False
+    go (VRTPlace _ _) _ = error "impossible"
     go (VFunc _ a) (VFunc _ b) = a == b
     go (VFunc _ _) _ = False
     go (VType a) (VType b) = a == b
@@ -39,7 +40,6 @@ shallowEq f = go
     go (VPrim _) _ = False
     go (VAttr a) (VAttr b) = M.keys a == M.keys b && and (M.intersectionWith f a b)
     go (VAttr _) _ = False
-    go (VVar _) _ = error "impossible"
     go (VBlk _) _ = error "impossible"
 
 nfEq :: NF -> NF -> Bool

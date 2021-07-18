@@ -51,12 +51,12 @@ pNF :: Monad m => NF -> PrinterT (NameT m) ()
 pNF = go . unNF
   where
     go VClosure {} = spit "<closure>"
+    go VRTPlace {} = spit "<runtime place>"
+    go VRTValue {} = spit "<runtime value>"
     go VFunc {} = spit "<function>"
     go VType {} = spit "<type>"
-    go VVar {} = spit "<var>"
     go VBlk {} = spit "<block ref>"
     go VAttr {} = spit "<attr set>"
-    go VRTValue {} = spit "<runtime expression>"
     go VPrim {} = spit "<primitive>"
     go VString {} = spit "<string>"
     go VList {} = spit "<list>"
