@@ -23,7 +23,7 @@ import GHC.Generics
 -- In any case, it needs to be stressed that for these, their dynamc scope is their lexical scope.
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
-  = VClosure Name Expr (Map Name Thunk)
+  = VClosure (Thunk -> EvalBase WHNF) -- TODO params
   | VRun Deps (RTVal VarIX BlockIX Hash)
   | VFunc Deps Hash
   | VType Type

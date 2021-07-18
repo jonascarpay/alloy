@@ -3,7 +3,6 @@
 module Eval.Lenses where
 
 import Eval.Types
-import Expr
 import Lens.Micro.Platform
 
 makeLenses ''EvalEnv
@@ -35,6 +34,7 @@ rtVal fv fl ff = go
     go (Call fun args) = Call <$> ff fun <*> traverse go args
     go (PlaceVal plc) = PlaceVal <$> rtPlace fv fl ff plc
     go (Block blk) = Block <$> rtProg fv (traverse fl) ff blk
+    go (RTCond cond true false) = RTCond <$> go cond <*> go true <*> go false
 
 rtPlace ::
   Applicative m =>
