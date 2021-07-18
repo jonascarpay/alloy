@@ -50,6 +50,7 @@ library
   hs-source-dirs:     src
   exposed-modules:
     Eval
+    Eval.BinOp
     Eval.Lenses
     Eval.Lib
     Eval.Types
