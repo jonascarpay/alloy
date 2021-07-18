@@ -51,16 +51,19 @@ rtTests =
     "rt"
     [ testGroup
         "trivial"
-        [ saFunc "trivial break" "[] -> builtins.types.int { break 0; }",
-          saFunc "trivial continue" "[] -> builtins.types.int { continue; }",
+        [ saFunc "break" "[] -> builtins.types.int { break 0; }",
+          saFunc "continue" "[] -> builtins.types.int { continue; }",
           saFunc "empty break" "[] -> builtins.types.void { break; }",
-          saFunc "trivial declaration" "with builtins.types; [] -> void { var i: int = 0; }",
-          saFunc "trivial assignment" "with builtins.types; [] -> void { var i: int = 0; i = 9; }",
-          saFunc "trivial expression statement" "with builtins.types; [] -> void { 3; builtins.void }",
+          saFunc "declaration" "with builtins.types; [] -> void { var i: int = 0; }",
+          saFunc "assignment" "with builtins.types; [] -> void { var i: int = 0; i = 9; }",
+          saFunc "expression statement" "with builtins.types; [] -> void { 3; builtins.void }",
           saFunc "assignment with lhs expression" "with builtins.types; [] -> void { var i: int = 0; (x: x) i = 9; }",
-          saFunc "trivial with" "with builtins.types; [] -> int { break 0; }",
+          saFunc "with" "with builtins.types; [] -> int { break 0; }",
           saFunc "terminator expression" "[] -> builtins.types.int { 9 }",
           saFunc "bodyless function" "[] -> builtins.types.int 9",
+          saFunc "id 1" "with builtins.types; [x : int] -> int { break x; }",
+          saFunc "id 2" "with builtins.types; [x : int] -> int { x }",
+          saFunc "id 3" "with builtins.types; [x : int] -> int x",
           saFunc "bodyless function (void)" "[] -> builtins.types.void builtins.void",
           saFunc
             "simple conditional"
