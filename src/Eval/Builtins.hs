@@ -28,12 +28,14 @@ builtins =
         ("matchType", vMatchType)
       ]
 
-forceExpect :: String -> (WHNF -> Maybe (EvalBase r)) -> Thunk -> EvalBase r
-forceExpect ex k tnk = do
+-- TODO maybe do something prismy instead?
+{-# INLINE forceExpect #-}
+forceExpect :: String -> String -> (WHNF -> Maybe (EvalBase r)) -> Thunk -> EvalBase r
+forceExpect prefix ex k tnk = do
   val <- force tnk
   case k val of
     Just r -> r
-    Nothing -> throwError $ "Expected " <> ex <> ", but got " <> describeValue val
+    Nothing -> throwError $ prefix <> ": Expected " <> ex <> ", but got " <> describeValue val
 
 vLength :: Value f
 vLength = VClosure $ \tList ->
@@ -43,46 +45,41 @@ vLength = VClosure $ \tList ->
     val -> throwError $ "builtins.length: Cannot get the length of a " <> describeValue val
 
 vIndex :: Value f
-vIndex = VClosure $ \tList ->
-  force tList >>= \case
-    VList l -> pure . VClosure $ \tIx ->
-      force tIx >>= \case
-        VPrim (PInt ix) -> case Seq.lookup ix l of
-          Nothing -> throwError $ "builtins.index: List index " <> show ix <> " is out of bounds"
-          Just t -> force t
-        val -> throwError $ "builtins.index: Second argument was not an integer but a " <> describeValue val
-    VString bs -> pure . VClosure $ \tIx ->
-      force tIx >>= \case
-        VPrim (PInt ix) -> case indexMaybe bs ix of
-          Nothing -> throwError $ "builtins.index: List index " <> show ix <> " is out of bounds"
-          Just t -> pure . VString $ BS.singleton t
-        val -> throwError $ "builtins.index: Second argument was not an integer but a " <> describeValue val
-    VAttr attrs -> pure $
-      VClosure $ \tStr ->
-        force tStr >>= \case
-          VString str -> case M.lookup (BSS.toShort str) attrs of
-            Nothing -> throwError $ "builtins.index: Attribute set does not contain field " <> show str
-            Just t -> force t
-          val -> throwError $ "builtins.index: Second argument was not a string but a " <> describeValue val
-    val -> throwError $ "builtins.index: Cannot get index into a " <> describeValue val
+vIndex = VClosure . expect "a list, string, or attribute set" $ \case
+  VList l -> Just . pure . VClosure . expect "an integer" $ \case
+    VPrim (PInt ix) -> Just $ case Seq.lookup ix l of
+      Nothing -> throwError $ "builtins.index: List index " <> show ix <> " is out of bounds"
+      Just t -> force t
+    _ -> Nothing
+  VString bs -> Just . pure . VClosure . expect "an integer" $ \case
+    VPrim (PInt ix) -> Just $ case indexMaybe bs ix of
+      Nothing -> throwError $ "builtins.index: List index " <> show ix <> " is out of bounds"
+      Just t -> pure . VString $ BS.singleton t
+    _ -> Nothing
+  VAttr attrs -> Just . pure . VClosure . expect "a string" $ \case
+    VString str -> Just $ case M.lookup (BSS.toShort str) attrs of
+      Nothing -> throwError $ "builtins.index: Attribute set does not contain field " <> show str
+      Just t -> force t
+    _ -> Nothing
+  _ -> Nothing
+  where
+    expect = forceExpect "builtins.index"
 
 vListToAttrs :: Value f
-vListToAttrs = VClosure $ \tList ->
-  force tList >>= \case
-    VList l -> do
-      l' <- forM l $ \tAttrs ->
-        force tAttrs >>= \case
-          VAttr attrs -> case M.lookup "key" attrs of
-            Just tKey ->
-              force tKey >>= \case
-                VString key -> case M.lookup "value" attrs of
-                  Just value -> pure (BSS.toShort key, value)
-                  Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"value\""
-                val -> throwError $ "builtins.listToAttrs: Field \"key\" was not a string but a " <> describeValue val
-            Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"key\""
-          val -> throwError $ "builtins.listToAttrs: List element was not an attribute set but a " <> describeValue val
-      pure $ VAttr $ M.fromList $ toList l'
-    val -> throwError $ "builtins.listToAttrs: Argument was not a list but a " <> describeValue val
+vListToAttrs = VClosure . expect "a list" $ \case
+  VList l -> Just . fmap (VAttr . M.fromList . toList) . forM l $
+    expect "an attribute set" $ \case
+      VAttr attrs -> Just $ case M.lookup "key" attrs of
+        Just tKey -> flip (expect "a string") tKey $ \case
+          VString key -> Just $ case M.lookup "value" attrs of
+            Just value -> pure (BSS.toShort key, value)
+            Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"value\""
+          _ -> Nothing
+        Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"key\""
+      _ -> Nothing
+  _ -> Nothing
+  where
+    expect = forceExpect "builtins.listToAttrs"
 
 vTypes :: Value NF
 vTypes =
@@ -96,21 +93,19 @@ vTypes =
           ("struct", VClosure mkStruct)
         ]
   where
-    mkStruct :: Thunk -> EvalBase WHNF
-    mkStruct tnk =
-      force tnk >>= \case
-        VAttr m -> do
-          m' <- traverse (force >=> ensureType) m
-          pure $ VType $ TStruct m'
-        val -> throwError $ "builtins.types.struct: Argument was not an attribute set but a " <> describeValue val
+    mkStruct = forceExpect "builtins.types.struct" "an attribute set" $ \case
+      VAttr m -> Just $ do
+        m' <- traverse (force >=> ensureType) m
+        pure $ VType $ TStruct m'
+      _ -> Nothing
 
 vMatchType :: Value f
 vMatchType = VClosure $
-  forceExpect "an attribute set" $ \case
+  expect "an attribute set" $ \case
     VAttr m -> Just $
       pure $
         VClosure $
-          forceExpect "a type" $ \case
+          expect "a type" $ \case
             VType t ->
               Just $
                 case t of
@@ -127,6 +122,7 @@ vMatchType = VClosure $
             _ -> Nothing
     _ -> Nothing
   where
+    expect = forceExpect "builtins.matchType"
     {-# INLINE lookupDefault #-}
     lookupDefault :: Map Name Thunk -> Name -> EvalBase WHNF
     lookupDefault m name
