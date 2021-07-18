@@ -13,6 +13,7 @@ import Data.ByteString (ByteString)
 import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
+import Data.Sequence (Seq)
 import Data.Void
 import Expr
 import GHC.Generics
@@ -33,6 +34,7 @@ data Value f
   | VString ByteString
   | VBlk BlockIX
   | VAttr (Map Name f)
+  | VList (Seq f)
   deriving (Functor, Foldable, Traversable)
 
 type WHNF = Value Thunk

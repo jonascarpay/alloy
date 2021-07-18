@@ -81,6 +81,7 @@ whnf (Cond cond true false) =
       pure $ RTCond cond' true' false'
     val -> throwError $ "Scrutinee is not a boolean or a runtime expression, but a " <> describeValue val
 whnf (String str) = pure $ VString str
+whnf (List l) = VList <$> traverse (whnf >=> refer) l
 
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)

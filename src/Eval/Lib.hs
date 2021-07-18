@@ -27,6 +27,7 @@ describeValue VVar {} = "runtime variable"
 describeValue VBlk {} = "runtime block"
 describeValue VAttr {} = "attribute set"
 describeValue VString {} = "string"
+describeValue VList {} = "list"
 
 lookupName :: Name -> Eval Thunk
 lookupName name =

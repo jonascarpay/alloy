@@ -59,3 +59,4 @@ pNF = go . unNF
     go VRun {} = spit "<runtime expression>"
     go VPrim {} = spit "<primitive>"
     go VString {} = spit "<string>"
+    go VList {} = spit "<list>"
