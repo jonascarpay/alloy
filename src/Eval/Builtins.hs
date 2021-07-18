@@ -7,14 +7,12 @@ import Control.Monad.Except
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as BSS
 import Data.Foldable (toList)
+import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence qualified as Seq
 import Eval.Lib
 import Eval.Types
 import Expr
-
--- TODO abstract (throwError expected a but got b)
--- Note that `ensureValue` exists
 
 {-# ANN module ("hlint: ignore Use >=>" :: String) #-}
 
@@ -26,8 +24,16 @@ builtins =
         ("length", vLength),
         ("index", vIndex),
         ("listToAttrs", vListToAttrs),
-        ("types", vTypes)
+        ("types", vTypes),
+        ("matchType", vMatchType)
       ]
+
+forceExpect :: String -> (WHNF -> Maybe (EvalBase r)) -> Thunk -> EvalBase r
+forceExpect ex k tnk = do
+  val <- force tnk
+  case k val of
+    Just r -> r
+    Nothing -> throwError $ "Expected " <> ex <> ", but got " <> describeValue val
 
 vLength :: Value f
 vLength = VClosure $ \tList ->
@@ -72,7 +78,7 @@ vListToAttrs = VClosure $ \tList ->
                 VString key -> case M.lookup "value" attrs of
                   Just value -> pure (BSS.toShort key, value)
                   Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"value\""
-                val -> throwError $ "builtins.listToAttrs: field \"key\" was not a string but a " <> describeValue val
+                val -> throwError $ "builtins.listToAttrs: Field \"key\" was not a string but a " <> describeValue val
             Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"key\""
           val -> throwError $ "builtins.listToAttrs: List element was not an attribute set but a " <> describeValue val
       pure $ VAttr $ M.fromList $ toList l'
@@ -97,3 +103,33 @@ vTypes =
           m' <- traverse (force >=> ensureType) m
           pure $ VType $ TStruct m'
         val -> throwError $ "builtins.types.struct: Argument was not an attribute set but a " <> describeValue val
+
+vMatchType :: Value f
+vMatchType = VClosure $
+  forceExpect "an attribute set" $ \case
+    VAttr m -> Just $
+      pure $
+        VClosure $
+          forceExpect "a type" $ \case
+            VType t ->
+              Just $
+                case t of
+                  TInt -> lookupDefault m "int"
+                  TDouble -> lookupDefault m "double"
+                  TBool -> lookupDefault m "bool"
+                  TVoid -> lookupDefault m "void"
+                  TStruct fields ->
+                    lookupDefault m "struct" >>= \case
+                      VClosure k -> do
+                        fields' <- traverse (refer . VType) fields
+                        refer (VAttr fields') >>= k
+                      val -> throwError $ "builtins.matchType: Matcher for struct fields was not a closure but " <> describeValue val
+            _ -> Nothing
+    _ -> Nothing
+  where
+    {-# INLINE lookupDefault #-}
+    lookupDefault :: Map Name Thunk -> Name -> EvalBase WHNF
+    lookupDefault m name
+      | Just r <- M.lookup name m = force r
+      | Just r <- M.lookup "default" m = force r
+      | otherwise = throwError $ "builtins.matchType: Attribute set does not contain matcher " <> show name
