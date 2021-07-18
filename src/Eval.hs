@@ -9,6 +9,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as BSS
 import Data.Hashable
 import Data.List (findIndex)
@@ -187,7 +188,8 @@ builtins :: Map Name (Value a)
 builtins =
   M.fromList
     [ ("nine", VPrim $ PInt 9),
-      ("lookup", vlookup)
+      ("lookup", vlookup),
+      ("length", vlength)
     ]
   where
     vlookup = VClosure $ \tAttr ->
@@ -200,3 +202,8 @@ builtins =
                 Just t -> force t
               val -> throwError $ "Second argument to builtins.lookup was not a string set but a " <> describeValue val
         val -> throwError $ "First argument to builtins.lookup was not an attribute set but a " <> describeValue val
+    vlength = VClosure $ \tFoldable ->
+      force tFoldable >>= \case
+        VList l -> pure . VPrim . PInt $ length l
+        VString s -> pure . VPrim . PInt $ BS.length s
+        val -> throwError $ "builtins.length: Cannot get the length of a " <> describeValue val
