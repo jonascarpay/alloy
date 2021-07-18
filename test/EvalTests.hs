@@ -130,6 +130,7 @@ evalTests =
       is9 "haskell function syntax 1" "let id x = x; in id 9",
       is9 "haskell function syntax 2" "let const x y = x; in const 9 10",
       is9 "simple string comparison" "if \"test\" == \"test\" then 9 else 8",
+      is9 "concatenated string comparison" "if \"te\" + \"st\" == \"test\" then 9 else 8",
       is9
         "newlines in string parsing"
         [r| let str = "test

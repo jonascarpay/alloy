@@ -46,5 +46,5 @@ binDouble (CompOp op) l r = pure . PBool $ compOp op l r
 
 binString :: BinOp -> ByteString -> ByteString -> Eval WHNF
 binString (CompOp op) l r = pure . VPrim . PBool $ compOp op l r
--- binString (ArithOp Add) l r = pure . VString $ l <> r
+binString (ArithOp Add) l r = pure . VString $ l <> r
 binString (ArithOp _) _ _ = throwError "Cannot perform arithmetic on strings"
