@@ -199,7 +199,6 @@ compileValue (VRTPlace deps plc) = PlaceVal plc <$ tell deps
 compileValue (VPrim prim) = pure $ RTPrim prim
 compileValue val = throwError $ "Cannot create a runtime expression from " <> describeValue val
 
--- TODO there should probably be a place value
 -- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VRTPlace deps plc) = plc <$ tell deps
