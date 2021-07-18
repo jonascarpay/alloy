@@ -24,7 +24,7 @@ common common-options
   -- array is a dep of alex-generated modueles
   build-depends:
     , array
-    , base                >=4.9 && <5
+    , base                  >=4.9 && <5
     , bytestring
     , containers
     , directory
@@ -36,6 +36,7 @@ common common-options
     , parser-combinators
     , prettyprinter
     , union-find
+    , unordered-containers
     , vector
 
   default-language:   Haskell2010

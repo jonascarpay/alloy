@@ -10,6 +10,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.ByteString (ByteString)
+import Data.HashMap.Strict (HashMap)
 import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
@@ -44,7 +45,7 @@ newtype NF = NF {unNF :: Value NF}
 newtype Hash = Hash Int
   deriving newtype (Eq, Show, Ord, Hashable)
 
-newtype Deps = Deps (Map Hash (RTFunc Hash)) -- Just use a HashMap
+newtype Deps = Deps (HashMap Hash (RTFunc Hash))
   deriving newtype (Eq, Semigroup, Monoid)
 
 newtype Thunk = Thunk (IORef (Either (EvalBase WHNF) WHNF))

@@ -10,6 +10,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Foldable (toList)
+import Data.HashMap.Strict qualified as HM
 import Data.Hashable
 import Data.List (findIndex)
 import Data.Map (Map)
@@ -145,7 +146,7 @@ compileFunc args ret body = do
     closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
     let fundef = RTFunc (snd <$> args') ret' closedBlks
         guid = Hash $ hash fundef
-    tell $ Deps $ M.singleton guid fundef
+    tell $ Deps $ HM.singleton guid fundef
     pure guid
   where
     bindVars :: [((Name, Type), VarIX)] -> Comp a -> Comp a
