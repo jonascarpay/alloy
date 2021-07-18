@@ -74,6 +74,8 @@ pWith =
     (token T.With *> pExpr <* semicolon)
     pExpr
 
+-- TODO think about unambiguous attr parsing
+-- Unforunately, [] means you can't tell the difference between empty attrs and the empty list
 pAttr :: Parser Expr
 pAttr = braces $ Attr <$> many pBinding
 
