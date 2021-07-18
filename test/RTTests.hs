@@ -62,11 +62,6 @@ rtTests =
           saFunc "terminator expression" "[] -> builtins.types.int { 9 }",
           saFunc "bodyless function" "[] -> builtins.types.int 9",
           saFunc "bodyless function (void)" "[] -> builtins.types.void builtins.void",
-          pending $
-            expectFailBecause "Cannot construct void for nums" $
-              saFunc
-                "numerical void"
-                "with builtins.types; [] -> void { return 0; }",
           saFunc
             "simple conditional"
             [r| with builtins.types;
@@ -410,6 +405,10 @@ rtTests =
                   var x: typeOf y = id int [{y + 2}];
                 }
             |],
+          expectFailBecause "Cannot construct void for nums" $
+            saFunc
+              "numerical void"
+              "with builtins.types; [] -> void { return 0; }",
           saFunc
             "struct field type inference"
             [r| with builtins.types;
