@@ -20,16 +20,16 @@ builtins :: Map Name (Value a)
 builtins =
   M.fromList
     [ ("nine", VPrim $ PInt 9),
-      ("length", vlength),
-      ("index", vindex)
+      ("length", vLength),
+      ("index", vIndex)
     ]
   where
-    vlength = VClosure $ \tList ->
+    vLength = VClosure $ \tList ->
       force tList >>= \case
         VList l -> pure . VPrim . PInt $ length l
         VString s -> pure . VPrim . PInt $ BS.length s
         val -> throwError $ "builtins.length: Cannot get the length of a " <> describeValue val
-    vindex = VClosure $ \tList ->
+    vIndex = VClosure $ \tList ->
       force tList >>= \case
         VList l -> pure . VClosure $ \tIx ->
           force tIx >>= \case
