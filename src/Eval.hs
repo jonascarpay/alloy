@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
 module Eval where
@@ -21,8 +22,11 @@ import Lens.Micro.Platform hiding (ix)
 runEval :: Expr -> IO (Either String NF)
 runEval expr = do
   runExceptT $
-    unEvalBase $
-      unEval (whnf expr) >>= deepseq
+    unEvalBase $ do
+      val <- unEval $ do
+        tBuiltins <- traverse refer builtins >>= refer . VAttr
+        local (binds . at "builtins" ?~ tBuiltins) (whnf expr)
+      deepseq val
   where
     deepseq :: WHNF -> EvalBase NF
     deepseq = fmap NF . traverse (force >=> deepseq)
@@ -204,3 +208,9 @@ compileValue val = throwError $ "Cannot create a runtime expression from a " <> 
 compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
+
+builtins :: Map Name (Value a)
+builtins =
+  M.fromList
+    [ ("nine", VPrim $ PInt 9)
+    ]
