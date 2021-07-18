@@ -26,7 +26,7 @@ import GHC.Generics
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
   = VClosure (Thunk -> EvalBase WHNF) -- TODO params
-  | VRun Deps (RTVal VarIX BlockIX Hash)
+  | VRun Deps (RTValue VarIX BlockIX Hash)
   | VFunc Deps Hash
   | VType Type
   | VPrim Prim
@@ -64,21 +64,20 @@ data Bind b a
   deriving anyclass (Hashable)
 
 data RTProg var blk fun
-  = Decl Type (RTVal var blk fun) (RTProg (Bind () var) blk fun)
-  | Assign (RTPlace var blk fun) (RTVal var blk fun) (RTProg var blk fun)
-  | Break blk (RTVal var blk fun)
+  = Decl Type (RTValue var blk fun) (RTProg (Bind () var) blk fun)
+  | Assign (RTPlace var blk fun) (RTValue var blk fun) (RTProg var blk fun)
+  | Break blk (RTValue var blk fun)
   | Continue blk
-  | ExprStmt (RTVal var blk fun) (RTProg var blk fun)
+  | ExprStmt (RTValue var blk fun) (RTProg var blk fun)
   deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
--- TODO Rename to RTExpr
-data RTVal var blk fun
-  = RTArith ArithOp (RTVal var blk fun) (RTVal var blk fun)
-  | RTComp CompOp (RTVal var blk fun) (RTVal var blk fun)
+data RTValue var blk fun
+  = RTArith ArithOp (RTValue var blk fun) (RTValue var blk fun)
+  | RTComp CompOp (RTValue var blk fun) (RTValue var blk fun)
   | RTPrim Prim
-  | RTCond (RTVal var blk fun) (RTVal var blk fun) (RTVal var blk fun)
-  | Call fun [RTVal var blk fun]
+  | RTCond (RTValue var blk fun) (RTValue var blk fun) (RTValue var blk fun)
+  | Call fun [RTValue var blk fun]
   | PlaceVal (RTPlace var blk fun)
   | Block (RTProg var (Bind () blk) fun)
   deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
@@ -86,14 +85,14 @@ data RTVal var blk fun
 
 data RTPlace var blk fun
   = Place var
-  | Deref (RTVal var blk fun)
+  | Deref (RTValue var blk fun)
   deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTFunc fun = RTFunc
   { fnArgs :: [Type],
     fnRet :: Type,
-    fnBody :: RTVal (Bind Int Void) Void fun
+    fnBody :: RTValue (Bind Int Void) Void fun
   }
   deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)

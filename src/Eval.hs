@@ -193,7 +193,7 @@ compileBlock blk = go
 
 -- TODO these should be renamed (forceValue?) and moved since they don't have any nested evaluation
 -- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
-compileValue :: WHNF -> Comp (RTVal VarIX BlockIX Hash)
+compileValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
 compileValue (VRun deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
 compileValue (VPrim prim) = pure $ RTPrim prim

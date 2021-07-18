@@ -16,19 +16,19 @@ rtProg ::
   (RTProg var lbl fun -> m (RTProg var' lbl' fun'))
 rtProg fv fl ff = go
   where
-    go (Decl typ val k) = Decl typ <$> rtVal fv fl ff val <*> rtProg (traverse fv) fl ff k
-    go (Assign lhs rhs k) = Assign <$> rtPlace fv fl ff lhs <*> rtVal fv fl ff rhs <*> go k
-    go (Break lbl val) = Break <$> fl lbl <*> rtVal fv fl ff val
+    go (Decl typ val k) = Decl typ <$> rtValue fv fl ff val <*> rtProg (traverse fv) fl ff k
+    go (Assign lhs rhs k) = Assign <$> rtPlace fv fl ff lhs <*> rtValue fv fl ff rhs <*> go k
+    go (Break lbl val) = Break <$> fl lbl <*> rtValue fv fl ff val
     go (Continue lbl) = Continue <$> fl lbl
-    go (ExprStmt val k) = ExprStmt <$> rtVal fv fl ff val <*> go k
+    go (ExprStmt val k) = ExprStmt <$> rtValue fv fl ff val <*> go k
 
-rtVal ::
+rtValue ::
   Applicative m =>
   (var -> m var') ->
   (lbl -> m lbl') ->
   (fun -> m fun') ->
-  (RTVal var lbl fun -> m (RTVal var' lbl' fun'))
-rtVal fv fl ff = go
+  (RTValue var lbl fun -> m (RTValue var' lbl' fun'))
+rtValue fv fl ff = go
   where
     go (RTArith op l r) = RTArith op <$> go l <*> go r
     go (RTComp op l r) = RTComp op <$> go l <*> go r
@@ -47,7 +47,7 @@ rtPlace ::
 rtPlace fv fl ff = go
   where
     go (Place var) = Place <$> fv var
-    go (Deref val) = Deref <$> rtVal fv fl ff val
+    go (Deref val) = Deref <$> rtValue fv fl ff val
 
 rtProgLabels :: Traversal (RTProg var lbl fun) (RTProg var lbl' fun) lbl lbl'
 rtProgLabels f = rtProg pure f pure
@@ -55,8 +55,8 @@ rtProgLabels f = rtProg pure f pure
 rtProgVars :: Traversal (RTProg var lbl fun) (RTProg var' lbl fun) var var'
 rtProgVars f = rtProg f pure pure
 
-rtValVars :: Traversal (RTVal var lbl fun) (RTVal var' lbl fun) var var'
-rtValVars f = rtVal f pure pure
+rtValVars :: Traversal (RTValue var lbl fun) (RTValue var' lbl fun) var var'
+rtValVars f = rtValue f pure pure
 
-rtValLabels :: Traversal (RTVal var lbl fun) (RTVal var lbl' fun) lbl lbl'
-rtValLabels f = rtVal pure f pure
+rtValLabels :: Traversal (RTValue var lbl fun) (RTValue var lbl' fun) lbl lbl'
+rtValLabels f = rtValue pure f pure
