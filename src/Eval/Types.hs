@@ -75,6 +75,7 @@ data RTProg var blk fun
 data RTVal var blk fun
   = RTArith ArithOp (RTVal var blk fun) (RTVal var blk fun)
   | RTComp CompOp (RTVal var blk fun) (RTVal var blk fun)
+  | RTPrim Prim
   | RTCond (RTVal var blk fun) (RTVal var blk fun) (RTVal var blk fun)
   | Call fun [RTVal var blk fun]
   | PlaceVal (RTPlace var blk fun)
