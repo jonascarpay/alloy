@@ -97,11 +97,17 @@ pTerm = do
       [ Prim <$> pAtom,
         -- pList,
         pAttr,
+        pString,
         -- pBlock,
         parens pExpr,
         pVar
       ]
   foldl' Acc val <$> many (token T.Dot *> pIdent)
+
+pString :: Parser Expr
+pString = expect "string" $ \case
+  T.String str -> Just (String str)
+  _ -> Nothing
 
 -- pBlock :: Parser Expr
 -- pBlock = do
@@ -158,7 +164,6 @@ pLet = do
 pAtom :: Parser Prim
 pAtom = expect "atom" $ \case
   T.Num n -> Just $ PInt n
-  -- T.String s -> Just $ PString s
   T.TTrue -> Just $ PBool True
   T.TFalse -> Just $ PBool False
   _ -> Nothing

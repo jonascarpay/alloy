@@ -9,6 +9,7 @@ module Eval.Types where
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer
+import Data.ByteString (ByteString)
 import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
@@ -29,6 +30,7 @@ data Value f
   | VType Type
   | VPrim Prim
   | VVar VarIX
+  | VString ByteString
   | VBlk BlockIX
   | VAttr (Map Name f)
   deriving (Functor, Foldable, Traversable)

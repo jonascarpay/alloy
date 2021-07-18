@@ -6,6 +6,7 @@
 
 module Expr where
 
+import Data.ByteString (ByteString)
 import Data.ByteString.Short (ShortByteString)
 import Data.Hashable
 import Data.Map (Map)
@@ -24,6 +25,7 @@ data Expr
   | Run (Maybe Name) ProgE
   | Let [Binding] Expr
   | Attr [Binding]
+  | String ByteString
   | Acc Expr Name
   | With Expr Expr
   | Cond Expr Expr Expr
