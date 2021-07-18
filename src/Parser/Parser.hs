@@ -115,7 +115,7 @@ pBlock = do
   braces $ Run label <$> pStmts
   where
     pStmts :: Parser ProgE
-    pStmts = choice [pDecl, pTerminator]
+    pStmts = choice [pDecl, pAssign, pTerminator]
 
     pTerminator =
       choice
@@ -131,6 +131,12 @@ pBlock = do
       semicolon
       pure $ BreakE lbl expr
 
+    pAssign = do
+      lhs <- pExpr
+      token T.Assign
+      rhs <- pExpr
+      AssignE lhs rhs <$> pStmts
+
     pDecl = do
       token T.Var
       lhs <- pIdent
@@ -143,22 +149,6 @@ pBlock = do
 
 semicolon :: Parser ()
 semicolon = token T.Semicolon
-
--- pStatement :: Parser ProgE
--- pStatement = choice (fmap termSemicolon [pReturn, pBreak, pDecl, ExprStmt <$> pExpr, pAssign, pContinue])
---   where
---     pReturn = token T.Return *> (Return <$> pExpr)
---     pMLabel = optional $ token T.At *> pIdent
---     pBreak = token T.Break *> liftA2 Break pMLabel (optional pExpr)
---     pContinue = token T.Continue *> (Continue <$> pMLabel)
---     pAssign = liftA2 Assign pIdent (token T.Assign *> pExpr)
---     pDecl =
---       token T.Var
---         *> liftA3
---           Decl
---           pIdent
---           (optional $ token T.Colon *> pExpr)
---           (token T.Assign *> pExpr)
 
 pVar :: Parser Expr
 pVar = Var <$> pIdent
