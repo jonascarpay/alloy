@@ -26,7 +26,7 @@ data Expr
   | Let [Binding] Expr
   | Attr [Binding]
   | String ByteString
-  | Acc Expr Name
+  | Acc Expr Name -- TODO rename sel
   | With Expr Expr
   | Cond Expr Expr Expr
   deriving stock (Eq, Show, Generic)
