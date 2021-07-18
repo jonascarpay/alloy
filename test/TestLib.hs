@@ -29,8 +29,8 @@ shallowEq :: (f -> f -> Bool) -> Value f -> Value f -> Bool
 shallowEq f = go
   where
     go VClosure {} _ = False
-    go (VRun _ a) (VRun _ b) = a == b
-    go (VRun _ _) _ = False
+    go (VRTValue _ a) (VRTValue _ b) = a == b
+    go (VRTValue _ _) _ = False
     go (VFunc _ a) (VFunc _ b) = a == b
     go (VFunc _ _) _ = False
     go (VType a) (VType b) = a == b

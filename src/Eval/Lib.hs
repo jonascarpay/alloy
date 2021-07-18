@@ -24,7 +24,7 @@ close (ReaderT f) = ReaderT $ \r -> pure (f r)
 -- TODO Describe primitives in more detail
 describeValue :: Value f -> String
 describeValue VClosure {} = "closure"
-describeValue VRun {} = "runtime expression"
+describeValue VRTValue {} = "runtime expression"
 describeValue VFunc {} = "runtime function"
 describeValue VType {} = "type"
 describeValue VPrim {} = "primitive"

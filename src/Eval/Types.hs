@@ -26,11 +26,11 @@ import GHC.Generics
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
   = VClosure (Thunk -> EvalBase WHNF) -- TODO params
-  | VRun Deps (RTValue VarIX BlockIX Hash)
+  | VRTValue Deps (RTValue VarIX BlockIX Hash)
+  | VVar VarIX
   | VFunc Deps Hash
   | VType Type
   | VPrim Prim
-  | VVar VarIX
   | VString ByteString
   | VBlk BlockIX
   | VAttr (Map Name f)
