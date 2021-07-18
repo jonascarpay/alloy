@@ -43,7 +43,7 @@ vLength = VClosure $ \tList ->
   force tList >>= \case
     VList l -> pure . VPrim . PInt $ length l
     VString s -> pure . VPrim . PInt $ BS.length s
-    val -> throwError $ "builtins.length: Cannot get the length of a " <> describeValue val
+    val -> throwError $ "builtins.length: Cannot get the length of " <> describeValue val
 
 vIndex :: Value f
 vIndex = VClosure . expect "a list, string, or attribute set" $ \case

@@ -20,19 +20,18 @@ import Lens.Micro.Platform hiding (ix)
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
--- TODO articles!
 -- TODO Describe primitives in more detail
 describeValue :: Value f -> String
-describeValue VClosure {} = "closure"
-describeValue VRTValue {} = "runtime expression"
-describeValue VRTPlace {} = "runtime variable"
-describeValue VFunc {} = "runtime function"
-describeValue VType {} = "type"
-describeValue VPrim {} = "primitive"
-describeValue VBlk {} = "runtime block"
-describeValue VAttr {} = "attribute set"
-describeValue VString {} = "string"
-describeValue VList {} = "list"
+describeValue VClosure {} = "a closure"
+describeValue VRTValue {} = "a runtime expression"
+describeValue VRTPlace {} = "a runtime variable"
+describeValue VFunc {} = "a runtime function"
+describeValue VType {} = "a type"
+describeValue VPrim {} = "a primitive"
+describeValue VBlk {} = "a runtime block"
+describeValue VAttr {} = "an attribute set"
+describeValue VString {} = "a string"
+describeValue VList {} = "a list"
 
 lookupName :: Name -> Eval Thunk
 lookupName name =
@@ -87,7 +86,7 @@ closedOver t = t (const Nothing)
 ensureValue :: MonadError String m => String -> (WHNF -> Maybe r) -> WHNF -> m r
 ensureValue ex f v = case f v of
   Just r -> pure r
-  Nothing -> throwError $ "Expected a " <> ex <> ", but got a " <> describeValue v
+  Nothing -> throwError $ "Expected a " <> ex <> ", but got " <> describeValue v
 
 ensureType :: MonadError String m => WHNF -> m Type
 ensureType = ensureValue "type" $ \case
