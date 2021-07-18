@@ -14,6 +14,7 @@ import Data.Hashable
 import Data.List (findIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
+import Eval.BinOp
 import Eval.Lenses
 import Eval.Lib
 import Eval.Types
@@ -81,6 +82,14 @@ whnf (Cond cond true false) =
     val -> throwError $ "Scrutinee is not a boolean or a runtime expression, but a " <> describeValue val
 whnf (String str) = pure $ VString str
 
+binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
+binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op (VPrim a) (VPrim b) = binPrim op a b
+binOp op (VString l) (VString r) = binString op l r
+binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
+binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
+
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
   flip execStateT mempty $
@@ -129,47 +138,6 @@ compileFunc args ret body = do
     bindVars argIxs m = do
       argThunks <- forM argIxs $ \((name, _), ix) -> (name,) <$> refer (VVar ix)
       local (binds %~ mappend (M.fromList argThunks)) m
-
-binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
-binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op (VPrim a) (VPrim b) = binPrim op a b
-binOp (CompOp op) (VString l) (VString r) = pure . VPrim . PBool $ compOp op l r
-binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
-binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
-
-rtBinOp :: BinOp -> RTVal VarIX BlockIX Hash -> RTVal VarIX BlockIX Hash -> Comp (RTVal VarIX BlockIX Hash)
-rtBinOp (ArithOp op) l r = pure $ RTArith op l r
-rtBinOp (CompOp op) l r = pure $ RTComp op l r
-
-binPrim :: BinOp -> Prim -> Prim -> Eval WHNF
-binPrim op (PInt a) (PInt b) = VPrim <$> binInt op a b
-binPrim op (PDouble a) (PDouble b) = VPrim <$> binDouble op a b
-binPrim op (PDouble a) (PInt b) = VPrim <$> binDouble op a (fromIntegral b)
-binPrim op (PInt a) (PDouble b) = VPrim <$> binDouble op (fromIntegral a) b
-
-binInt :: BinOp -> Int -> Int -> Eval Prim
-binInt (ArithOp op) l r = pure . PInt $ arithInt op l r
-  where
-    arithInt :: ArithOp -> Int -> Int -> Int
-    arithInt Add = (+)
-    arithInt Sub = (-)
-    arithInt Mul = (*)
-    arithInt Div = div
-binInt (CompOp op) l r = pure . PBool $ compOp op l r
-
-binDouble :: BinOp -> Double -> Double -> Eval Prim
-binDouble (ArithOp op) l r = pure . PDouble $ arithDouble op l r
-  where
-    arithDouble :: ArithOp -> Double -> Double -> Double
-    arithDouble Add = (+)
-    arithDouble Sub = (-)
-    arithDouble Mul = (*)
-    arithDouble Div = (/)
-binDouble (CompOp op) l r = pure . PBool $ compOp op l r
-
-fromComp :: (Deps -> a -> r) -> Comp a -> Eval r
-fromComp f m = (\(a, dep) -> f dep a) <$> runWriterT m
 
 compileBlock ::
   BlockIX ->

@@ -6,6 +6,7 @@ module Eval.Lib where
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.Writer (runWriterT)
 import Data.IORef
 import Eval.Lenses
 import Eval.Types
@@ -92,11 +93,5 @@ ensureBlock = ensureValue "block" $ \case
   VBlk blk -> Just blk
   _ -> Nothing
 
-{-# INLINE compOp #-}
-compOp :: Ord a => CompOp -> a -> a -> Bool
-compOp Eq = (==)
-compOp Neq = (/=)
-compOp Lt = (<)
-compOp Gt = (>)
-compOp Leq = (<=)
-compOp Geq = (>=)
+fromComp :: (Deps -> a -> r) -> Comp a -> Eval r
+fromComp f m = (\(a, dep) -> f dep a) <$> runWriterT m
