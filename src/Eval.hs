@@ -46,7 +46,7 @@ whnf (App f x) =
         VList args -> fromComp VRTValue $ do
           tell deps
           args' <- forM (toList args) $ \arg ->
-            (lift . lift) (force arg) >>= compileValue
+            (lift . lift) (force arg) >>= coerceRTValue
           pure $ Call func args'
         val -> throwError $ "Calling a runtime function with " <> describeValue val <> " as an argument instead of a list"
     val -> throwError $ "Applying a value to " <> describeValue val
@@ -87,21 +87,20 @@ whnf (Cond cond true false) =
     VPrim (PBool False) -> whnf false
     -- TODO throw a better error message in the case of something that's not a runtime variable
     val -> fromComp VRTValue $ do
-      true' <- lift (whnf true) >>= compileValue
-      false' <- lift (whnf false) >>= compileValue
-      cond' <- compileValue val
+      cond' <- coerceRTValue val
+      true' <- lift (whnf true) >>= coerceRTValue
+      false' <- lift (whnf false) >>= coerceRTValue
       pure $ RTCond cond' true' false'
 whnf (String str) = pure $ VString str
 whnf (List l) = VList <$> traverse (whnf >=> refer) l
 
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
-binOp op a@VRTValue {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a b@VRTValue {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a@VRTPlace {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a b@VRTPlace {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
+binOp op a b
+  | Just a' <- asRTValue a = fromComp VRTValue $ join $ liftA2 (rtBinOp op) a' (coerceRTValue b)
+  | Just b' <- asRTValue b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (coerceRTValue a) b'
 binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on ", describeValue l, "and ", describeValue r]
 binOp (CompOp _) l r = throwError $ unwords ["cannot compare ", describeValue l, "and ", describeValue r]
 
@@ -139,7 +138,7 @@ compileFunc args ret body = do
   ret' <- lift (whnf ret) >>= ensureType
   args' <- forM args $ traverse $ lift . whnf >=> ensureType
   localVars args' $ \ixs -> do
-    body' <- bindVars ixs $ lift (whnf body) >>= compileValue
+    body' <- bindVars ixs $ lift (whnf body) >>= coerceRTValue
     let f ix = findIndex ((== ix) . snd) ixs
         scoped = abstractOver rtValVars f body'
     closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
@@ -162,15 +161,15 @@ compileBlock blk = go
   where
     go (DeclE name typ val k) = do
       typ' <- lift (whnf typ) >>= ensureType
-      val' <- lift (whnf val) >>= compileValue
+      val' <- lift (whnf val) >>= coerceRTValue
       k' <- localVar $ \ix -> do
         t <- refer (VRTPlace mempty $ Place ix)
         local (binds . at name ?~ t) $
           abstract1Over rtProgVars ix <$> go k
       pure (Decl typ' val' k')
     go (AssignE lhs rhs k) = do
-      lhs' <- lift (whnf lhs) >>= compilePlace
-      rhs' <- lift (whnf rhs) >>= compileValue
+      lhs' <- lift (whnf lhs) >>= coerceRTPlace
+      rhs' <- lift (whnf rhs) >>= coerceRTValue
       k' <- go k
       pure $ Assign lhs' rhs' k'
     go (BreakE mlbl mexpr) = do
@@ -179,7 +178,7 @@ compileBlock blk = go
         Just lbl -> lift (whnf lbl) >>= ensureBlock
       expr' <- case mexpr of
         Nothing -> pure $ RTPrim PVoid
-        Just expr -> lift (whnf expr) >>= compileValue
+        Just expr -> lift (whnf expr) >>= coerceRTValue
       pure $ Break lbl' expr'
     go (ContinueE mlbl) = do
       lbl' <- case mlbl of
@@ -187,19 +186,6 @@ compileBlock blk = go
         Just lbl -> lift (whnf lbl) >>= ensureBlock
       pure $ Continue lbl'
     go (ExprE val k) = do
-      val' <- lift (whnf val) >>= compileValue
+      val' <- lift (whnf val) >>= coerceRTValue
       k' <- go k
       pure $ ExprStmt val' k'
-
--- TODO these should be renamed (forceValue?) and moved since they don't have any nested evaluation
--- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
-compileValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
-compileValue (VRTValue deps val) = val <$ tell deps
-compileValue (VRTPlace deps plc) = PlaceVal plc <$ tell deps
-compileValue (VPrim prim) = pure $ RTPrim prim
-compileValue val = throwError $ "Cannot create a runtime expression from " <> describeValue val
-
--- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
-compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
-compilePlace (VRTPlace deps plc) = plc <$ tell deps
-compilePlace val = throwError $ "Cannot create a place expression from " <> describeValue val
