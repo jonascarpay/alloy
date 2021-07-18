@@ -201,6 +201,14 @@ rtTests =
                     break @lbl x;
                   }
               |],
+          saFunc
+            "label expression"
+            [r| with builtins.types;
+                [] -> int lbl@{
+                  var x : int = 4;
+                  break @((x: x) lbl) x;
+                }
+            |],
           negative $
             saFunc
               "labeled break as return (negative 2)"
