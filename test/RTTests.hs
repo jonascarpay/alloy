@@ -52,6 +52,7 @@ rtTests =
     [ testGroup
         "trivial"
         [ saFunc "trivial break" "[] -> builtins.types.int { break 0; }",
+          saFunc "trivial continue" "[] -> builtins.types.int { continue; }",
           saFunc "empty break" "[] -> builtins.types.void { break; }",
           saFunc "trivial declaration" "with builtins.types; [] -> void { var i: int = 0; }",
           saFunc "trivial assignment" "with builtins.types; [] -> void { var i: int = 0; i = 9 }",

@@ -39,6 +39,7 @@ data ProgE
   = DeclE Name Expr Expr ProgE
   | AssignE Expr Expr ProgE
   | BreakE (Maybe Expr) (Maybe Expr)
+  | ContinueE (Maybe Expr)
   | ExprE Expr ProgE
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
