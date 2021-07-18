@@ -12,6 +12,7 @@ import Lens.Micro.Platform
 import Print
 import Test.Tasty
 import Test.Tasty.ExpectedFailure (expectFailBecause)
+import Test.Tasty.Focus (focus)
 import Test.Tasty.HUnit
 import TestLib
 import Text.RawString.QQ
@@ -53,9 +54,13 @@ rtTests =
       saFunc "trivial declaration" "with builtins.types; [] -> void { var i: int = 0; }", -- TODO Empty break
       pending $
         saFunc "empty function" "with builtins.types; [] -> void { }",
-      saFunc "trivial with" "with builtins.types; [] -> int { return 0; }",
-      expectFailBecause "Cannot construct void for nums" $
-        saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
+      saFunc "trivial with" "with builtins.types; [] -> int { break 0; }",
+      saFunc "terminator expression" "[] -> builtins.types.int { 9 }",
+      saFunc "bodyless function" "[] -> builtins.types.int 9",
+      saFunc "bodyless function (void)" "[] -> builtins.types.void builtins.void",
+      pending $
+        expectFailBecause "Cannot construct void for nums" $
+          saFunc "numerical void" "with builtins.types; [] -> void { return 0; }",
       saFunc "simple recursion" "[] -> builtins.types.int { return self []; }",
       funcWithNDeps
         "mutual recursion"
@@ -243,9 +248,6 @@ rtTests =
               };
             }
         |],
-      saFunc
-        "terminator expression"
-        "[] -> builtins.types.int { 3 }",
       negative $
         saFunc
           "simple declaration type mismatch"
