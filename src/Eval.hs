@@ -142,7 +142,7 @@ compileFunc args ret body = do
     body' <- bindVars ixs $ lift (whnf body) >>= compileValue
     let f ix = findIndex ((== ix) . snd) ixs
         scoped = abstractOver rtValVars f body'
-    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver rtValVars scoped
+    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
     closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
     let fundef = RTFunc (snd <$> args') ret' closedBlks
         guid = Hash $ hash fundef
