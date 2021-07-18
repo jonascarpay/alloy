@@ -13,6 +13,9 @@ import Eval.Lib
 import Eval.Types
 import Expr
 
+-- TODO abstract (throwError expected a but got b)
+-- Note that `ensureValue` exists
+
 {-# ANN module ("hlint: ignore Use >=>" :: String) #-}
 
 builtins :: NF
@@ -22,7 +25,8 @@ builtins =
       [ ("nine", VPrim $ PInt 9),
         ("length", vLength),
         ("index", vIndex),
-        ("listToAttrs", vListToAttrs)
+        ("listToAttrs", vListToAttrs),
+        ("types", vTypes)
       ]
 
 vLength :: Value f
@@ -73,3 +77,23 @@ vListToAttrs = VClosure $ \tList ->
           val -> throwError $ "builtins.listToAttrs: List element was not an attribute set but a " <> describeValue val
       pure $ VAttr $ M.fromList $ toList l'
     val -> throwError $ "builtins.listToAttrs: Argument was not a list but a " <> describeValue val
+
+vTypes :: Value NF
+vTypes =
+  VAttr $
+    NF
+      <$> M.fromList
+        [ ("int", VType TInt),
+          ("double", VType TDouble),
+          ("bool", VType TBool),
+          ("void", VType TVoid),
+          ("struct", VClosure mkStruct)
+        ]
+  where
+    mkStruct :: Thunk -> EvalBase WHNF
+    mkStruct tnk =
+      force tnk >>= \case
+        VAttr m -> do
+          m' <- traverse (force >=> ensureType) m
+          pure $ VType $ TStruct m'
+        val -> throwError $ "builtins.types.struct: Argument was not an attribute set but a " <> describeValue val

@@ -99,8 +99,6 @@ data RTFunc fun = RTFunc
 newtype EvalBase a = EvalBase {unEvalBase :: ExceptT String IO a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String)
 
--- newtype Eval a = Eval {unEval :: ReaderT EvalEnv EvalBase a}
---   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadError String, MonadReader EvalEnv)
 type Eval = ReaderT EvalEnv EvalBase
 
 unEval :: Eval a -> EvalBase a
