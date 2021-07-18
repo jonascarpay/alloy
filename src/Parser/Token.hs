@@ -27,8 +27,7 @@ data Token
   | TTrue
   | TFalse
   | -- Runtime keywords
-    Return
-  | Break
+    Break
   | Continue
   | Var
   | -- Operators

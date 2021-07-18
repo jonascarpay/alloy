@@ -98,7 +98,7 @@ pTerm = do
         pList,
         pAttr,
         pString,
-        -- pBlock,
+        pBlock,
         parens pExpr,
         pVar
       ]
@@ -109,14 +109,20 @@ pString = expect "string" $ \case
   T.String str -> Just (String str)
   _ -> Nothing
 
--- pBlock :: Parser Expr
--- pBlock = do
---   label <- optional $ pIdent <* token T.At
---   braces $ do
---     stmts <- many pStatement
---     terminator <- optional pExpr
---     let exprStmt = BreakE Nothing . Just
---     pure $ Block label (stmts <> toList (exprStmt <$> terminator)) Nothing
+pBlock :: Parser Expr
+pBlock = do
+  label <- optional $ pIdent <* token T.At
+  braces $ Run label <$> pStmts
+
+pStmts :: Parser ProgE
+pStmts = choice [pBreak]
+  where
+    pBreak = do
+      token T.Break
+      lbl <- optional (token T.At *> pTerm)
+      expr <- pExpr
+      semicolon
+      pure $ BreakE lbl expr
 
 semicolon :: Parser ()
 semicolon = token T.Semicolon
