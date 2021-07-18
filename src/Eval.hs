@@ -134,6 +134,7 @@ binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op (VPrim a) (VPrim b) = binPrim op a b
+binOp (CompOp op) (VString l) (VString r) = pure . VPrim . PBool $ compOp op l r
 binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
 binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
 
