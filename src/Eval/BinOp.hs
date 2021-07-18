@@ -15,7 +15,7 @@ compOp Gt = (>)
 compOp Leq = (<=)
 compOp Geq = (>=)
 
-rtBinOp :: BinOp -> RTVal VarIX BlockIX Hash -> RTVal VarIX BlockIX Hash -> Comp (RTVal VarIX BlockIX Hash)
+rtBinOp :: BinOp -> RTValue VarIX BlockIX Hash -> RTValue VarIX BlockIX Hash -> Comp (RTValue VarIX BlockIX Hash)
 rtBinOp (ArithOp op) l r = pure $ RTArith op l r
 rtBinOp (CompOp op) l r = pure $ RTComp op l r
 
