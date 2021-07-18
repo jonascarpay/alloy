@@ -31,11 +31,11 @@ whnf :: Expr -> Eval WHNF
 whnf (Var name) = lookupName name >>= lift . force
 whnf (App f x) =
   whnf f >>= \case
-    VClosure arg body env -> do
-      tx <- close (whnf x) >>= defer
-      local (binds .~ (env & at arg ?~ tx)) (whnf body)
+    VClosure k -> close (whnf x) >>= defer >>= lift . k
     val -> throwError $ "Applying a value to a " <> describeValue val
-whnf (Lam arg body) = VClosure arg body <$> view binds
+whnf (Lam arg body) = do
+  env <- ask
+  pure $ VClosure $ \t -> runReaderT (whnf body) (env & binds . at arg ?~ t)
 whnf (Type typ) = pure (VType typ)
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) =
