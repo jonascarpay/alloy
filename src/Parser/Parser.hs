@@ -95,7 +95,7 @@ pTerm = do
   val <-
     choice
       [ Prim <$> pAtom,
-        -- pList,
+        pList,
         pAttr,
         pString,
         -- pBlock,
@@ -145,8 +145,8 @@ pIdent = expect "identifier" $ \case
   (T.Ident name) -> Just $ BSS.toShort name
   _ -> Nothing
 
--- pList :: Parser Expr
--- pList = List . Seq.fromList <$> brackets (sepBy pExpr (token T.Comma))
+pList :: Parser Expr
+pList = List . Seq.fromList <$> brackets (sepBy pExpr (token T.Comma))
 
 pLam :: Parser Expr
 pLam = do

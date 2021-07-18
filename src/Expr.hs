@@ -8,9 +8,11 @@ module Expr where
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Short (ShortByteString)
+import Data.Foldable (toList)
 import Data.Hashable
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Sequence (Seq)
 import GHC.Generics
 
 type Name = ShortByteString
@@ -28,6 +30,7 @@ data Expr
   | String ByteString
   | Acc Expr Name -- TODO rename sel
   | With Expr Expr
+  | List (Seq Expr)
   | Cond Expr Expr Expr
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
@@ -66,6 +69,9 @@ data Type
 -- TODO move to orphan module
 instance (Hashable a, Hashable b) => Hashable (Map a b) where
   hashWithSalt salt m = hashWithSalt salt (M.toList m)
+
+instance Hashable a => Hashable (Seq a) where
+  hashWithSalt s = hashWithSalt s . toList
 
 data BinOp = ArithOp ArithOp | CompOp CompOp
   deriving (Eq, Show, Generic)
