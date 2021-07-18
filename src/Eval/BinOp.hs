@@ -2,6 +2,7 @@ module Eval.BinOp where
 
 import Control.Monad.Except
 import Data.ByteString (ByteString)
+import Data.Sequence (Seq)
 import Eval.Types
 import Expr
 
@@ -48,3 +49,29 @@ binString :: BinOp -> ByteString -> ByteString -> Eval WHNF
 binString (CompOp op) l r = pure . VPrim . PBool $ compOp op l r
 binString (ArithOp Add) l r = pure . VString $ l <> r
 binString (ArithOp _) _ _ = throwError "Cannot perform arithmetic on strings"
+
+binList :: BinOp -> Seq Thunk -> Seq Thunk -> Eval WHNF
+binList (ArithOp Add) l r = pure . VList $ l <> r
+binList (ArithOp _) _ _ = throwError "Cannot perform arithmetic on strings"
+binList (CompOp _) _ _ = throwError "Cannot compare lists"
+
+-- binList (CompOp op) l r = pure . VPrim . PBool . fromOrdering op <$> compareLists
+--   where
+--     compareLists :: Seq Thunk -> Seq Thunk ->
+
+-- TODO Comparisons for recursive values
+-- Probably convert to a ComparableValue, and then compare those?
+-- {-# INLINE fromOrdering #-}
+-- fromOrdering :: CompOp -> Ordering -> Bool
+-- fromOrdering Eq EQ = True
+-- fromOrdering Eq _ = False
+-- fromOrdering Neq EQ = False
+-- fromOrdering Neq _ = True
+-- fromOrdering Lt LT = True
+-- fromOrdering Lt _ = False
+-- fromOrdering Gt GT = True
+-- fromOrdering Gt _ = False
+-- fromOrdering Leq GT = False
+-- fromOrdering Leq _ = True
+-- fromOrdering Geq LT = False
+-- fromOrdering Geq _ = True

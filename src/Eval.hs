@@ -170,6 +170,7 @@ compileBlock blk = go
       k' <- go k
       pure $ ExprStmt val' k'
 
+-- TODO these should be renamed (forceValue?) and moved since they don't have any nested evaluation
 compileValue :: WHNF -> Comp (RTVal VarIX BlockIX Hash)
 compileValue (VRun deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
