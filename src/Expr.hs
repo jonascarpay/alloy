@@ -60,6 +60,10 @@ data Prim
   deriving anyclass (Hashable)
 
 -- TODO move out of Expr
+-- TODO Since this _only_ describes the implementation, structs with the same
+-- types of fields but different names shouldn't count as different values.
+-- Ideally we'd find some way to do name-based access, but erase the names at
+-- runtime
 data Type
   = TInt
   | TDouble
