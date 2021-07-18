@@ -33,7 +33,7 @@ data Expr
   | List (Seq Expr)
   | Cond Expr Expr Expr
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (Hashable)
+  deriving anyclass (Hashable) -- TODO does this really need hashable? it's not content addressed like functions, and it requires an orphan for Seq
 
 data ProgE
   = DeclE Name Expr Expr ProgE
