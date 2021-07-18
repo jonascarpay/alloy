@@ -74,11 +74,24 @@ rtTests =
                 }
             |],
           funcWithNDeps
-            "conditional evaluates both branches"
-            2
+            "conditionals can get eliminated at compile time"
+            1
             [r| with builtins.types;
                 [] -> int {
                   if true then {
+                    break ([] -> int 3)[];
+                  } else {
+                    break ([] -> int 4)[];
+                  };
+                }
+            |],
+          funcWithNDeps
+            "conditionals sometimes don't get eliminated at comptime"
+            2
+            [r| with builtins.types;
+                [] -> int {
+                  var b : bool = true;
+                  if b then {
                     break ([] -> int 3)[];
                   } else {
                     break ([] -> int 4)[];
