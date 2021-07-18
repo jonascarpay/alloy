@@ -33,7 +33,6 @@ tokens :-
   true		{ tok TTrue }
   false		{ tok TFalse }
 
-  return	{ tok Return }
   break		{ tok Break }
   continue	{ tok Continue }
   var		{ tok Var }
