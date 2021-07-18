@@ -43,7 +43,7 @@ whnf (App f x) =
     VClosure k -> close (whnf x) >>= defer >>= lift . k
     VFunc deps func ->
       whnf x >>= \case
-        VList args -> fromComp VRun $ do
+        VList args -> fromComp VRTValue $ do
           tell deps
           args' <- forM (toList args) $ \arg ->
             (lift . lift) (force arg) >>= compileValue
@@ -56,7 +56,7 @@ whnf (Lam arg body) = do
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) =
   localBlock $ \blk -> do
-    fromComp (\deps prog' -> VRun deps (Block (abstract1Over rtProgLabels blk prog'))) $
+    fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over rtProgLabels blk prog'))) $
       case mlbl of
         Nothing -> compileBlock blk prog
         Just lbl -> do
@@ -86,7 +86,7 @@ whnf (Cond cond true false) =
     VPrim (PBool True) -> whnf true
     VPrim (PBool False) -> whnf false
     -- TODO throw a better error message in the case of something that's not a runtime variable
-    val -> fromComp VRun $ do
+    val -> fromComp VRTValue $ do
       true' <- lift (whnf true) >>= compileValue
       false' <- lift (whnf false) >>= compileValue
       cond' <- compileValue val
@@ -95,10 +95,10 @@ whnf (String str) = pure $ VString str
 whnf (List l) = VList <$> traverse (whnf >=> refer) l
 
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
-binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a@VVar {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a b@VVar {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a@VRTValue {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a b@VRTValue {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a@VVar {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a b@VVar {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
@@ -194,7 +194,7 @@ compileBlock blk = go
 -- TODO these should be renamed (forceValue?) and moved since they don't have any nested evaluation
 -- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compileValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
-compileValue (VRun deps val) = val <$ tell deps
+compileValue (VRTValue deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
 compileValue (VPrim prim) = pure $ RTPrim prim
 compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
