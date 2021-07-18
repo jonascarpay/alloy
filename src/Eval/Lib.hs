@@ -7,10 +7,12 @@ module Eval.Lib where
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer (runWriterT)
+import Control.Monad.Writer.Lazy
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BSU
 import Data.IORef
+import Data.Maybe (fromMaybe)
 import Data.Word (Word8)
 import Eval.Lenses
 import Eval.Types
@@ -108,3 +110,22 @@ indexMaybe ps n
   | n >= BS.length ps = Nothing
   | otherwise = Just $! BSU.unsafeIndex ps n
 {-# INLINE indexMaybe #-}
+
+{-# INLINE asRTValue #-}
+asRTValue :: WHNF -> Maybe (Comp (RTValue VarIX BlockIX Hash))
+asRTValue (VRTValue deps val) = Just $ val <$ tell deps
+asRTValue (VRTPlace deps plc) = Just $ PlaceVal plc <$ tell deps
+asRTValue (VPrim prim) = Just $ pure $ RTPrim prim
+asRTValue _ = Nothing
+
+coerceRTValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
+coerceRTValue val = fromMaybe (throwError $ "Could not coerce " <> describeValue val <> " into a runtime value") $ asRTValue val
+
+{-# INLINE asRTPlace #-}
+-- TODO do we allow changing PlaceVal back into Place?
+asRTPlace :: WHNF -> Maybe (Comp (RTPlace VarIX BlockIX Hash))
+asRTPlace (VRTPlace deps plc) = Just $ plc <$ tell deps
+asRTPlace _ = Nothing
+
+coerceRTPlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
+coerceRTPlace plc = fromMaybe (throwError $ "Could not coerce " <> describeValue plc <> " into a runtime place expression") $ asRTPlace plc
