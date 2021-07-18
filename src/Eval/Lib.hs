@@ -15,6 +15,7 @@ import Lens.Micro.Platform hiding (ix)
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
+-- TODO articles!
 describeValue :: Value f -> String
 describeValue VClosure {} = "closure"
 describeValue VRun {} = "runtime expression"
@@ -24,6 +25,7 @@ describeValue VPrim {} = "primitive"
 describeValue VVar {} = "runtime variable"
 describeValue VBlk {} = "runtime block"
 describeValue VAttr {} = "attribute set"
+describeValue VString {} = "string"
 
 lookupName :: Name -> Eval Thunk
 lookupName name =

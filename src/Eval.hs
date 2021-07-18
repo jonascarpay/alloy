@@ -78,6 +78,7 @@ whnf (Cond cond true false) =
       false' <- lift (whnf false) >>= compileValue
       pure $ RTCond cond' true' false'
     val -> throwError $ "Scrutinee is not a boolean or a runtime expression, but a " <> describeValue val
+whnf (String str) = pure $ VString str
 
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
