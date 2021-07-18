@@ -120,7 +120,7 @@ evalTests =
         "attrset string lookup"
         [r| let attrs = { nine = 9; };
                 key = "nine";
-             in builtins.lookup attrs key
+             in builtins.index attrs key
         |],
       is9 "list indexing" "builtins.index [1, 3, 9, 27] 2",
       is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]",

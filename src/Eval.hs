@@ -9,13 +9,12 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as BSS
 import Data.Hashable
 import Data.List (findIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Eval.BinOp
+import Eval.Builtins (builtins)
 import Eval.Lenses
 import Eval.Lib
 import Eval.Types
@@ -89,6 +88,7 @@ binOp op a@VRun {} b = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue 
 binOp op a b@VRun {} = fromComp VRun $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
+binOp op (VList l) (VList r) = binList op l r
 binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on a", describeValue l, "and a", describeValue r]
 binOp (CompOp _) l r = throwError $ unwords ["cannot compare a", describeValue l, "and a", describeValue r]
 
@@ -181,29 +181,3 @@ compileValue val = throwError $ "Cannot create a runtime expression from a " <> 
 compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
 compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
-
--- TODO Fixpoint, since this can contain builtins.types.int
-{-# ANN builtins ("hlint: ignore" :: String) #-}
-builtins :: Map Name (Value a)
-builtins =
-  M.fromList
-    [ ("nine", VPrim $ PInt 9),
-      ("lookup", vlookup),
-      ("length", vlength)
-    ]
-  where
-    vlookup = VClosure $ \tAttr ->
-      force tAttr >>= \case
-        VAttr attrs -> pure $
-          VClosure $ \tStr ->
-            force tStr >>= \case
-              VString str -> case M.lookup (BSS.toShort str) attrs of
-                Nothing -> throwError $ "Attribute set does not contain field " <> show str
-                Just t -> force t
-              val -> throwError $ "Second argument to builtins.lookup was not a string set but a " <> describeValue val
-        val -> throwError $ "First argument to builtins.lookup was not an attribute set but a " <> describeValue val
-    vlength = VClosure $ \tFoldable ->
-      force tFoldable >>= \case
-        VList l -> pure . VPrim . PInt $ length l
-        VString s -> pure . VPrim . PInt $ BS.length s
-        val -> throwError $ "builtins.length: Cannot get the length of a " <> describeValue val
