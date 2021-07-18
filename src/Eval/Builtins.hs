@@ -25,7 +25,8 @@ builtins =
         ("index", vIndex),
         ("listToAttrs", vListToAttrs),
         ("types", vTypes),
-        ("matchType", vMatchType)
+        ("matchType", vMatchType),
+        ("void", vVoid)
       ]
 
 -- TODO maybe do something prismy instead?
@@ -129,3 +130,6 @@ vMatchType = VClosure $
       | Just r <- M.lookup name m = force r
       | Just r <- M.lookup "default" m = force r
       | otherwise = throwError $ "builtins.matchType: Attribute set does not contain matcher " <> show name
+
+vVoid :: Value f
+vVoid = VPrim PVoid
