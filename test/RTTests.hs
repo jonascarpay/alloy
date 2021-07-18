@@ -183,7 +183,7 @@ rtTests =
       testGroup
         "labels"
         [ saFunc "named blocks parse" "[] -> builtins.types.void { lbl@{ }; }",
-          saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ return 3; }",
+          saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ 9 }",
           saFunc
             "labeled break as return"
             [r| with builtins.types;
