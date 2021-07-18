@@ -5,10 +5,7 @@
 module RTTests where
 
 import Control.Monad
-import Data.Either (isRight)
-import Data.Map qualified as M
 import Eval.Types
-import Lens.Micro.Platform
 import Print
 import Test.Tasty
 import Test.Tasty.ExpectedFailure (expectFailBecause)
@@ -44,6 +41,7 @@ negative = expectFailBecause "Negative test"
 
 -- TODO
 -- argument length error test
+-- Label scoping test
 
 rtTests :: TestTree
 rtTests =

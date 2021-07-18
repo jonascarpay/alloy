@@ -42,25 +42,25 @@ type WHNF = Value Thunk
 newtype NF = NF {unNF :: Value NF}
 
 newtype Hash = Hash Int
-  deriving newtype (Eq, Ord, Hashable)
+  deriving newtype (Eq, Show, Ord, Hashable)
 
-newtype Deps = Deps (Map Hash (RTFunc Hash))
+newtype Deps = Deps (Map Hash (RTFunc Hash)) -- Just use a HashMap
   deriving newtype (Eq, Semigroup, Monoid)
 
 newtype Thunk = Thunk (IORef (Either (EvalBase WHNF) WHNF))
 
 newtype VarIX = VarIX Int
-  deriving newtype (Eq, Enum, Hashable)
+  deriving newtype (Eq, Show, Enum, Hashable)
 
 newtype BlockIX = BlockIX Int
-  deriving newtype (Eq, Enum, Hashable)
+  deriving newtype (Eq, Show, Enum, Hashable)
 
 newtype FuncIX = FuncIX Int
 
 data Bind b a
   = Bound b
   | Free a
-  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTProg var blk fun
@@ -69,7 +69,7 @@ data RTProg var blk fun
   | Break blk (RTVal var blk fun)
   | Continue blk
   | ExprStmt (RTVal var blk fun) (RTProg var blk fun)
-  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 -- TODO Rename to RTExpr
@@ -81,13 +81,13 @@ data RTVal var blk fun
   | Call fun [RTVal var blk fun]
   | PlaceVal (RTPlace var blk fun)
   | Block (RTProg var (Bind () blk) fun)
-  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTPlace var blk fun
   = Place var
   | Deref (RTVal var blk fun)
-  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTFunc fun = RTFunc
