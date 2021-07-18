@@ -162,12 +162,14 @@ compileBlock blk = go
       rhs' <- lift (whnf rhs) >>= compileValue
       k' <- go k
       pure $ Assign lhs' rhs' k'
-    go (BreakE mlbl val) = do
+    go (BreakE mlbl mexpr) = do
       lbl' <- case mlbl of
         Nothing -> pure blk
         Just lbl -> lift (whnf lbl) >>= ensureBlock
-      val' <- lift (whnf val) >>= compileValue
-      pure $ Break lbl' val'
+      expr' <- case mexpr of
+        Nothing -> pure $ RTPrim PVoid
+        Just expr -> lift (whnf expr) >>= compileValue
+      pure $ Break lbl' expr'
     go (ExprE val k) = do
       val' <- lift (whnf val) >>= compileValue
       k' <- go k

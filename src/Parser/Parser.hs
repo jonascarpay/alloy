@@ -115,12 +115,14 @@ pBlock = do
   braces $ Run label <$> pStmts
   where
     pStmts :: Parser ProgE
-    pStmts = choice [pBreak, pDecl]
+    pStmts = choice [pBreak, pDecl, pEmpty]
+
+    pEmpty = pure $ BreakE Nothing Nothing
 
     pBreak = do
       token T.Break
       lbl <- optional (token T.At *> pTerm)
-      expr <- pExpr
+      expr <- optional pExpr
       semicolon
       pure $ BreakE lbl expr
 
