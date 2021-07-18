@@ -1,4 +1,5 @@
-src/Parser/Lexer.hs # eventually ignore
+src/Parser/Lexer.hs
+
 *.ay
 
 ### Nix ###
