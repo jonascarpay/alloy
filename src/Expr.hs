@@ -57,6 +57,7 @@ data Prim
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
+-- TODO move out of Expr
 data Type
   = TInt
   | TDouble
