@@ -9,6 +9,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Foldable (toList)
 import Data.Hashable
 import Data.List (findIndex)
 import Data.Map (Map)
@@ -40,6 +41,14 @@ whnf (Var name) = lookupName name >>= lift . force
 whnf (App f x) =
   whnf f >>= \case
     VClosure k -> close (whnf x) >>= defer >>= lift . k
+    VFunc deps func ->
+      whnf x >>= \case
+        VList args -> fromComp VRun $ do
+          tell deps
+          args' <- forM (toList args) $ \arg ->
+            (lift . lift) (force arg) >>= compileValue
+          pure $ Call func args'
+        val -> throwError $ "Calling a runtime function with " <> describeValue val <> " as an argument instead of a list"
     val -> throwError $ "Applying a value to a " <> describeValue val
 whnf (Lam arg body) = do
   env <- ask
