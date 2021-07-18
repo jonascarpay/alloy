@@ -177,6 +177,7 @@ compileBlock blk = go
 compileValue :: WHNF -> Comp (RTVal VarIX BlockIX Hash)
 compileValue (VRun deps val) = val <$ tell deps
 compileValue (VVar var) = pure $ PlaceVal $ Place var
+compileValue (VPrim prim) = pure $ RTPrim prim
 compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
 
 -- TODO there should probably be a place value

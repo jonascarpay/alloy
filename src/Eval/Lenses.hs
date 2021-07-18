@@ -35,6 +35,7 @@ rtVal fv fl ff = go
     go (PlaceVal plc) = PlaceVal <$> rtPlace fv fl ff plc
     go (Block blk) = Block <$> rtProg fv (traverse fl) ff blk
     go (RTCond cond true false) = RTCond <$> go cond <*> go true <*> go false
+    go (RTPrim p) = pure $ RTPrim p
 
 rtPlace ::
   Applicative m =>
