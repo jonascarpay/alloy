@@ -115,9 +115,14 @@ pBlock = do
   braces $ Run label <$> pStmts
   where
     pStmts :: Parser ProgE
-    pStmts = choice [pBreak, pDecl, pEmpty]
+    pStmts = choice [pDecl, pTerminator]
 
-    pEmpty = pure $ BreakE Nothing Nothing
+    pTerminator =
+      choice
+        [ pBreak,
+          BreakE Nothing . Just <$> pExpr,
+          pure $ BreakE Nothing Nothing
+        ]
 
     pBreak = do
       token T.Break
