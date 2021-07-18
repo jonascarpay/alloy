@@ -179,6 +179,11 @@ compileBlock blk = go
         Nothing -> pure $ RTPrim PVoid
         Just expr -> lift (whnf expr) >>= compileValue
       pure $ Break lbl' expr'
+    go (ContinueE mlbl) = do
+      lbl' <- case mlbl of
+        Nothing -> pure blk
+        Just lbl -> lift (whnf lbl) >>= ensureBlock
+      pure $ Continue lbl'
     go (ExprE val k) = do
       val' <- lift (whnf val) >>= compileValue
       k' <- go k

@@ -9,7 +9,7 @@ import Control.Monad.Combinators.Expr
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString.Short qualified as BSS
-import Data.Foldable (foldl', toList)
+import Data.Foldable (foldl')
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -120,6 +120,7 @@ pBlock = do
     pTerminator =
       choice
         [ pBreak,
+          pContinue,
           BreakE Nothing . Just <$> pExpr,
           pure $ BreakE Nothing Nothing
         ]
@@ -130,6 +131,12 @@ pBlock = do
       expr <- optional pExpr
       semicolon
       pure $ BreakE lbl expr
+
+    pContinue = do
+      token T.Continue
+      lbl <- optional (token T.At *> pTerm)
+      semicolon
+      pure $ ContinueE lbl
 
     pAssign = do
       lhs <- pExpr

@@ -67,6 +67,7 @@ data RTProg var blk fun
   = Decl Type (RTVal var blk fun) (RTProg (Bind () var) blk fun)
   | Assign (RTPlace var blk fun) (RTVal var blk fun) (RTProg var blk fun)
   | Break blk (RTVal var blk fun)
+  | Continue blk
   | ExprStmt (RTVal var blk fun) (RTProg var blk fun)
   deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
