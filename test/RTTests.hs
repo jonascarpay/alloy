@@ -53,6 +53,7 @@ rtTests =
       saFunc "empty break" "[] -> builtins.types.void { break; }",
       saFunc "trivial declaration" "with builtins.types; [] -> void { var i: int = 0; }",
       saFunc "trivial assignment" "with builtins.types; [] -> void { var i: int = 0; i = 9 }",
+      saFunc "trivial expression statement" "with builtins.types; [] -> void { 3; builtins.void }",
       saFunc "assignment with lhs expression" "with builtins.types; [] -> void { var i: int = 0; (x: x) i = 9 }",
       saFunc "trivial with" "with builtins.types; [] -> int { break 0; }",
       saFunc "terminator expression" "[] -> builtins.types.int { 9 }",
