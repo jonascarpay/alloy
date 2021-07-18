@@ -9,6 +9,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.ByteString.Short qualified as BSS
 import Data.Hashable
 import Data.List (findIndex)
 import Data.Map (Map)
@@ -210,8 +211,21 @@ compilePlace (VVar var) = pure $ Place var
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
 
 -- TODO Fixpoint, since this can contain builtins.types.int
+{-# ANN builtins ("hlint: ignore" :: String) #-}
 builtins :: Map Name (Value a)
 builtins =
   M.fromList
-    [ ("nine", VPrim $ PInt 9)
+    [ ("nine", VPrim $ PInt 9),
+      ("lookup", vlookup)
     ]
+  where
+    vlookup = VClosure $ \tAttr ->
+      force tAttr >>= \case
+        VAttr attrs -> pure $
+          VClosure $ \tStr ->
+            force tStr >>= \case
+              VString str -> case M.lookup (BSS.toShort str) attrs of
+                Nothing -> throwError $ "Attribute set does not contain field " <> show str
+                Just t -> force t
+              val -> throwError $ "Second argument to builtins.lookup was not a string set but a " <> describeValue val
+        val -> throwError $ "First argument to builtins.lookup was not an attribute set but a " <> describeValue val
