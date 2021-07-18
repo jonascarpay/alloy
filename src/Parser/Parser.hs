@@ -113,16 +113,26 @@ pBlock :: Parser Expr
 pBlock = do
   label <- optional $ pIdent <* token T.At
   braces $ Run label <$> pStmts
-
-pStmts :: Parser ProgE
-pStmts = choice [pBreak]
   where
+    pStmts :: Parser ProgE
+    pStmts = choice [pBreak, pDecl]
+
     pBreak = do
       token T.Break
       lbl <- optional (token T.At *> pTerm)
       expr <- pExpr
       semicolon
       pure $ BreakE lbl expr
+
+    pDecl = do
+      token T.Var
+      lhs <- pIdent
+      token T.Colon
+      typ <- pExpr
+      token T.Assign
+      rhs <- pExpr
+      semicolon
+      DeclE lhs typ rhs <$> pStmts
 
 semicolon :: Parser ()
 semicolon = token T.Semicolon
