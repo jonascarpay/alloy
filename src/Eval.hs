@@ -83,14 +83,14 @@ whnf (With attrs body) =
     val -> throwError $ "Inner expression in with-expression did not evaluate to an attribute set but a " <> describeValue val
 whnf (Cond cond true false) =
   whnf cond >>= \case
-    (VPrim (PBool True)) -> whnf true
-    (VPrim (PBool False)) -> whnf false
-    (VRun deps cond') -> fromComp VRun $ do
-      tell deps
+    VPrim (PBool True) -> whnf true
+    VPrim (PBool False) -> whnf false
+    -- TODO throw a better error message in the case of something that's not a runtime variable
+    val -> fromComp VRun $ do
       true' <- lift (whnf true) >>= compileValue
       false' <- lift (whnf false) >>= compileValue
+      cond' <- compileValue val
       pure $ RTCond cond' true' false'
-    val -> throwError $ "Scrutinee is not a boolean or a runtime expression, but a " <> describeValue val
 whnf (String str) = pure $ VString str
 whnf (List l) = VList <$> traverse (whnf >=> refer) l
 
