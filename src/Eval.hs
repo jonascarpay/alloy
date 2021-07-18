@@ -26,12 +26,14 @@ runEval expr = do
   runExceptT $
     unEvalBase $ do
       val <- unEval $ do
-        tBuiltins <- traverse refer builtins >>= refer . VAttr
+        tBuiltins <- lift $ deepRefer builtins >>= refer
         local (binds . at "builtins" ?~ tBuiltins) (whnf expr)
       deepseq val
   where
     deepseq :: WHNF -> EvalBase NF
     deepseq = fmap NF . traverse (force >=> deepseq)
+    deepRefer :: NF -> EvalBase WHNF
+    deepRefer = traverse (deepRefer >=> refer) . unNF
 
 whnf :: Expr -> Eval WHNF
 whnf (Var name) = lookupName name >>= lift . force
