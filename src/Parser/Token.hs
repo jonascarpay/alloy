@@ -42,7 +42,6 @@ data Token
   | Gt
   | Leq
   | Geq
-  | Cat
   | Dot
   | -- Punctuation
     Semicolon

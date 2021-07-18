@@ -46,7 +46,6 @@ pBinExpr =
   makeExprParser
     pTerm
     [ [InfixL (pure App)],
-      -- [InfixL (BinExpr Concat <$ token T.Cat)], -- TODO remove Concat token
       [arith T.Mul Mul, arith T.Div Div],
       [arith T.Add Add, arith T.Sub Sub],
       [comp T.Lt Lt, comp T.Gt Gt, comp T.Leq Leq, comp T.Geq Geq],
