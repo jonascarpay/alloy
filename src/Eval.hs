@@ -97,8 +97,8 @@ whnf (List l) = VList <$> traverse (whnf >=> refer) l
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op a@VRTValue {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op a b@VRTValue {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a@VVar {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
-binOp op a b@VVar {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a@VRTPlace {} b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
+binOp op a b@VRTPlace {} = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (compileValue a) (compileValue b)
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
@@ -151,7 +151,7 @@ compileFunc args ret body = do
   where
     bindVars :: [((Name, Type), VarIX)] -> Comp a -> Comp a
     bindVars argIxs m = do
-      argThunks <- forM argIxs $ \((name, _), ix) -> (name,) <$> refer (VVar ix)
+      argThunks <- forM argIxs $ \((name, _), ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix)
       local (binds %~ mappend (M.fromList argThunks)) m
 
 compileBlock ::
@@ -164,7 +164,7 @@ compileBlock blk = go
       typ' <- lift (whnf typ) >>= ensureType
       val' <- lift (whnf val) >>= compileValue
       k' <- localVar $ \ix -> do
-        t <- refer (VVar ix)
+        t <- refer (VRTPlace mempty $ Place ix)
         local (binds . at name ?~ t) $
           abstract1Over rtProgVars ix <$> go k
       pure (Decl typ' val' k')
@@ -195,12 +195,12 @@ compileBlock blk = go
 -- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compileValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
 compileValue (VRTValue deps val) = val <$ tell deps
-compileValue (VVar var) = pure $ PlaceVal $ Place var
+compileValue (VRTPlace deps plc) = PlaceVal plc <$ tell deps
 compileValue (VPrim prim) = pure $ RTPrim prim
 compileValue val = throwError $ "Cannot create a runtime expression from a " <> describeValue val
 
 -- TODO there should probably be a place value
 -- TODO this should be a Maybe, so that we can better use it for checking if something is compileable
 compilePlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
-compilePlace (VVar var) = pure $ Place var
+compilePlace (VRTPlace deps plc) = plc <$ tell deps
 compilePlace val = throwError $ "Cannot create a place expression from a " <> describeValue val
