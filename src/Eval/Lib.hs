@@ -86,15 +86,15 @@ closedOver t = t (const Nothing)
 ensureValue :: MonadError String m => String -> (WHNF -> Maybe r) -> WHNF -> m r
 ensureValue ex f v = case f v of
   Just r -> pure r
-  Nothing -> throwError $ "Expected a " <> ex <> ", but got " <> describeValue v
+  Nothing -> throwError $ "Expected " <> ex <> ", but got " <> describeValue v
 
 ensureType :: MonadError String m => WHNF -> m Type
-ensureType = ensureValue "type" $ \case
+ensureType = ensureValue "a type" $ \case
   VType typ -> Just typ
   _ -> Nothing
 
 ensureBlock :: MonadError String m => WHNF -> m BlockIX
-ensureBlock = ensureValue "block" $ \case
+ensureBlock = ensureValue "a block" $ \case
   VBlk blk -> Just blk
   _ -> Nothing
 
