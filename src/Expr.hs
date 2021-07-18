@@ -8,10 +8,7 @@ module Expr where
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Short (ShortByteString)
-import Data.Foldable (toList)
 import Data.Hashable
-import Data.Map (Map)
-import Data.Map qualified as M
 import Data.Sequence (Seq)
 import GHC.Generics
 
@@ -33,7 +30,6 @@ data Expr
   | List (Seq Expr)
   | Cond Expr Expr Expr
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (Hashable) -- TODO does this really need hashable? it's not content addressed like functions, and it requires an orphan for Seq
 
 data ProgE
   = DeclE Name Expr Expr ProgE
@@ -42,14 +38,12 @@ data ProgE
   | ContinueE (Maybe Expr)
   | ExprE Expr ProgE
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (Hashable)
 
 data Binding
   = Simple Name [Name] Expr
   | Inherit [Name]
   | InheritFrom Expr [Name]
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (Hashable)
 
 data Prim
   = PInt Int
@@ -58,27 +52,6 @@ data Prim
   | PVoid
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Hashable)
-
--- TODO move out of Expr
--- TODO Since this _only_ describes the implementation, structs with the same
--- types of fields but different names shouldn't count as different values.
--- Ideally we'd find some way to do name-based access, but erase the names at
--- runtime
-data Type
-  = TInt
-  | TDouble
-  | TBool
-  | TVoid
-  | TStruct (Map Name Type)
-  deriving stock (Eq, Show, Ord, Generic)
-  deriving anyclass (Hashable)
-
--- TODO move to orphan module
-instance (Hashable a, Hashable b) => Hashable (Map a b) where
-  hashWithSalt salt m = hashWithSalt salt (M.toList m)
-
-instance Hashable a => Hashable (Seq a) where
-  hashWithSalt s = hashWithSalt s . toList
 
 data BinOp = ArithOp ArithOp | CompOp CompOp
   deriving (Eq, Show, Generic)

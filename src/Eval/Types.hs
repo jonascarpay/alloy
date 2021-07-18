@@ -14,6 +14,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
+import Data.Map qualified as M
 import Data.Sequence (Seq)
 import Data.Void
 import Expr
@@ -57,6 +58,25 @@ newtype BlockIX = BlockIX Int
   deriving newtype (Eq, Show, Enum, Hashable)
 
 newtype FuncIX = FuncIX Int
+
+-- TODO Since this _only_ describes the implementation, structs with the same
+-- types of fields but different names shouldn't count as different values.
+-- Ideally we'd find some way to do name-based access, but erase the names at
+-- runtime
+data Type
+  = TInt
+  | TDouble
+  | TBool
+  | TVoid
+  | TStruct (Map Name Type)
+  deriving stock (Eq, Show, Ord, Generic)
+
+instance Hashable Type where
+  hashWithSalt s TInt = hashWithSalt s (0 :: Int)
+  hashWithSalt s TDouble = hashWithSalt s (1 :: Int)
+  hashWithSalt s TBool = hashWithSalt s (2 :: Int)
+  hashWithSalt s TVoid = hashWithSalt s (3 :: Int)
+  hashWithSalt s (TStruct m) = hashWithSalt s (4 :: Int, M.toList m)
 
 data Bind b a
   = Bound b
