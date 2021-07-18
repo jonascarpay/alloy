@@ -51,6 +51,7 @@ library
   exposed-modules:
     Eval
     Eval.BinOp
+    Eval.Builtins
     Eval.Lenses
     Eval.Lib
     Eval.Types

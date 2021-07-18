@@ -7,7 +7,11 @@ module Eval.Lib where
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.Writer (runWriterT)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BSU
 import Data.IORef
+import Data.Word (Word8)
 import Eval.Lenses
 import Eval.Types
 import Expr
@@ -17,6 +21,7 @@ close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
 -- TODO articles!
+-- TODO Describe primitives in more detail
 describeValue :: Value f -> String
 describeValue VClosure {} = "closure"
 describeValue VRun {} = "runtime expression"
@@ -96,3 +101,11 @@ ensureBlock = ensureValue "block" $ \case
 
 fromComp :: (Deps -> a -> r) -> Comp a -> Eval r
 fromComp f m = (\(a, dep) -> f dep a) <$> runWriterT m
+
+-- TODO replace with indexMaybe from BS 0.11
+indexMaybe :: ByteString -> Int -> Maybe Word8
+indexMaybe ps n
+  | n < 0 = Nothing
+  | n >= BS.length ps = Nothing
+  | otherwise = Just $! BSU.unsafeIndex ps n
+{-# INLINE indexMaybe #-}
