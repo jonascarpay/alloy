@@ -2,10 +2,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 
+-- TODO export list
 module Eval.Lib where
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer (runWriterT)
 import Control.Monad.Writer.Lazy
 import Data.ByteString (ByteString)
@@ -57,23 +59,14 @@ force (Thunk ref) = do
       liftIO $ writeIORef ref (Right a)
       pure a
 
-localBlock :: MonadReader EvalEnv m => (BlockIX -> m a) -> m a
-localBlock k = do
-  ix <- view blkSource
-  local (blkSource %~ succ) (k ix)
+fresh :: MonadFresh m => m Int
+fresh = state $ \n -> (n, n + 1)
 
-localVar :: MonadReader EvalEnv m => (VarIX -> m a) -> m a
-localVar k = do
-  ix <- view varSource
-  local (varSource %~ succ) (k ix)
+freshBlock :: MonadFresh m => m BlockIX
+freshBlock = BlockIX <$> fresh
 
--- TODO maybe just Int -> ([VarIX] -> m a) -> m a
-localVars :: MonadReader EvalEnv m => [a] -> ([(a, VarIX)] -> m r) -> m r
-localVars as m = do
-  let n = length as
-  VarIX ix <- view varSource
-  let ixs = VarIX <$> [ix ..]
-  local (varSource .~ VarIX (ix + n)) (m $ zip as ixs)
+freshVar :: MonadFresh m => m VarIX
+freshVar = VarIX <$> fresh
 
 abstractOver :: Traversal s t a (Bind b a) -> (a -> Maybe b) -> s -> t
 abstractOver t f = over t (\a -> maybe (Free a) Bound (f a))

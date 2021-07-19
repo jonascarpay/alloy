@@ -12,7 +12,7 @@ import Control.Monad.Writer
 import Data.Foldable (toList)
 import Data.HashMap.Strict qualified as HM
 import Data.Hashable
-import Data.List (findIndex)
+import Data.List (elemIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
 import Eval.BinOp
@@ -26,11 +26,12 @@ import Lens.Micro.Platform hiding (ix)
 runEval :: Expr -> IO (Either String NF)
 runEval expr = do
   runExceptT $
-    unEvalBase $ do
-      val <- unEval $ do
-        tBuiltins <- lift $ deepRefer builtins >>= refer
-        local (binds . at "builtins" ?~ tBuiltins) (whnf expr)
-      deepseq val
+    flip evalStateT 0 $
+      unEvalBase $ do
+        val <- unEval $ do
+          tBuiltins <- lift $ deepRefer builtins >>= refer
+          local (binds . at "builtins" ?~ tBuiltins) (whnf expr)
+        deepseq val
   where
     deepseq :: WHNF -> EvalBase NF
     deepseq = fmap NF . traverse (force >=> deepseq)
@@ -55,14 +56,14 @@ whnf (Lam arg body) = do
   env <- ask
   pure $ VClosure $ \t -> runReaderT (whnf body) (env & binds . at arg ?~ t)
 whnf (Prim prim) = pure (VPrim prim)
-whnf (Run mlbl prog) =
-  localBlock $ \blk -> do
-    fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over rtProgLabels blk prog'))) $
-      case mlbl of
-        Nothing -> compileBlock blk prog
-        Just lbl -> do
-          t <- refer (VBlk blk)
-          local (binds . at lbl ?~ t) (compileBlock blk prog)
+whnf (Run mlbl prog) = do
+  blk <- freshBlock
+  fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over rtProgLabels blk prog'))) $
+    case mlbl of
+      Nothing -> compileBlock blk prog
+      Just lbl -> do
+        t <- refer (VBlk blk)
+        local (binds . at lbl ?~ t) (compileBlock blk prog)
 whnf (BinExpr op a b) = do
   a' <- whnf a
   b' <- whnf b
@@ -137,21 +138,24 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
 compileFunc :: [(Name, Expr)] -> Expr -> Expr -> Comp Hash
 compileFunc args ret body = do
   ret' <- lift (whnf ret) >>= ensureType
-  args' <- forM args $ traverse $ lift . whnf >=> ensureType
-  localVars args' $ \ixs -> do
-    body' <- bindVars ixs $ lift (whnf body) >>= coerceRTValue
-    let f ix = findIndex ((== ix) . snd) ixs
-        scoped = abstractOver rtValVars f body'
-    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
-    closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
-    let fundef = RTFunc (snd <$> args') ret' closedBlks
-        guid = Hash $ hash fundef
-    tell $ Deps $ HM.singleton guid fundef
-    pure guid
+  args' <- forM args $ \(name, expr) -> do
+    typ <- lift (whnf expr) >>= ensureType
+    ix <- freshVar
+    pure (name, typ, ix)
+  body' <- bindVars args' $ lift (whnf body) >>= coerceRTValue
+  let scoped = abstractOver rtValVars (`elemIndex` (thd <$> args')) body'
+  closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
+  closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
+  let fundef = RTFunc (snd3 <$> args') ret' closedBlks
+      guid = Hash $ hash fundef
+  tell $ Deps $ HM.singleton guid fundef
+  pure guid
   where
-    bindVars :: [((Name, Type), VarIX)] -> Comp a -> Comp a
+    thd (_, _, c) = c
+    snd3 (_, b, _) = b
+    bindVars :: [(Name, Type, VarIX)] -> Comp a -> Comp a
     bindVars argIxs m = do
-      argThunks <- forM argIxs $ \((name, _), ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix)
+      argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix)
       local (binds %~ mappend (M.fromList argThunks)) m
 
 compileBlock ::
@@ -163,7 +167,8 @@ compileBlock blk = go
     go (DeclE name typ val k) = do
       typ' <- lift (whnf typ) >>= ensureType
       val' <- lift (whnf val) >>= coerceRTValue
-      k' <- localVar $ \ix -> do
+      k' <- do
+        ix <- freshVar
         t <- refer (VRTPlace mempty $ Place ix)
         local (binds . at name ?~ t) $
           abstract1Over rtProgVars ix <$> go k

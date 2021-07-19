@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -8,6 +9,7 @@ module Eval.Types where
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict (HashMap)
@@ -118,20 +120,18 @@ data RTFunc fun = RTFunc
   deriving stock (Eq, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
-newtype EvalBase a = EvalBase {unEvalBase :: ExceptT String IO a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String)
+newtype EvalBase a = EvalBase {unEvalBase :: StateT Int (ExceptT String IO) a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh)
 
 type Eval = ReaderT EvalEnv EvalBase
+
+type MonadFresh = MonadState Int -- TODO proper class
 
 unEval :: Eval a -> EvalBase a
 unEval = flip runReaderT env0
   where
-    env0 = EvalEnv mempty (VarIX 0) (BlockIX 0)
+    env0 = EvalEnv mempty
 
 type Comp = WriterT Deps Eval
 
-data EvalEnv = EvalEnv
-  { _binds :: Map Name Thunk,
-    _varSource :: VarIX,
-    _blkSource :: BlockIX
-  }
+newtype EvalEnv = EvalEnv {_binds :: Map Name Thunk} -- TODO Just `type`?
