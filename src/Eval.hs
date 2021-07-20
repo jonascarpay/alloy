@@ -68,7 +68,7 @@ whnf (BinExpr op a b) = do
   a' <- whnf a
   b' <- whnf b
   binOp op a' b'
-whnf (Func args ret body) = fromComp VFunc $ compileFunc args ret body
+whnf (Func mlbl args ret body) = uncurry VFunc <$> compileFunc mlbl args ret body
 whnf (Let bindings body) = do
   env <- resolveBindings bindings
   local (binds %~ mappend env) (whnf body)
@@ -135,21 +135,30 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
         Nothing -> at name ?= thunk
         Just _ -> throwError $ "Double name: " <> show name
 
-compileFunc :: [(Name, Expr)] -> Expr -> Expr -> Comp Hash
-compileFunc args ret body = do
-  ret' <- lift (whnf ret) >>= ensureType
+compileFunc :: Maybe Name -> [(Name, Expr)] -> Expr -> Expr -> Eval (Deps, Either FuncIX Hash)
+compileFunc mlbl args ret body = do
+  ret' <- whnf ret >>= ensureType
   args' <- forM args $ \(name, expr) -> do
-    typ <- lift (whnf expr) >>= ensureType
+    typ <- whnf expr >>= ensureType
     ix <- freshVar
     pure (name, typ, ix)
-  body' <- bindVars args' $ lift (whnf body) >>= coerceRTValue
+  fun <- freshFunc
+  (body', Deps closed open) <-
+    runWriterT $
+      bindFunction fun $
+        bindVars args' $
+          lift (whnf body) >>= coerceRTValue
   let scoped = abstractOver rtValVars (`elemIndex` (thd <$> args')) body'
-  closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
-  closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
-  let fundef = RTFunc (snd3 <$> args') ret' closedBlks
-      guid = Hash $ hash fundef
-  tell $ Deps $ HM.singleton guid fundef
-  pure guid
+  rtFunc <- do
+    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
+    closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
+    pure $ RTFunc (snd3 <$> args') ret' closedBlks
+  let rtFunc' = abstract1Over traverse (Left fun) rtFunc
+      open' = abstract1Over (traverse . traverse) (Left fun) open -- TODO traverse . traverse . _Left
+      temp' = TempFunc rtFunc' open'
+  pure $ case closeFunc temp' of
+    Nothing -> (Deps closed (M.singleton fun temp'), Left fun)
+    Just (closed', guid) -> (Deps (closed <> closed') mempty, Right guid)
   where
     thd (_, _, c) = c
     snd3 (_, b, _) = b
@@ -157,11 +166,17 @@ compileFunc args ret body = do
     bindVars argIxs m = do
       argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix)
       local (binds %~ mappend (M.fromList argThunks)) m
+    bindFunction :: FuncIX -> Comp a -> Comp a
+    bindFunction fun k = do
+      tnk <- refer $ VFunc mempty (Left fun)
+      case mlbl of
+        Nothing -> k
+        Just lbl -> local (binds . at lbl ?~ tnk) k
 
 compileBlock ::
   BlockIX ->
   ProgE ->
-  Comp (RTProg VarIX BlockIX Hash)
+  Comp (RTProg VarIX BlockIX (Either FuncIX Hash))
 compileBlock blk = go
   where
     go (DeclE name typ val k) = do

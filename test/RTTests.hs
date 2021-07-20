@@ -5,6 +5,8 @@
 module RTTests where
 
 import Control.Monad
+import Data.Either
+import Debug.Trace
 import Eval.Types
 import Print
 import Test.Tasty
@@ -23,13 +25,13 @@ funcWithNDeps name exp prog = testCase name $ do
   val <- assertParse prog >>= assertEval
   let throw err = assertFailure $ unlines [err, show (printNF val)]
   case val of
-    NF (VFunc (Deps m) _call) -> do
-      -- unless (isRight call) $ throw "unresolved temporary function id"
-      -- unless (null temp) $ throw "Function with dangling temporary functions"
+    NF (VFunc (Deps close open) call) -> do
+      unless (isRight call) $ throw "unresolved temporary function id"
+      unless (null open) $ throw "Function with dangling temporary functions"
       -- let calls = toListOf (traverse . funCalls) fn
       -- unless (all (`M.member` fn) calls) $
       --   throw "dangling unresolved call in a dependency"
-      let got = length m - 1
+      let got = length close - 1
       unless (exp == got) $ throw $ unwords ["expected", show exp, "dependencies, got", show got]
     _ -> throw "Value was not a function"
 
@@ -96,50 +98,51 @@ rtTests =
                 }
             |]
         ],
-      testGroup
-        "recusion"
-        [ saFunc "simple recursion" "[] -> builtins.types.int { return self []; }",
-          funcWithNDeps
-            "mutual recursion"
-            1
-            [r| with builtins.types;
-              [] -> int
-                let top = self;
-                    sub = [] -> int { return top[]; };
-                 in {return sub[];}
+      focus $
+        testGroup
+          "recusion"
+          [ saFunc "simple infinite recursion" "self@[] -> builtins.types.int { break self []; }",
+            focus $
+              funcWithNDeps
+                "mutual recursion"
+                1
+                [r| with builtins.types;
+              top@[] -> int
+                let sub = [] -> int { break top[]; };
+                 in {break sub[];}
           |],
-          funcWithNDeps
-            "recursive case as argument"
-            1
-            [r| with builtins.types;
-              let f = rec: [] -> int { return rec[]; };
-               in [] -> int { return f self []; }
+            funcWithNDeps
+              "recursive case as argument"
+              1
+              [r| with builtins.types;
+              let f = rec: [] -> int { break rec[]; };
+               in [] -> int { break f self []; }
           |],
-          funcWithNDeps
-            "temporary local functions"
-            2
-            [r| with builtins.types;
-              let f = n: rec: [] -> int { return rec[] + n; };
+            funcWithNDeps
+              "temporary local functions"
+              2
+              [r| with builtins.types;
+              let f = n: rec: [] -> int { break rec[] + n; };
                in [] -> int {
                  return f 1 self [];
                  return f 2 self [];
                  return f 1 self [];
                }
             |],
-          funcWithNDeps
-            "deeper recursion"
-            4
-            [r| with builtins.types;
-              let f = rec: [] -> int { return rec[]; };
+            funcWithNDeps
+              "deeper recursion"
+              4
+              [r| with builtins.types;
+              let f = rec: [] -> int { break rec[]; };
                in [] -> int {
-                 return self [];
-                 return f self [];
-                 return f (f self) [];
-                 return f (f (f self)) [];
-                 return f (f (f (f self))) [];
+                 self [];
+                 f self [];
+                 f (f self) [];
+                 f (f (f self)) [];
+                 f (f (f (f self))) [];
                }
             |]
-        ],
+          ],
       testGroup
         "deduplication"
         [ funcWithNDeps

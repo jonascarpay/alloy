@@ -13,11 +13,13 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict (HashMap)
+import Data.HashSet (HashSet)
 import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Sequence (Seq)
+import Data.Set (Set)
 import Data.Void
 import Expr
 import GHC.Generics
@@ -30,9 +32,9 @@ import GHC.Generics
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
   = VClosure (Thunk -> EvalBase WHNF) -- TODO params
-  | VRTValue Deps (RTValue VarIX BlockIX Hash)
-  | VRTPlace Deps (RTPlace VarIX BlockIX Hash)
-  | VFunc Deps Hash
+  | VRTValue Deps (RTValue VarIX BlockIX (Either FuncIX Hash))
+  | VRTPlace Deps (RTPlace VarIX BlockIX (Either FuncIX Hash))
+  | VFunc Deps (Either FuncIX Hash)
   | VType Type
   | VPrim Prim
   | VString ByteString
@@ -48,18 +50,36 @@ newtype NF = NF {unNF :: Value NF}
 newtype Hash = Hash Int
   deriving newtype (Eq, Show, Ord, Hashable)
 
-newtype Deps = Deps (HashMap Hash (RTFunc Hash))
-  deriving newtype (Eq, Semigroup, Monoid)
+data TempFunc fun
+  = TempFunc
+      (RTFunc (Bind () fun))
+      (Map FuncIX (TempFunc (Bind () fun)))
+  deriving stock (Eq, Show, Ord, Generic, Functor, Foldable, Traversable)
+
+data Deps = Deps
+  { closedFuncs :: HashMap Hash (RTFunc Hash),
+    openFuncs :: Map FuncIX (TempFunc (Either FuncIX Hash))
+  }
+  deriving (Eq)
+
+instance Semigroup Deps where
+  Deps ca oa <> Deps cb ob = Deps (ca <> cb) (oa <> ob)
+
+instance Monoid Deps where mempty = Deps mempty mempty
 
 newtype Thunk = Thunk (IORef (Either (EvalBase WHNF) WHNF))
 
+-- These are not allowed to be hashable.
+-- This way, we make sure that only completely nameless terms get hashed
+-- TODO These are no longer IX's, but rather IDs
 newtype VarIX = VarIX Int
-  deriving newtype (Eq, Show, Enum, Hashable)
+  deriving newtype (Eq, Show, Enum)
 
 newtype BlockIX = BlockIX Int
-  deriving newtype (Eq, Show, Enum, Hashable)
+  deriving newtype (Eq, Show, Enum)
 
 newtype FuncIX = FuncIX Int
+  deriving newtype (Eq, Ord, Show, Enum)
 
 -- TODO Since this _only_ describes the implementation, structs with the same
 -- types of fields but different names shouldn't count as different values.
@@ -83,7 +103,7 @@ instance Hashable Type where
 data Bind b a
   = Bound b
   | Free a
-  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTProg var blk fun
@@ -92,7 +112,7 @@ data RTProg var blk fun
   | Break blk (RTValue var blk fun)
   | Continue blk
   | ExprStmt (RTValue var blk fun) (RTProg var blk fun)
-  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTValue var blk fun
@@ -103,13 +123,13 @@ data RTValue var blk fun
   | Call fun [RTValue var blk fun]
   | PlaceVal (RTPlace var blk fun)
   | Block (RTProg var (Bind () blk) fun)
-  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTPlace var blk fun
   = Place var
   | Deref (RTValue var blk fun)
-  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 data RTFunc fun = RTFunc
@@ -117,7 +137,7 @@ data RTFunc fun = RTFunc
     fnRet :: Type,
     fnBody :: RTValue (Bind Int Void) Void fun
   }
-  deriving stock (Eq, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
   deriving anyclass (Hashable)
 
 newtype EvalBase a = EvalBase {unEvalBase :: StateT Int (ExceptT String IO) a}
