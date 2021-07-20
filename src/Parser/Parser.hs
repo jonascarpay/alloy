@@ -81,16 +81,17 @@ pAttr = braces $ Attr <$> many pBinding
 
 pFunc :: Parser Expr
 pFunc = do
+  lbl <- optional $ pIdent <* token T.At
   args <-
     brackets $
       sepBy
         (liftA2 (,) pIdent (token T.Colon *> pExpr))
         (token T.Comma)
-  -- TODo proper right arrow operator
+  -- TODO proper right arrow operator
   token T.Sub
   token T.Gt
   ret <- pTerm
-  Func args ret <$> pExpr
+  Func lbl args ret <$> pExpr
 
 pTerm :: Parser Expr
 pTerm = do

@@ -17,7 +17,7 @@ data Expr
   | App Expr Expr
   | Lam Name Expr
   | Prim Prim
-  | Func [(Name, Expr)] Expr Expr
+  | Func (Maybe Name) [(Name, Expr)] Expr Expr
   | BinExpr BinOp Expr Expr
   | Run (Maybe Name) ProgE
   | Let [Binding] Expr
@@ -48,17 +48,17 @@ data Prim
   | PDouble Double
   | PBool Bool
   | PVoid
-  deriving stock (Eq, Show, Generic)
+  deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
 
 data BinOp = ArithOp ArithOp | CompOp CompOp
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
 
 data ArithOp = Add | Sub | Mul | Div
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
 
 data CompOp = Eq | Neq | Lt | Gt | Geq | Leq
-  deriving (Eq, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)

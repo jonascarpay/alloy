@@ -13,8 +13,14 @@ import Control.Monad.Writer.Lazy
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BSU
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.Hashable
 import Data.IORef
+import Data.List (sort)
+import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
+import Data.Void
 import Data.Word (Word8)
 import Eval.Lenses
 import Eval.Types
@@ -68,6 +74,9 @@ freshBlock = BlockIX <$> fresh
 freshVar :: MonadFresh m => m VarIX
 freshVar = VarIX <$> fresh
 
+freshFunc :: MonadFresh m => m FuncIX
+freshFunc = FuncIX <$> fresh
+
 abstractOver :: Traversal s t a (Bind b a) -> (a -> Maybe b) -> s -> t
 abstractOver t f = over t (\a -> maybe (Free a) Bound (f a))
 
@@ -76,6 +85,16 @@ abstract1Over t a = over t (\var -> if var == a then Bound () else Free var)
 
 closedOver :: Traversal s t a b -> s -> Maybe t
 closedOver t = t (const Nothing)
+
+instantiateOver :: Traversal s t (Bind b a) a -> (b -> a) -> s -> t
+instantiateOver t f = over t $ \case
+  Free a -> a
+  Bound b -> f b
+
+instantiate1Over :: Traversal s t (Bind () a) a -> a -> s -> t
+instantiate1Over t sub = over t $ \case
+  Free a -> a
+  Bound () -> sub
 
 -- TODO prisms?
 ensureValue :: MonadError String m => String -> (WHNF -> Maybe r) -> WHNF -> m r
@@ -105,20 +124,33 @@ indexMaybe ps n
 {-# INLINE indexMaybe #-}
 
 {-# INLINE asRTValue #-}
-asRTValue :: WHNF -> Maybe (Comp (RTValue VarIX BlockIX Hash))
+asRTValue :: WHNF -> Maybe (Comp (RTValue VarIX BlockIX (Either FuncIX Hash)))
 asRTValue (VRTValue deps val) = Just $ val <$ tell deps
 asRTValue (VRTPlace deps plc) = Just $ PlaceVal plc <$ tell deps
 asRTValue (VPrim prim) = Just $ pure $ RTPrim prim
 asRTValue _ = Nothing
 
-coerceRTValue :: WHNF -> Comp (RTValue VarIX BlockIX Hash)
+coerceRTValue :: WHNF -> Comp (RTValue VarIX BlockIX (Either FuncIX Hash))
 coerceRTValue val = fromMaybe (throwError $ "Could not coerce " <> describeValue val <> " into a runtime value") $ asRTValue val
 
 {-# INLINE asRTPlace #-}
 -- TODO do we allow changing PlaceVal back into Place?
-asRTPlace :: WHNF -> Maybe (Comp (RTPlace VarIX BlockIX Hash))
+asRTPlace :: WHNF -> Maybe (Comp (RTPlace VarIX BlockIX (Either FuncIX Hash)))
 asRTPlace (VRTPlace deps plc) = Just $ plc <$ tell deps
 asRTPlace _ = Nothing
 
-coerceRTPlace :: WHNF -> Comp (RTPlace VarIX BlockIX Hash)
+coerceRTPlace :: WHNF -> Comp (RTPlace VarIX BlockIX (Either FuncIX Hash))
 coerceRTPlace plc = fromMaybe (throwError $ "Could not coerce " <> describeValue plc <> " into a runtime place expression") $ asRTPlace plc
+
+closeFunc :: TempFunc (Either FuncIX Hash) -> Maybe (HashMap Hash (RTFunc Hash), Hash)
+closeFunc temp = flattenTemp . fmap (either absurd id) <$> closedOver (traverse . _Left) temp
+
+hashTempFunc :: (Hashable a, Ord a) => TempFunc a -> Hash
+hashTempFunc (TempFunc fn deps) = Hash $ hash (fn, fmap hashTempFunc . sort $ M.elems deps)
+
+flattenTemp :: TempFunc Hash -> (HashMap Hash (RTFunc Hash), Hash)
+flattenTemp tree@(TempFunc fn deps) = (HM.singleton guid fn' <> transitive, guid)
+  where
+    guid = hashTempFunc tree
+    transitive = foldMap (fst . flattenTemp . instantiate1Over traverse guid) (M.elems deps)
+    fn' = instantiate1Over traverse guid fn
