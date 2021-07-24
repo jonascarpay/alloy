@@ -50,7 +50,7 @@ type WHNF = Value Thunk
 
 newtype NF = NF {unNF :: Value NF}
 
-newtype Hash = Hash Int
+newtype Hash = Hash {unHash :: Int}
   deriving newtype (Eq, Show, Ord, Hashable)
 
 data CallGraph = CallGraph
@@ -89,7 +89,7 @@ newtype VarIX = VarIX Int
 newtype BlockIX = BlockIX Int
   deriving newtype (Eq, Show, Enum)
 
-newtype FuncIX = FuncIX Int
+newtype FuncIX = FuncIX {unFuncIX :: Int}
   deriving newtype (Eq, Ord, Show, Enum)
 
 -- TODO Since this _only_ describes the implementation, structs with the same

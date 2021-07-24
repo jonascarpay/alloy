@@ -27,7 +27,6 @@ funcWithNDeps name exp prog = testCase name $ do
   let throw err = assertFailure $ unlines [err, show (printNF val)]
   case val of
     NF (VFunc (Deps close open) call) -> do
-      pTraceShowM open
       unless (isRight call) $ throw "unresolved temporary function id"
       unless (null open) $ throw "Function with dangling temporary functions"
       -- let calls = toListOf (traverse . funCalls) fn
@@ -104,11 +103,10 @@ rtTests =
         testGroup
           "recusion"
           [ saFunc "simple infinite recursion" "self@[] -> builtins.types.int { break self []; }",
-            focus $
-              funcWithNDeps
-                "mutual recursion"
-                1
-                [r| with builtins.types;
+            funcWithNDeps
+              "mutual recursion"
+              1
+              [r| with builtins.types;
               top@[] -> int
                 let sub = [] -> int { break top[]; };
                  in {break sub[];}
@@ -118,25 +116,26 @@ rtTests =
               1
               [r| with builtins.types;
               let f = rec: [] -> int { break rec[]; };
-               in [] -> int { break f self []; }
+               in self@[] -> int { break f self []; }
           |],
             funcWithNDeps
               "temporary local functions"
               2
               [r| with builtins.types;
               let f = n: rec: [] -> int { break rec[] + n; };
-               in [] -> int {
-                 return f 1 self [];
-                 return f 2 self [];
-                 return f 1 self [];
+               in self@[] -> int {
+                 f 1 self [];
+                 f 2 self [];
+                 f 1 self [];
                }
             |],
-            funcWithNDeps
-              "deeper recursion"
-              4
-              [r| with builtins.types;
+            focus $
+              funcWithNDeps
+                "deeper recursion"
+                4
+                [r| with builtins.types;
               let f = rec: [] -> int { break rec[]; };
-               in [] -> int {
+               in self@[] -> int {
                  self [];
                  f self [];
                  f (f self) [];

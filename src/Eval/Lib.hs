@@ -7,6 +7,7 @@
 module Eval.Lib where
 
 import Control.Monad.Except
+import Control.Monad.RWS
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer (runWriterT)
@@ -153,28 +154,39 @@ mkCallGraph ix body deps = CallGraph ix body (S.difference open bind) bind deps
     bind = S.insert ix $ foldMap cgBind deps
     open = foldMap cgOpen deps <> S.fromList (body ^.. traverse . _Left)
 
-closeFunc :: CallGraph -> Maybe (HashMap Hash (RTFunc Hash), Hash)
+closeFunc :: CallGraph -> Maybe (Hash, HashMap Hash (RTFunc Hash))
 closeFunc cg
-  | S.null (cgOpen cg) = Nothing
-  | otherwise = undefined
-
--- closeFunc temp = flattenTemp . fmap (either absurd id) <$> closedOver (traverse . _Left) temp
+  | S.null (cgOpen cg) = Just $ either (error "impossible") id $ flattenCallgraph cg
+  | otherwise = Nothing
 
 hashCallGraph :: CallGraph -> Hash
-hashCallGraph = undefined
+hashCallGraph cg = Hash $ go cg
+  where
+    lo :: FuncIX
+    lo = S.findMin (cgBind cg) -- TODO Some kind of NonEmptySet wrapper?
+    hashFunc :: FuncIX -> Int
+    hashFunc ix = unFuncIX ix - unFuncIX lo
+    go :: CallGraph -> Int
+    go (CallGraph _ body _ _ deps) = hash (either hashFunc unHash <$> body, go <$> S.toAscList deps)
 
--- flattenTemp ::
---   Hash ->
---   (f Hash -> HashMap Hash (RTFunc Hash)) ->
---   (Funcs f Hash -> HashMap Hash (RTFunc Hash))
--- flattenTemp _ f (FRoot fa) = f fa
--- flattenTemp guid f (FCons rec) = flattenTemp _ _ $ rec'
---   where
---     guid' =
---     rec' = instantiate1Over traverse guid rec
-
--- flattenTemp tree@(TempFunc fn deps) = (HM.singleton guid fn' <> transitive, guid)
---   where
---     guid = hashTempFunc tree
---     transitive = foldMap (fst . flattenTemp . instantiate1Over traverse guid) (M.elems deps)
---     fn' = instantiate1Over traverse guid fn
+flattenCallgraph :: CallGraph -> Either FuncIX (Hash, HashMap Hash (RTFunc Hash))
+flattenCallgraph cg = evalRWST (go cg) () mempty
+  where
+    go ::
+      CallGraph ->
+      ( RWST
+          ()
+          (HashMap Hash (RTFunc Hash))
+          (Map FuncIX Hash)
+          (Either FuncIX)
+      )
+        Hash
+    go cg@(CallGraph ix body _ _ deps) = do
+      let h = hashCallGraph cg
+      at ix ?= h
+      forM_ (S.toList deps) go
+      body' <-
+        let f ix = use (at ix) >>= maybe (throwError ix) pure
+         in traverse (either f pure) body
+      tell $ HM.singleton h body'
+      pure h
