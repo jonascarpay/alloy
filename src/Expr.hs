@@ -32,7 +32,7 @@ data Expr
 data ProgE
   = DeclE Name Expr Expr ProgE
   | AssignE Expr Expr ProgE
-  | BreakE (Maybe Expr) (Maybe Expr)
+  | BreakE (Maybe Expr) (Maybe Expr) -- TODO break should always have a label
   | ContinueE (Maybe Expr)
   | ExprE Expr ProgE
   deriving stock (Eq, Show, Generic)

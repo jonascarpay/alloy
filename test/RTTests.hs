@@ -99,51 +99,25 @@ rtTests =
                 }
             |]
         ],
-      focus $
-        testGroup
-          "recusion"
-          [ saFunc "simple infinite recursion" "self@[] -> builtins.types.int { break self []; }",
-            funcWithNDeps
-              "mutual recursion"
-              1
-              [r| with builtins.types;
+      testGroup
+        "recusion"
+        [ saFunc "simple infinite recursion" "self@[] -> builtins.types.int { break self []; }",
+          funcWithNDeps
+            "mutual recursion"
+            1
+            [r| with builtins.types;
               top@[] -> int
                 let sub = [] -> int { break top[]; };
                  in {break sub[];}
           |],
-            funcWithNDeps
-              "recursive case as argument"
-              1
-              [r| with builtins.types;
+          funcWithNDeps
+            "recursive case as argument"
+            1
+            [r| with builtins.types;
               let f = rec: [] -> int { break rec[]; };
                in self@[] -> int { break f self []; }
-          |],
-            funcWithNDeps
-              "temporary local functions"
-              2
-              [r| with builtins.types;
-              let f = n: rec: [] -> int { break rec[] + n; };
-               in self@[] -> int {
-                 f 1 self [];
-                 f 2 self [];
-                 f 1 self [];
-               }
-            |],
-            focus $
-              funcWithNDeps
-                "deeper recursion"
-                4
-                [r| with builtins.types;
-              let f = rec: [] -> int { break rec[]; };
-               in self@[] -> int {
-                 self [];
-                 f self [];
-                 f (f self) [];
-                 f (f (f self)) [];
-                 f (f (f (f self))) [];
-               }
-            |]
-          ],
+          |]
+        ],
       testGroup
         "deduplication"
         [ funcWithNDeps
@@ -155,7 +129,7 @@ rtTests =
                 b = [] -> int { c[] };
                 c = [] -> int { 4 };
               in [] -> int {
-                return a[] + b[];
+                break a[] + b[];
               }
             |],
           funcWithNDeps
@@ -166,7 +140,7 @@ rtTests =
                 a = [] -> int { var x: int = 4; x };
                 b = [] -> int { var x: int = 4; x };
               in [] -> int {
-                return a[] + b[];
+                break a[] + b[];
               }
             |],
           funcWithNDeps
@@ -177,8 +151,32 @@ rtTests =
                   a = [] -> int { var va: int = 4; va };
                   b = [] -> int { var vb: int = 4; vb };
                 in [] -> int {
-                  return a[] + b[];
+                  break a[] + b[];
                 }
+            |],
+          funcWithNDeps
+            "identical functions"
+            2
+            [r| with builtins.types;
+              let f = n: rec: [] -> int { break rec[] + n; };
+               in self@[] -> int {
+                 f 1 self [];
+                 f 2 self [];
+                 f 1 self [];
+               }
+            |],
+          funcWithNDeps
+            "self-similar recursion"
+            4
+            [r| with builtins.types;
+              let f = rec: [] -> int { break rec[]; };
+               in self@[] -> int {
+                 self [];
+                 f self [];
+                 f (f self) [];
+                 f (f (f self)) [];
+                 f (f (f (f self))) [];
+               }
             |]
         ],
       testGroup

@@ -160,14 +160,19 @@ closeFunc cg
   | otherwise = Nothing
 
 hashCallGraph :: CallGraph -> Hash
-hashCallGraph cg = Hash $ go cg
+hashCallGraph cg = Hash $ evalState (go cg) (mempty, 0)
   where
-    lo :: FuncIX
-    lo = S.findMin (cgBind cg) -- TODO Some kind of NonEmptySet wrapper?
-    hashFunc :: FuncIX -> Int
-    hashFunc ix = unFuncIX ix - unFuncIX lo
-    go :: CallGraph -> Int
-    go (CallGraph _ body _ _ deps) = hash (either hashFunc unHash <$> body, go <$> S.toAscList deps)
+    label :: FuncIX -> State (Map FuncIX Int, Int) Int
+    label ix =
+      use (_1 . at ix) >>= \case
+        Nothing -> state $ \(m, n) -> (n, (M.insert ix n m, n + 1))
+        Just n -> pure n
+    go :: CallGraph -> State (Map FuncIX Int, Int) Int
+    go (CallGraph ix body _ _ deps) = do
+      _ <- label ix
+      body' <- (traverse . _Left) label body
+      hDeps <- traverse go (S.toAscList deps)
+      pure $ hash (body', hDeps)
 
 flattenCallgraph :: CallGraph -> Either FuncIX (Hash, HashMap Hash (RTFunc Hash))
 flattenCallgraph cg = evalRWST (go cg) () mempty
