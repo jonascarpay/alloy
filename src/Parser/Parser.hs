@@ -124,20 +124,19 @@ pBlock = do
       choice
         [ pBreak,
           pContinue,
-          BreakE Nothing . Just <$> pExpr,
-          pure $ BreakE Nothing Nothing
+          pure $ ExprE (Prim PVoid) Nothing
         ]
 
     pBreak = do
       token T.Break
-      lbl <- optional (token T.At *> pTerm)
+      lbl <- pTerm
       expr <- optional pExpr
       semicolon
       pure $ BreakE lbl expr
 
     pContinue = do
       token T.Continue
-      lbl <- optional (token T.At *> pTerm)
+      lbl <- pTerm
       semicolon
       pure $ ContinueE lbl
 
@@ -150,8 +149,7 @@ pBlock = do
 
     pExprStatement = do
       expr <- pExpr
-      semicolon
-      ExprE expr <$> pStmts
+      ExprE expr <$> optional (semicolon *> pStmts)
 
     pDecl = do
       token T.Var

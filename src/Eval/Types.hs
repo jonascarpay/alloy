@@ -122,7 +122,7 @@ data RTProg var blk fun
   | Assign (RTPlace var blk fun) (RTValue var blk fun) (RTProg var blk fun)
   | Break blk (RTValue var blk fun)
   | Continue blk
-  | ExprStmt (RTValue var blk fun) (RTProg var blk fun)
+  | ExprStmt (RTValue var blk fun) (Maybe (RTProg var blk fun))
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
