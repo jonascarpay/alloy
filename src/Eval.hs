@@ -155,7 +155,7 @@ compileFunc mlbl args ret body = do
   let cg = mkCallGraph fun rtFunc open
   pure $ case closeFunc cg of
     Nothing -> (Deps closed (S.singleton cg), Left fun)
-    Just (closed', guid) -> (Deps (closed <> closed') mempty, Right guid)
+    Just (guid, closed') -> (Deps (closed <> closed') mempty, Right guid)
   where
     thd (_, _, c) = c
     snd3 (_, b, _) = b
