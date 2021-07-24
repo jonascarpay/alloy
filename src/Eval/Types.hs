@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Eval.Types where
@@ -14,18 +15,17 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict (HashMap)
-import Data.HashSet (HashSet)
 import Data.Hashable
 import Data.Hashable.Lifted
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.Proxy
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Void
 import Expr
 import GHC.Generics
+import Lens.Micro.Platform (makeLenses)
 
 -- VRTPlace and VLbl can never escape the scope in which they're defined, because they can only occur after a definer in a runtime expression, and so the surrounding context must evaluate to a runtime expression.
 -- However, this definition makes it seem like we can have free-floating vars/lbls, similar to how a normal value can escape its lexical scope through closures.
@@ -166,3 +166,35 @@ unEval = flip runReaderT env0
 type Comp = WriterT Deps Eval
 
 newtype EvalEnv = EvalEnv {_binds :: Map Name Thunk} -- TODO Just `type`?
+
+makeLenses ''EvalEnv
+
+class RTAST f where
+  traverseAst ::
+    Applicative m =>
+    (var -> m var') ->
+    (lbl -> m lbl') ->
+    (fun -> m fun') ->
+    (f var lbl fun -> m (f var' lbl' fun'))
+
+instance RTAST RTValue where
+  traverseAst fv fl ff = go
+    where
+      go (RTArith op l r) = RTArith op <$> go l <*> go r
+      go (RTComp op l r) = RTComp op <$> go l <*> go r
+      go (Call fun args) = Call <$> ff fun <*> traverse go args
+      go (PlaceVal plc) = PlaceVal <$> traverseAst fv fl ff plc
+      go (Block blk) = Block <$> traverseAst fv (traverse fl) ff blk
+      go (RTCond cond true false) = RTCond <$> go cond <*> go true <*> go false
+      go (RTPrim p) = pure $ RTPrim p
+
+instance RTAST RTPlace where
+  traverseAst fv _ _ (Place var) = Place <$> fv var
+  traverseAst fv fl ff (Deref val) = Deref <$> traverseAst fv fl ff val
+
+instance RTAST RTProg where
+  traverseAst fv fl ff (Decl typ val k) = Decl typ <$> traverseAst fv fl ff val <*> traverseAst (traverse fv) fl ff k
+  traverseAst fv fl ff (Assign lhs rhs k) = Assign <$> traverseAst fv fl ff lhs <*> traverseAst fv fl ff rhs <*> traverseAst fv fl ff k
+  traverseAst fv fl ff (Break lbl val) = Break <$> fl lbl <*> traverseAst fv fl ff val
+  traverseAst fv fl ff (ExprStmt val k) = ExprStmt <$> traverseAst fv fl ff val <*> traverse (traverseAst fv fl ff) k
+  traverseAst _ fl _ (Continue lbl) = Continue <$> fl lbl

@@ -53,7 +53,6 @@ library
     Eval
     Eval.BinOp
     Eval.Builtins
-    Eval.Lenses
     Eval.Lib
     Eval.Types
     Expr
