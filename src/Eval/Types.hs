@@ -35,8 +35,8 @@ import Lens.Micro.Platform (makeLenses)
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
 data Value f
   = VClosure (Thunk -> EvalBase WHNF) -- TODO params
-  | VRTValue Deps (RTValue VarIX BlockIX (Either FuncIX Hash))
-  | VRTPlace Deps (RTPlace VarIX BlockIX (Either FuncIX Hash))
+  | VRTValue Deps (RTValue () VarIX BlockIX (Either FuncIX Hash))
+  | VRTPlace Deps (RTPlace () VarIX BlockIX (Either FuncIX Hash))
   | VFunc Deps (Either FuncIX Hash)
   | VType Type
   | VPrim Prim
@@ -117,36 +117,36 @@ data Bind b a
   deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
-data RTProg var blk fun
-  = Decl Type (RTValue var blk fun) (RTProg (Bind () var) blk fun)
-  | Assign (RTPlace var blk fun) (RTValue var blk fun) (RTProg var blk fun)
-  | Break blk (RTValue var blk fun)
+data RTProg typ var blk fun
+  = Decl Type (RTValue typ var blk fun) (RTProg typ (Bind () var) blk fun)
+  | Assign (RTPlace typ var blk fun) (RTValue typ var blk fun) (RTProg typ var blk fun)
+  | Break blk (RTValue typ var blk fun)
   | Continue blk
-  | ExprStmt (RTValue var blk fun) (Maybe (RTProg var blk fun))
+  | ExprStmt (RTValue typ var blk fun) (Maybe (RTProg typ var blk fun))
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
-data RTValue var blk fun
-  = RTArith ArithOp (RTValue var blk fun) (RTValue var blk fun)
-  | RTComp CompOp (RTValue var blk fun) (RTValue var blk fun)
-  | RTPrim Prim
-  | RTCond (RTValue var blk fun) (RTValue var blk fun) (RTValue var blk fun)
-  | Call fun [RTValue var blk fun]
-  | PlaceVal (RTPlace var blk fun)
-  | Block (RTProg var (Bind () blk) fun)
+data RTValue typ var blk fun
+  = RTArith ArithOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
+  | RTComp CompOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
+  | RTPrim Prim typ
+  | RTCond (RTValue typ var blk fun) (RTValue typ var blk fun) (RTValue typ var blk fun) typ
+  | Call fun [RTValue typ var blk fun] typ
+  | PlaceVal (RTPlace typ var blk fun) typ
+  | Block (RTProg typ var (Bind () blk) fun) typ
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
-data RTPlace var blk fun
-  = Place var
-  | Deref (RTValue var blk fun)
+data RTPlace typ var blk fun
+  = Place var typ
+  | Deref (RTValue typ var blk fun) typ
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
 data RTFunc fun = RTFunc
   { fnArgs :: [Type],
     fnRet :: Type,
-    fnBody :: RTValue (Bind Int Void) Void fun
+    fnBody :: RTValue Type (Bind Int Void) Void fun
   }
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
@@ -172,29 +172,30 @@ makeLenses ''EvalEnv
 class RTAST f where
   traverseAst ::
     Applicative m =>
+    (typ -> m typ') ->
     (var -> m var') ->
     (lbl -> m lbl') ->
     (fun -> m fun') ->
-    (f var lbl fun -> m (f var' lbl' fun'))
+    (f typ var lbl fun -> m (f typ' var' lbl' fun'))
 
 instance RTAST RTValue where
-  traverseAst fv fl ff = go
+  traverseAst ft fv fl ff = go
     where
-      go (RTArith op l r) = RTArith op <$> go l <*> go r
-      go (RTComp op l r) = RTComp op <$> go l <*> go r
-      go (Call fun args) = Call <$> ff fun <*> traverse go args
-      go (PlaceVal plc) = PlaceVal <$> traverseAst fv fl ff plc
-      go (Block blk) = Block <$> traverseAst fv (traverse fl) ff blk
-      go (RTCond cond true false) = RTCond <$> go cond <*> go true <*> go false
-      go (RTPrim p) = pure $ RTPrim p
+      go (RTArith op l r t) = RTArith op <$> go l <*> go r <*> ft t
+      go (RTComp op l r t) = RTComp op <$> go l <*> go r <*> ft t
+      go (Call fun args t) = Call <$> ff fun <*> traverse go args <*> ft t
+      go (PlaceVal plc t) = PlaceVal <$> traverseAst ft fv fl ff plc <*> ft t
+      go (Block blk t) = Block <$> traverseAst ft fv (traverse fl) ff blk <*> ft t
+      go (RTCond cond true false t) = RTCond <$> go cond <*> go true <*> go false <*> ft t
+      go (RTPrim p t) = RTPrim p <$> ft t
 
 instance RTAST RTPlace where
-  traverseAst fv _ _ (Place var) = Place <$> fv var
-  traverseAst fv fl ff (Deref val) = Deref <$> traverseAst fv fl ff val
+  traverseAst ft fv _ _ (Place var t) = Place <$> fv var <*> ft t
+  traverseAst ft fv fl ff (Deref val t) = Deref <$> traverseAst ft fv fl ff val <*> ft t
 
 instance RTAST RTProg where
-  traverseAst fv fl ff (Decl typ val k) = Decl typ <$> traverseAst fv fl ff val <*> traverseAst (traverse fv) fl ff k
-  traverseAst fv fl ff (Assign lhs rhs k) = Assign <$> traverseAst fv fl ff lhs <*> traverseAst fv fl ff rhs <*> traverseAst fv fl ff k
-  traverseAst fv fl ff (Break lbl val) = Break <$> fl lbl <*> traverseAst fv fl ff val
-  traverseAst fv fl ff (ExprStmt val k) = ExprStmt <$> traverseAst fv fl ff val <*> traverse (traverseAst fv fl ff) k
-  traverseAst _ fl _ (Continue lbl) = Continue <$> fl lbl
+  traverseAst ft fv fl ff (Decl typ val k) = Decl typ <$> traverseAst ft fv fl ff val <*> traverseAst ft (traverse fv) fl ff k
+  traverseAst ft fv fl ff (Assign lhs rhs k) = Assign <$> traverseAst ft fv fl ff lhs <*> traverseAst ft fv fl ff rhs <*> traverseAst ft fv fl ff k
+  traverseAst ft fv fl ff (Break lbl val) = Break <$> fl lbl <*> traverseAst ft fv fl ff val
+  traverseAst ft fv fl ff (ExprStmt val k) = ExprStmt <$> traverseAst ft fv fl ff val <*> traverse (traverseAst ft fv fl ff) k
+  traverseAst ft _ fl _ (Continue lbl) = Continue <$> fl lbl
