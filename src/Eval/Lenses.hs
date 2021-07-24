@@ -20,7 +20,7 @@ rtProg fv fl ff = go
     go (Assign lhs rhs k) = Assign <$> rtPlace fv fl ff lhs <*> rtValue fv fl ff rhs <*> go k
     go (Break lbl val) = Break <$> fl lbl <*> rtValue fv fl ff val
     go (Continue lbl) = Continue <$> fl lbl
-    go (ExprStmt val k) = ExprStmt <$> rtValue fv fl ff val <*> go k
+    go (ExprStmt val k) = ExprStmt <$> rtValue fv fl ff val <*> traverse go k
 
 rtValue ::
   Applicative m =>

@@ -52,17 +52,17 @@ rtTests =
     "rt"
     [ testGroup
         "trivial"
-        [ saFunc "break" "[] -> builtins.types.int { break 0; }",
-          saFunc "continue" "[] -> builtins.types.int { continue; }",
-          saFunc "empty break" "[] -> builtins.types.void { break; }",
+        [ saFunc "break" "[] -> builtins.types.int here@{ break here 0; }",
+          saFunc "continue" "[] -> builtins.types.int here@{ continue here; }",
+          saFunc "empty break" "[] -> builtins.types.void here@{ break here; }",
           saFunc "declaration" "with builtins.types; [] -> void { var i: int = 0; }",
           saFunc "assignment" "with builtins.types; [] -> void { var i: int = 0; i = 9; }",
           saFunc "expression statement" "with builtins.types; [] -> void { 3; builtins.void }",
           saFunc "assignment with lhs expression" "with builtins.types; [] -> void { var i: int = 0; (x: x) i = 9; }",
-          saFunc "with" "with builtins.types; [] -> int { break 0; }",
+          saFunc "with" "with builtins.types; [] -> int here@{ break here 0; }",
           saFunc "terminator expression" "[] -> builtins.types.int { 9 }",
           saFunc "bodyless function" "[] -> builtins.types.int 9",
-          saFunc "id 1" "with builtins.types; [x : int] -> int { break x; }",
+          saFunc "id 1" "with builtins.types; [x : int] -> int here@{ break here x; }",
           saFunc "id 2" "with builtins.types; [x : int] -> int { x }",
           saFunc "id 3" "with builtins.types; [x : int] -> int x",
           saFunc "bodyless function (void)" "[] -> builtins.types.void builtins.void",
@@ -77,11 +77,11 @@ rtTests =
             "conditionals can get eliminated at compile time"
             1
             [r| with builtins.types;
-                [] -> int {
+                [] -> int here@{
                   if true then {
-                    break ([] -> int 3)[];
+                    break here ([] -> int 3)[];
                   } else {
-                    break ([] -> int 4)[];
+                    break here ([] -> int 4)[];
                   };
                 }
             |],
@@ -89,33 +89,33 @@ rtTests =
             "conditionals sometimes don't get eliminated at comptime"
             2
             [r| with builtins.types;
-                [] -> int {
+                [] -> int here@{
                   var b : bool = true;
                   if b then {
-                    break ([] -> int 3)[];
+                    break here ([] -> int 3)[];
                   } else {
-                    break ([] -> int 4)[];
+                    break here ([] -> int 4)[];
                   };
                 }
             |]
         ],
       testGroup
         "recusion"
-        [ saFunc "simple infinite recursion" "self@[] -> builtins.types.int { break self []; }",
+        [ saFunc "simple infinite recursion" "self@[] -> builtins.types.int { self[] }",
           funcWithNDeps
             "mutual recursion"
             1
             [r| with builtins.types;
               top@[] -> int
-                let sub = [] -> int { break top[]; };
-                 in {break sub[];}
+                let sub = [] -> int { top[] };
+                 in { sub[] }
           |],
           funcWithNDeps
             "recursive case as argument"
             1
             [r| with builtins.types;
-              let f = rec: [] -> int { break rec[]; };
-               in self@[] -> int { break f self []; }
+              let f = rec: [] -> int { rec[] };
+               in self@[] -> int { f self [] }
           |]
         ],
       testGroup
@@ -125,12 +125,10 @@ rtTests =
             2
             [r| with builtins.types;
               let
-                a = [] -> int { c[] };
-                b = [] -> int { c[] };
-                c = [] -> int { 4 };
-              in [] -> int {
-                break a[] + b[];
-              }
+                a = [] -> int c[];
+                b = [] -> int c[];
+                c = [] -> int 4;
+              in [] -> int a[] + b[]
             |],
           funcWithNDeps
             "deduplication with bindings"
@@ -139,26 +137,33 @@ rtTests =
               let
                 a = [] -> int { var x: int = 4; x };
                 b = [] -> int { var x: int = 4; x };
-              in [] -> int {
-                break a[] + b[];
-              }
+              in [] -> int { a[] + b[] }
             |],
           funcWithNDeps
-            "semantic deduplication"
+            "deduplication behind names"
             1
             [r| with builtins.types;
                 let
                   a = [] -> int { var va: int = 4; va };
                   b = [] -> int { var vb: int = 4; vb };
-                in [] -> int {
-                  break a[] + b[];
-                }
+                in [] -> int { a[] + b[] }
+            |],
+          pending $
+            funcWithNDeps
+              "deduplication behind bodyless function"
+              2
+              [r| with builtins.types;
+              let
+                a = [] -> int  c[] ;
+                b = [] -> int { c[] };
+                c = [] -> int { 4 };
+              in [] -> int { a[] + b[] }
             |],
           funcWithNDeps
             "identical functions"
             2
             [r| with builtins.types;
-              let f = n: rec: [] -> int { break rec[] + n; };
+              let f = n: rec: [] -> int { rec[] + n };
                in self@[] -> int {
                  f 1 self [];
                  f 2 self [];
@@ -169,7 +174,7 @@ rtTests =
             "self-similar recursion"
             4
             [r| with builtins.types;
-              let f = rec: [] -> int { break rec[]; };
+              let f = rec: [] -> int { rec[] };
                in self@[] -> int {
                  self [];
                  f self [];
@@ -188,7 +193,7 @@ rtTests =
             [r| with builtins.types;
                 [] -> int lbl@{
                   var x : int = 4;
-                  break @lbl x;
+                  break lbl x;
                 }
             |],
           negative $
@@ -197,27 +202,19 @@ rtTests =
               [r| with builtins.types;
                   [] -> void lbl@{
                     var x : int = 4;
-                    break @lbl x;
+                    break lbl x;
                   }
               |],
+          negative $
+            saFunc
+              "labeled break as return (negative 2)"
+              "[] -> builtins.types.int lbl@{ break lbl; }",
           saFunc
             "label expression"
             [r| with builtins.types;
                 [] -> int lbl@{
                   var x : int = 4;
-                  break @((x: x) lbl) x;
-                }
-            |],
-          negative $
-            saFunc
-              "labeled break as return (negative 2)"
-              "[] -> builtins.types.int lbl@{ break @lbl; }",
-          saFunc
-            "break as return"
-            [r| with builtins.types;
-                [] -> int {
-                  var x: int = 4;
-                  break x;
+                  break ((x: x) lbl) x;
                 }
             |],
           negative $
@@ -226,19 +223,19 @@ rtTests =
               [r| with builtins.types;
                   [] -> void {
                     var x : int = 4;
-                    break x;
+                    x
                   }
               |],
           negative $
             saFunc
               "break as return (negative 2)"
-              "[] -> builtins.types.int { break; }",
+              "[] -> builtins.types.int lbl@{ break lbl; }",
           saFunc
             "nested break return"
             [r| with builtins.types;
                 [] -> int lbl@{ {
                   var x : int = 4;
-                  break @lbl x;
+                  break lbl x;
                 }; }
             |],
           saFunc
@@ -246,7 +243,7 @@ rtTests =
             [r| with builtins.types;
                 [] -> int lbl@{ {
                   var x : int = 4;
-                  break @lbl x;
+                  break lbl x;
                 } }
             |],
           negative $
@@ -255,7 +252,7 @@ rtTests =
               [r| with builtins.types;
                   [] -> void lbl@{ {
                     var x : int = 4;
-                    break @lbl x;
+                    break lbl x;
                   }; }
               |]
         ],
@@ -269,7 +266,7 @@ rtTests =
                   [] -> int {
                     var x: int = 4;
                     ( let y = x;
-                       in [] -> int { break y; }
+                       in [] -> int { y }
                     )[];
                   }
               |],
@@ -338,7 +335,7 @@ rtTests =
                 [] -> int {
                   var x: int = 4;
                   var z: bool = (x == 3);
-                  return 3;
+                  3
                 }
             |],
           negative $
@@ -442,7 +439,7 @@ rtTests =
               "unify types of blockExprs"
               [r| with builtins.types;
                   let
-                    zeroExpr = {var res: int = 0; break res;};
+                    zeroExpr = {var res: int = 0; res };
                   in [] -> int {
                     var a: int = zeroExpr; # this should succeed
                     var b: double = zeroExpr;
@@ -452,7 +449,7 @@ rtTests =
             "block types are not evaluated"
             [r| with builtins.types;
                 let
-                  zeroExpr = {var res = 0; break res;};
+                  zeroExpr = {var res = 0; res };
                 in [] -> int {
                   var a: int = zeroExpr;
                   var b: double = zeroExpr;
@@ -570,7 +567,7 @@ rtTests =
                 [] -> int {
                   var x: int = 3;
                     (cond: loop@{
-                      if cond then {break @loop;} else {dummy@{ x = x + 1; }; continue @loop;}; # TODO dummy
+                      if cond then {break loop;} else {dummy@{ x = x + 1; }; continue loop;}; # TODO dummy
                     }) {x < 3};
                 }
             |],
@@ -580,9 +577,9 @@ rtTests =
                 [] -> int {
                   var x: int = 3;
                   loop@{
-                    if {x < 3} then {break @loop;} else {
+                    if {x < 3} then {break loop;} else {
                       x = x + 1;
-                      continue @loop;
+                      continue loop;
                     };
                   };
                 }
@@ -591,7 +588,7 @@ rtTests =
             "while loop"
             [r| with builtins.types;
                 let while = cond: body: loop@{
-                      if cond then {break @loop;} else {body; continue @loop;};
+                      if cond then {break loop;} else {body; continue loop;};
                     };
                 in [] -> int {
                   var x: int = 3;

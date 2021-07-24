@@ -59,10 +59,10 @@ whnf (Run mlbl prog) = do
   blk <- freshBlock
   fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over rtProgLabels blk prog'))) $
     case mlbl of
-      Nothing -> compileBlock blk prog
+      Nothing -> compileBlock prog
       Just lbl -> do
         t <- refer (VBlk blk)
-        local (binds . at lbl ?~ t) (compileBlock blk prog)
+        local (binds . at lbl ?~ t) (compileBlock prog)
 whnf (BinExpr op a b) = do
   a' <- whnf a
   b' <- whnf b
@@ -171,10 +171,9 @@ compileFunc mlbl args ret body = do
         Just lbl -> local (binds . at lbl ?~ tnk) k
 
 compileBlock ::
-  BlockIX ->
   ProgE ->
   Comp (RTProg VarIX BlockIX (Either FuncIX Hash))
-compileBlock blk = go
+compileBlock = go
   where
     go (DeclE name typ val k) = do
       typ' <- lift (whnf typ) >>= ensureType
@@ -190,20 +189,14 @@ compileBlock blk = go
       rhs' <- lift (whnf rhs) >>= coerceRTValue
       k' <- go k
       pure $ Assign lhs' rhs' k'
-    go (BreakE mlbl mexpr) = do
-      lbl' <- case mlbl of
-        Nothing -> pure blk
-        Just lbl -> lift (whnf lbl) >>= ensureBlock
+    go (BreakE lbl mexpr) = do
+      lbl' <- lift (whnf lbl) >>= ensureBlock
       expr' <- case mexpr of
         Nothing -> pure $ RTPrim PVoid
         Just expr -> lift (whnf expr) >>= coerceRTValue
       pure $ Break lbl' expr'
-    go (ContinueE mlbl) = do
-      lbl' <- case mlbl of
-        Nothing -> pure blk
-        Just lbl -> lift (whnf lbl) >>= ensureBlock
-      pure $ Continue lbl'
+    go (ContinueE lbl) = fmap Continue $ lift (whnf lbl) >>= ensureBlock
     go (ExprE val k) = do
       val' <- lift (whnf val) >>= coerceRTValue
-      k' <- go k
+      k' <- traverse go k
       pure $ ExprStmt val' k'
