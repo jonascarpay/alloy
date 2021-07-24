@@ -6,6 +6,7 @@ module RTTests where
 
 import Control.Monad
 import Data.Either
+import Debug.Pretty.Simple
 import Debug.Trace
 import Eval.Types
 import Print
@@ -26,6 +27,7 @@ funcWithNDeps name exp prog = testCase name $ do
   let throw err = assertFailure $ unlines [err, show (printNF val)]
   case val of
     NF (VFunc (Deps close open) call) -> do
+      pTraceShowM open
       unless (isRight call) $ throw "unresolved temporary function id"
       unless (null open) $ throw "Function with dangling temporary functions"
       -- let calls = toListOf (traverse . funCalls) fn

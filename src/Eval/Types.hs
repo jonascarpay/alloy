@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Eval.Types where
 
@@ -15,9 +16,11 @@ import Data.ByteString (ByteString)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Hashable
+import Data.Hashable.Lifted
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Proxy
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Void
@@ -50,17 +53,25 @@ newtype NF = NF {unNF :: Value NF}
 newtype Hash = Hash Int
   deriving newtype (Eq, Show, Ord, Hashable)
 
-data TempFunc fun
-  = TempFunc
-      (RTFunc (Bind () fun))
-      (Map FuncIX (TempFunc (Bind () fun)))
-  deriving stock (Eq, Show, Ord, Generic, Functor, Foldable, Traversable)
+data CallGraph = CallGraph
+  { cgFunc :: FuncIX,
+    cgBody :: RTFunc (Either FuncIX Hash),
+    cgOpen :: Set FuncIX,
+    cgBind :: Set FuncIX,
+    cgDeps :: Set CallGraph
+  }
+  deriving stock (Show)
+
+data NamelessCG = NamelessCG
+
+instance Eq CallGraph where a == b = cgFunc a == cgFunc b
+
+instance Ord CallGraph where a `compare` b = cgFunc a `compare` cgFunc b
 
 data Deps = Deps
   { closedFuncs :: HashMap Hash (RTFunc Hash),
-    openFuncs :: Map FuncIX (TempFunc (Either FuncIX Hash))
+    openFuncs :: Set CallGraph
   }
-  deriving (Eq)
 
 instance Semigroup Deps where
   Deps ca oa <> Deps cb ob = Deps (ca <> cb) (oa <> ob)
@@ -103,8 +114,8 @@ instance Hashable Type where
 data Bind b a
   = Bound b
   | Free a
-  deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic)
-  deriving anyclass (Hashable)
+  deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic, Generic1)
+  deriving anyclass (Hashable, Hashable1)
 
 data RTProg var blk fun
   = Decl Type (RTValue var blk fun) (RTProg (Bind () var) blk fun)
@@ -112,8 +123,8 @@ data RTProg var blk fun
   | Break blk (RTValue var blk fun)
   | Continue blk
   | ExprStmt (RTValue var blk fun) (RTProg var blk fun)
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
-  deriving anyclass (Hashable)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
+  deriving anyclass (Hashable, Hashable1)
 
 data RTValue var blk fun
   = RTArith ArithOp (RTValue var blk fun) (RTValue var blk fun)
@@ -123,22 +134,22 @@ data RTValue var blk fun
   | Call fun [RTValue var blk fun]
   | PlaceVal (RTPlace var blk fun)
   | Block (RTProg var (Bind () blk) fun)
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
-  deriving anyclass (Hashable)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
+  deriving anyclass (Hashable, Hashable1)
 
 data RTPlace var blk fun
   = Place var
   | Deref (RTValue var blk fun)
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
-  deriving anyclass (Hashable)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
+  deriving anyclass (Hashable, Hashable1)
 
 data RTFunc fun = RTFunc
   { fnArgs :: [Type],
     fnRet :: Type,
     fnBody :: RTValue (Bind Int Void) Void fun
   }
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
-  deriving anyclass (Hashable)
+  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
+  deriving anyclass (Hashable, Hashable1)
 
 newtype EvalBase a = EvalBase {unEvalBase :: StateT Int (ExceptT String IO) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh)
