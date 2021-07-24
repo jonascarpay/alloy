@@ -16,7 +16,6 @@ import Data.Map qualified as M
 import Data.Set qualified as S
 import Eval.BinOp
 import Eval.Builtins (builtins)
-import Eval.Lenses
 import Eval.Lib
 import Eval.Types
 import Expr
@@ -57,7 +56,7 @@ whnf (Lam arg body) = do
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) = do
   blk <- freshBlock
-  fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over rtProgLabels blk prog'))) $
+  fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over labels blk prog'))) $
     case mlbl of
       Nothing -> compileBlock prog
       Just lbl -> do
@@ -147,10 +146,10 @@ compileFunc mlbl args ret body = do
       bindFunction fun $
         bindVars args' $
           lift (whnf body) >>= coerceRTValue
-  let scoped = abstractOver rtValVars (`elemIndex` (thd <$> args')) body'
+  let scoped = abstractOver vars (`elemIndex` (thd <$> args')) body'
   rtFunc <- do
-    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
-    closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
+    closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (vars . traverse) scoped
+    closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver labels closedVars
     pure $ RTFunc (snd3 <$> args') ret' closedBlks
   let cg = mkCallGraph fun rtFunc open
   pure $ case closeFunc cg of
@@ -182,7 +181,7 @@ compileBlock = go
         ix <- freshVar
         t <- refer (VRTPlace mempty $ Place ix)
         local (binds . at name ?~ t) $
-          abstract1Over rtProgVars ix <$> go k
+          abstract1Over vars ix <$> go k
       pure (Decl typ' val' k')
     go (AssignE lhs rhs k) = do
       lhs' <- lift (whnf lhs) >>= coerceRTPlace
