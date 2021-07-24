@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- TODO export list
 module Eval.Lib where
@@ -18,8 +19,12 @@ import Data.HashMap.Strict qualified as HM
 import Data.Hashable
 import Data.IORef
 import Data.List (sort)
+import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
+import Data.Proxy
+import Data.Set (Set)
+import Data.Set qualified as S
 import Data.Void
 import Data.Word (Word8)
 import Eval.Lenses
@@ -142,15 +147,34 @@ asRTPlace _ = Nothing
 coerceRTPlace :: WHNF -> Comp (RTPlace VarIX BlockIX (Either FuncIX Hash))
 coerceRTPlace plc = fromMaybe (throwError $ "Could not coerce " <> describeValue plc <> " into a runtime place expression") $ asRTPlace plc
 
-closeFunc :: TempFunc (Either FuncIX Hash) -> Maybe (HashMap Hash (RTFunc Hash), Hash)
-closeFunc temp = flattenTemp . fmap (either absurd id) <$> closedOver (traverse . _Left) temp
-
-hashTempFunc :: (Hashable a, Ord a) => TempFunc a -> Hash
-hashTempFunc (TempFunc fn deps) = Hash $ hash (fn, fmap hashTempFunc . sort $ M.elems deps)
-
-flattenTemp :: TempFunc Hash -> (HashMap Hash (RTFunc Hash), Hash)
-flattenTemp tree@(TempFunc fn deps) = (HM.singleton guid fn' <> transitive, guid)
+mkCallGraph :: FuncIX -> RTFunc (Either FuncIX Hash) -> Set CallGraph -> CallGraph
+mkCallGraph ix body deps = CallGraph ix body (S.difference open bind) bind deps
   where
-    guid = hashTempFunc tree
-    transitive = foldMap (fst . flattenTemp . instantiate1Over traverse guid) (M.elems deps)
-    fn' = instantiate1Over traverse guid fn
+    bind = S.insert ix $ foldMap cgBind deps
+    open = foldMap cgOpen deps <> S.fromList (body ^.. traverse . _Left)
+
+closeFunc :: CallGraph -> Maybe (HashMap Hash (RTFunc Hash), Hash)
+closeFunc cg
+  | S.null (cgOpen cg) = Nothing
+  | otherwise = undefined
+
+-- closeFunc temp = flattenTemp . fmap (either absurd id) <$> closedOver (traverse . _Left) temp
+
+hashCallGraph :: CallGraph -> Hash
+hashCallGraph = undefined
+
+-- flattenTemp ::
+--   Hash ->
+--   (f Hash -> HashMap Hash (RTFunc Hash)) ->
+--   (Funcs f Hash -> HashMap Hash (RTFunc Hash))
+-- flattenTemp _ f (FRoot fa) = f fa
+-- flattenTemp guid f (FCons rec) = flattenTemp _ _ $ rec'
+--   where
+--     guid' =
+--     rec' = instantiate1Over traverse guid rec
+
+-- flattenTemp tree@(TempFunc fn deps) = (HM.singleton guid fn' <> transitive, guid)
+--   where
+--     guid = hashTempFunc tree
+--     transitive = foldMap (fst . flattenTemp . instantiate1Over traverse guid) (M.elems deps)
+--     fn' = instantiate1Over traverse guid fn

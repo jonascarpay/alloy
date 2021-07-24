@@ -10,11 +10,10 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Foldable (toList)
-import Data.HashMap.Strict qualified as HM
-import Data.Hashable
 import Data.List (elemIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Set qualified as S
 import Eval.BinOp
 import Eval.Builtins (builtins)
 import Eval.Lenses
@@ -153,11 +152,9 @@ compileFunc mlbl args ret body = do
     closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (rtValVars . traverse) scoped
     closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver rtValLabels closedVars
     pure $ RTFunc (snd3 <$> args') ret' closedBlks
-  let rtFunc' = abstract1Over traverse (Left fun) rtFunc
-      open' = abstract1Over (traverse . traverse) (Left fun) open -- TODO traverse . traverse . _Left
-      temp' = TempFunc rtFunc' open'
-  pure $ case closeFunc temp' of
-    Nothing -> (Deps closed (M.singleton fun temp'), Left fun)
+  let cg = mkCallGraph fun rtFunc open
+  pure $ case closeFunc cg of
+    Nothing -> (Deps closed (S.singleton cg), Left fun)
     Just (closed', guid) -> (Deps (closed <> closed') mempty, Right guid)
   where
     thd (_, _, c) = c

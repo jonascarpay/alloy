@@ -34,7 +34,7 @@ common common-options
     , microlens-platform
     , mtl
     , parser-combinators
-    , prettyprinter
+    , pretty-simple
     , union-find
     , unordered-containers
     , vector
