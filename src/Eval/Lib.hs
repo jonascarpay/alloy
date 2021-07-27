@@ -31,11 +31,14 @@ import Lens.Micro.Platform hiding (ix)
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
-labels :: RTAST f => Traversal (f var lbl fun) (f var lbl' fun) lbl lbl'
-labels f = traverseAst pure f pure
+labels :: RTAST f => Traversal (f typ var lbl fun) (f typ var lbl' fun) lbl lbl'
+labels f = traverseAst pure pure f pure
 
-vars :: RTAST f => Traversal (f var lbl fun) (f var' lbl fun) var var'
-vars f = traverseAst f pure pure
+vars :: RTAST f => Traversal (f typ var lbl fun) (f typ var' lbl fun) var var'
+vars f = traverseAst pure f pure pure
+
+types :: RTAST f => Traversal (f typ var lbl fun) (f typ' var lbl fun) typ typ'
+types f = traverseAst f pure pure pure
 
 -- TODO Describe primitives in more detail
 describeValue :: Value f -> String
@@ -131,22 +134,22 @@ indexMaybe ps n
 {-# INLINE indexMaybe #-}
 
 {-# INLINE asRTValue #-}
-asRTValue :: WHNF -> Maybe (Comp (RTValue VarIX BlockIX (Either FuncIX Hash)))
+asRTValue :: WHNF -> Maybe (Comp (RTValue () VarIX BlockIX (Either FuncIX Hash)))
 asRTValue (VRTValue deps val) = Just $ val <$ tell deps
-asRTValue (VRTPlace deps plc) = Just $ PlaceVal plc <$ tell deps
-asRTValue (VPrim prim) = Just $ pure $ RTPrim prim
+asRTValue (VRTPlace deps plc) = Just $ PlaceVal plc () <$ tell deps
+asRTValue (VPrim prim) = Just $ pure $ RTPrim prim ()
 asRTValue _ = Nothing
 
-coerceRTValue :: WHNF -> Comp (RTValue VarIX BlockIX (Either FuncIX Hash))
+coerceRTValue :: WHNF -> Comp (RTValue () VarIX BlockIX (Either FuncIX Hash))
 coerceRTValue val = fromMaybe (throwError $ "Could not coerce " <> describeValue val <> " into a runtime value") $ asRTValue val
 
 {-# INLINE asRTPlace #-}
 -- TODO do we allow changing PlaceVal back into Place?
-asRTPlace :: WHNF -> Maybe (Comp (RTPlace VarIX BlockIX (Either FuncIX Hash)))
+asRTPlace :: WHNF -> Maybe (Comp (RTPlace () VarIX BlockIX (Either FuncIX Hash)))
 asRTPlace (VRTPlace deps plc) = Just $ plc <$ tell deps
 asRTPlace _ = Nothing
 
-coerceRTPlace :: WHNF -> Comp (RTPlace VarIX BlockIX (Either FuncIX Hash))
+coerceRTPlace :: WHNF -> Comp (RTPlace () VarIX BlockIX (Either FuncIX Hash))
 coerceRTPlace plc = fromMaybe (throwError $ "Could not coerce " <> describeValue plc <> " into a runtime place expression") $ asRTPlace plc
 
 mkCallGraph :: FuncIX -> RTFunc (Either FuncIX Hash) -> Set CallGraph -> CallGraph

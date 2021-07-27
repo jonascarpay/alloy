@@ -17,6 +17,7 @@ import Data.Set qualified as S
 import Eval.BinOp
 import Eval.Builtins (builtins)
 import Eval.Lib
+import Eval.Typecheck
 import Eval.Types
 import Expr
 import Lens.Micro.Platform hiding (ix)
@@ -47,7 +48,7 @@ whnf (App f x) =
           tell deps
           args' <- forM (toList args) $ \arg ->
             (lift . lift) (force arg) >>= coerceRTValue
-          pure $ Call func args'
+          pure $ Call func args' ()
         val -> throwError $ "Calling a runtime function with " <> describeValue val <> " as an argument instead of a list"
     val -> throwError $ "Applying a value to " <> describeValue val
 whnf (Lam arg body) = do
@@ -56,7 +57,7 @@ whnf (Lam arg body) = do
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) = do
   blk <- freshBlock
-  fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over labels blk prog'))) $
+  fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over labels blk prog') ())) $
     case mlbl of
       Nothing -> compileBlock prog
       Just lbl -> do
@@ -90,7 +91,7 @@ whnf (Cond cond true false) =
       cond' <- coerceRTValue val
       true' <- lift (whnf true) >>= coerceRTValue
       false' <- lift (whnf false) >>= coerceRTValue
-      pure $ RTCond cond' true' false'
+      pure $ RTCond cond' true' false' ()
 whnf (String str) = pure $ VString str
 whnf (List l) = VList <$> traverse (whnf >=> refer) l
 
@@ -141,7 +142,7 @@ compileFunc mlbl args ret body = do
     ix <- freshVar
     pure (name, typ, ix)
   fun <- freshFunc
-  (body', Deps closed open) <-
+  (body', deps@(Deps closed open)) <-
     runWriterT $
       bindFunction fun $
         bindVars args' $
@@ -150,7 +151,8 @@ compileFunc mlbl args ret body = do
   rtFunc <- do
     closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (vars . traverse) scoped
     closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver labels closedVars
-    pure $ RTFunc (snd3 <$> args') ret' closedBlks
+    typeChecked <- liftEither $ typeCheck closedBlks deps
+    pure $ RTFunc (snd3 <$> args') ret' typeChecked
   let cg = mkCallGraph fun rtFunc open
   pure $ case closeFunc cg of
     Nothing -> (Deps closed (S.singleton cg), Left fun)
@@ -160,7 +162,7 @@ compileFunc mlbl args ret body = do
     snd3 (_, b, _) = b
     bindVars :: [(Name, Type, VarIX)] -> Comp a -> Comp a
     bindVars argIxs m = do
-      argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix)
+      argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix ())
       local (binds %~ mappend (M.fromList argThunks)) m
     bindFunction :: FuncIX -> Comp a -> Comp a
     bindFunction fun k = do
@@ -171,7 +173,7 @@ compileFunc mlbl args ret body = do
 
 compileBlock ::
   ProgE ->
-  Comp (RTProg VarIX BlockIX (Either FuncIX Hash))
+  Comp (RTProg () VarIX BlockIX (Either FuncIX Hash))
 compileBlock = go
   where
     go (DeclE name typ val k) = do
@@ -179,7 +181,7 @@ compileBlock = go
       val' <- lift (whnf val) >>= coerceRTValue
       k' <- do
         ix <- freshVar
-        t <- refer (VRTPlace mempty $ Place ix)
+        t <- refer (VRTPlace mempty $ Place ix ())
         local (binds . at name ?~ t) $
           abstract1Over vars ix <$> go k
       pure (Decl typ' val' k')
@@ -191,7 +193,7 @@ compileBlock = go
     go (BreakE lbl mexpr) = do
       lbl' <- lift (whnf lbl) >>= ensureBlock
       expr' <- case mexpr of
-        Nothing -> pure $ RTPrim PVoid
+        Nothing -> pure $ RTPrim PVoid ()
         Just expr -> lift (whnf expr) >>= coerceRTValue
       pure $ Break lbl' expr'
     go (ContinueE lbl) = fmap Continue $ lift (whnf lbl) >>= ensureBlock
