@@ -54,6 +54,7 @@ library
     Eval.BinOp
     Eval.Builtins
     Eval.Lib
+    Eval.Typecheck
     Eval.Types
     Expr
     Parser.Lexer

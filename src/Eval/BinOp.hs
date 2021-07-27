@@ -17,11 +17,11 @@ compOp Geq = (>=)
 
 rtBinOp ::
   BinOp ->
-  RTValue var blk fun ->
-  RTValue var blk fun ->
-  Comp (RTValue var blk fun)
-rtBinOp (ArithOp op) l r = pure $ RTArith op l r
-rtBinOp (CompOp op) l r = pure $ RTComp op l r
+  RTValue () var blk fun ->
+  RTValue () var blk fun ->
+  Comp (RTValue () var blk fun)
+rtBinOp (ArithOp op) l r = pure $ RTArith op l r ()
+rtBinOp (CompOp op) l r = pure $ RTComp op l r ()
 
 binPrim :: BinOp -> Prim -> Prim -> Eval WHNF
 binPrim op (PInt a) (PInt b) = VPrim <$> binInt op a b
