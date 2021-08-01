@@ -69,8 +69,8 @@ instance Eq CallGraph where a == b = cgFunc a == cgFunc b
 instance Ord CallGraph where a `compare` b = cgFunc a `compare` cgFunc b
 
 data Deps = Deps
-  { closedFuncs :: HashMap Hash (RTFunc Hash),
-    openFuncs :: Set CallGraph
+  { _closedFuncs :: HashMap Hash (RTFunc Hash),
+    _openFuncs :: Set CallGraph
   }
 
 instance Semigroup Deps where
@@ -126,6 +126,7 @@ data RTProg typ var blk fun
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
+-- TODO Name is misleading. Makes sense in contrast to place, but is an epxression more than a value
 data RTValue typ var blk fun
   = RTArith ArithOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
   | RTComp CompOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
@@ -168,6 +169,7 @@ type Comp = WriterT Deps Eval
 newtype EvalEnv = EvalEnv {_binds :: Map Name Thunk} -- TODO Just `type`?
 
 makeLenses ''EvalEnv
+makeLenses ''Deps
 
 class RTAST f where
   traverseAst ::
@@ -198,4 +200,4 @@ instance RTAST RTProg where
   traverseAst ft fv fl ff (Assign lhs rhs k) = Assign <$> traverseAst ft fv fl ff lhs <*> traverseAst ft fv fl ff rhs <*> traverseAst ft fv fl ff k
   traverseAst ft fv fl ff (Break lbl val) = Break <$> fl lbl <*> traverseAst ft fv fl ff val
   traverseAst ft fv fl ff (ExprStmt val k) = ExprStmt <$> traverseAst ft fv fl ff val <*> traverse (traverseAst ft fv fl ff) k
-  traverseAst ft _ fl _ (Continue lbl) = Continue <$> fl lbl
+  traverseAst _ _ fl _ (Continue lbl) = Continue <$> fl lbl

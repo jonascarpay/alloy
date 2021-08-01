@@ -147,19 +147,18 @@ compileFunc mlbl args ret body = do
       bindFunction fun $
         bindVars args' $
           lift (whnf body) >>= coerceRTValue
-  let scoped = abstractOver vars (`elemIndex` (thd <$> args')) body'
+  let scoped = abstractOver vars (`elemIndex` (view _3 <$> args')) body'
+      argTypes = view _2 <$> args'
   rtFunc <- do
     closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (vars . traverse) scoped
     closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver labels closedVars
-    typeChecked <- liftEither $ typeCheck closedBlks deps
-    pure $ RTFunc (snd3 <$> args') ret' typeChecked
+    typeChecked <- liftEither $ typeCheck closedBlks argTypes ret' deps
+    pure $ RTFunc argTypes ret' (typeChecked & over types fst)
   let cg = mkCallGraph fun rtFunc open
   pure $ case closeFunc cg of
     Nothing -> (Deps closed (S.singleton cg), Left fun)
     Just (guid, closed') -> (Deps (closed <> closed') mempty, Right guid)
   where
-    thd (_, _, c) = c
-    snd3 (_, b, _) = b
     bindVars :: [(Name, Type, VarIX)] -> Comp a -> Comp a
     bindVars argIxs m = do
       argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix ())

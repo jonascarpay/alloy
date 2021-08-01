@@ -1,8 +1,21 @@
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+-- TODO
+-- vars have the type of the underlying variable. Maybe this should be a Ref
+-- type, and automatically deref?  Also relates to linearity
+
 module Eval.Typecheck (typeCheck) where
 
+import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.ST
+import Data.Set (Set)
+import Data.Set qualified as S
+import Data.UnionFind.ST qualified as UF
 import Data.Void
-import Eval.Lib
+import Eval.Lib (labels, types, vars)
 import Eval.Types
 import Lens.Micro.Platform
 
@@ -19,10 +32,130 @@ placeType :: RTPlace typ var lbl fun -> typ
 placeType (Place _ t) = t
 placeType (Deref _ t) = t
 
-type Check = ReaderT Deps (Either String)
+-- TypeVar s changes a lot, but Deps never changes, so we put them at different points in the stack
+type Check s = ReaderT Deps (ExceptT String (ST s))
+
+runCheck :: Deps -> (forall s. Check s a) -> Either String a
+runCheck deps m = runST $ runExceptT $ runReaderT m deps
+
+newtype TypeVar s = TypeVar (UF.Point s (Set Type))
+
+liftST :: ST s a -> Check s a
+liftST = lift . lift
+
+fresh :: Check s (TypeVar s)
+fresh = liftST $ TypeVar <$> UF.fresh mempty
+
+freshAt :: Type -> Check s (TypeVar s)
+freshAt typ = do
+  var <- fresh
+  judge var typ
+  pure var
+
+unify :: TypeVar s -> TypeVar s -> Check s ()
+unify (TypeVar a) (TypeVar b) = liftST $ UF.union' a b (\sa sb -> pure (sa <> sb))
+
+judge :: TypeVar s -> Type -> Check s ()
+judge (TypeVar a) typ = liftST $ UF.modifyDescriptor a (S.insert typ)
+
+resolve :: Typed s a -> Check s (Type, a)
+resolve (Typed a (TypeVar v)) = do
+  typ <- liftST $ UF.descriptor v
+  case S.toList typ of
+    [] -> throwError "Ambiguous"
+    [t] -> pure (t, a)
+    ts -> throwError $ "Mismatch: " <> show ts
+
+type Sig = ([Type], Type)
+
+functionSig :: RTFunc a -> Sig
+functionSig (RTFunc args ret _) = (args, ret)
+
+lookupSig :: Either FuncIX Hash -> Check s Sig
+lookupSig (Right hash) = view (closedFuncs . at hash) >>= maybe (throwError "Impossible") (pure . functionSig)
+lookupSig (Left ix) = view openFuncs >>= either pure (const $ throwError "Impossible") . find
+  where
+    find :: Set CallGraph -> Either Sig ()
+    find s = forM_ (S.toList s) $ \(CallGraph this body _ binds deps) -> do
+      when (this == ix) $ Left (functionSig body)
+      when (S.member ix binds) $ find deps
+
+data Typed s a = Typed a (TypeVar s)
+  deriving (Functor)
 
 typeCheck ::
-  RTValue () (Bind Int Void) Void (Either FuncIX Hash) ->
+  RTValue a (Bind Int Void) Void (Either FuncIX Hash) ->
+  [Type] ->
+  Type ->
   Deps ->
-  Either String (RTValue Type (Bind Int Void) Void (Either FuncIX Hash))
-typeCheck body = runReaderT (pure $ body & types .~ TInt)
+  Either String (RTValue (Type, a) (Bind Int Void) Void (Either FuncIX Hash))
+typeCheck body args ret deps =
+  runCheck deps $ do
+    ctx <- freshAt ret
+    -- TODO somehow check _once_ that the length of argument list is correct, and then reuse proof
+    let instantiateArg :: Bind Int Void -> Check s (Typed s (Bind Int Void))
+        instantiateArg (Free v) = absurd v
+        instantiateArg (Bound argIx) = case args ^? ix argIx of
+          Just typ -> Typed (Bound argIx) <$> freshAt typ
+          Nothing -> throwError "Impossible"
+    body' <- vars instantiateArg $ over labels absurd body
+    body'' <- checkValue ctx body'
+    types resolve body''
+
+-- TODO
+-- like other placees, this should be renamed to something more expr-y
+checkValue ::
+  forall a s var blk fun.
+  TypeVar s ->
+  RTValue a (Typed s var) (Typed s blk) fun ->
+  Check s (RTValue (Typed s a) var blk fun)
+checkValue ctx (Block blk a) = do
+  let instantiateLabel :: Bind () (Typed s blk) -> Typed s (Bind () blk)
+      instantiateLabel (Bound ()) = Typed (Bound ()) ctx
+      instantiateLabel (Free t) = Free <$> t
+  blk' <- checkProg ctx (over labels instantiateLabel blk)
+  pure (Block blk' (Typed a ctx))
+checkValue ctx (PlaceVal plc a) = do
+  plc' <- checkPlace ctx plc
+  pure $ PlaceVal plc' (Typed a ctx)
+checkValue _ _ = error "todo: checkValue"
+
+checkPlace ::
+  TypeVar s ->
+  RTPlace a (Typed s var) (Typed s blk) fun ->
+  Check s (RTPlace (Typed s a) var blk fun)
+checkPlace _ = error "todo: checkPlace"
+
+-- TODO
+-- Break always takes a label but ExprStmt still allows breaking to an implicit
+-- labe.  A terminating ExprStmt should be replaced by a (labeled) break for
+-- consistency, which would remove the need for the block context type variable to be
+-- passed around.
+checkProg ::
+  forall a s var blk fun.
+  TypeVar s ->
+  RTProg a (Typed s var) (Typed s blk) fun ->
+  Check s (RTProg (Typed s a) var blk fun)
+checkProg blk (Decl typ val k) = do
+  ctx <- freshAt typ
+  val' <- checkValue ctx val
+  let instantiateVar :: Bind () (Typed s var) -> Typed s (Bind () var)
+      instantiateVar (Bound ()) = Typed (Bound ()) ctx
+      instantiateVar (Free t) = Free <$> t
+  k' <- checkProg blk $ over vars instantiateVar k
+  pure $ Decl typ val' k'
+checkProg blk (Assign lhs rhs k) = do
+  var <- fresh
+  lhs' <- checkPlace var lhs
+  rhs' <- checkValue var rhs
+  k' <- checkProg blk k
+  pure $ Assign lhs' rhs' k'
+checkProg _ (Break (Typed lbl var) val) = Break lbl <$> checkValue var val
+checkProg _ (Continue (Typed lbl _)) = pure $ Continue lbl
+checkProg blk (ExprStmt val Nothing) = do
+  val' <- checkValue blk val
+  pure $ ExprStmt val' Nothing
+checkProg blk (ExprStmt val (Just k)) = do
+  var <- fresh
+  val' <- checkValue blk val
+  ExprStmt val' . Just <$> checkProg blk k
