@@ -282,88 +282,90 @@ rtTests =
                 }
             |]
         ],
-      focus $
-        testGroup
-          "types"
-          [ negative $
-              saFunc
-                "simple declaration type mismatch"
-                [r| with builtins.types;
+      testGroup
+        "types"
+        [ negative $
+            saFunc
+              "simple declaration type mismatch"
+              [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var z: double = x;
                   }
               |],
-            negative $
-              saFunc
-                "simple assignment type mismatch"
-                [r| with builtins.types;
+          negative $
+            saFunc
+              "simple assignment type mismatch"
+              [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var z: double = 4;
                     z = x;
                   }
               |],
-            negative $
-              saFunc
-                "comparator arithop maintains type (negative)"
-                [r| with builtins.types;
+          negative $
+            saFunc
+              "comparator arithop maintains type (negative)"
+              [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var z: bool = x + 3;
                   }
               |],
-            saFunc
-              "comparator binop resolves to bool"
-              [r| with builtins.types;
+          saFunc
+            "comparator binop resolves to bool"
+            [r| with builtins.types;
                 [] -> int {
                   var x: int = 4;
                   var z: bool = (x == 3);
                   3
                 }
             |],
-            saFunc
-              "branches of conditional must match"
-              [r| with builtins.types;
-                [] -> int {
+          saFunc
+            "branches of conditional must match"
+            [r| with builtins.types;
+                [] -> void {
                   var x: int = 4;
                   var y: int = 4;
-                  var z = if true then x else y;
+                  var z = if {true} then x else y;
                 }
             |],
-            negative $
-              saFunc
-                "branches of conditional must match (negative)"
-                [r| with builtins.types;
-                  [] -> int {
+          negative $
+            saFunc
+              "branches of conditional must match (negative)"
+              [r| with builtins.types;
+                  [] -> coid {
                     var x: int = 4;
                     var y: double = 4;
-                    var z = if true then x else y;
+                    var z = if {true} then x else y;
                   }
               |],
-            saFunc
-              "conditional must be bool"
-              [r| with builtins.types;
-                [] -> int {
+          saFunc
+            "conditional must be bool"
+            [r| with builtins.types;
+                [] -> void {
                   var x: int = 4;
                   var y: bool = true;
                   var z = if y then x else x;
+                  9
                 }
             |],
-            negative $
-              saFunc
-                "conditional must be bool (negative)"
-                [r| with builtins.types;
-                  [] -> int {
+          negative $
+            saFunc
+              "conditional must be bool (negative)"
+              [r| with builtins.types;
+                  [] -> void {
                     var x: int = 4;
                     var y: int = 4;
                     var z = if y then x else x;
                   }
               |],
+          pending $
             expectFailBecause "Cannot construct void for nums" $
               saFunc
                 "numerical void"
-                "with builtins.types; [] -> void { return 0; }",
+                "with builtins.types; [] -> void { 0 }",
+          pending $
             saFunc
               "struct field type inference"
               [r| with builtins.types;
@@ -373,60 +375,60 @@ rtTests =
                   var x: v = {x: {0}};
                 }
             |],
-            negative $
-              funcWithNDeps
-                "function return type unification"
-                1
-                [r| with builtins.types;
-                  let f = [] -> int { return 3; };
-                  in [] -> int { var o: void = f[]; }
+          negative $
+            funcWithNDeps
+              "function return type unification"
+              1
+              [r| with builtins.types;
+                  let f = [] -> int { 3 };
+                  in [] -> void { var o: void = f[]; }
               |],
-            negative $
-              saFunc
-                "unify types of blockExprs"
-                [r| with builtins.types;
+          negative $
+            saFunc
+              "unify types of blockExprs"
+              [r| with builtins.types;
                   [] -> int {
                     var b: double = {var res: int = 0; res};
                   }
               |],
-            negative $
-              saFunc
-                "unify types of blockExprs"
-                [r| with builtins.types;
+          negative $
+            saFunc
+              "unify types of blockExprs"
+              [r| with builtins.types;
                   let
                     zeroExpr = {var res: int = 0; res };
-                  in [] -> int {
+                  in [] -> void {
                     var a: int = zeroExpr; # this should succeed
                     var b: double = zeroExpr;
                   }
               |],
-            saFunc
-              "block types are not evaluated"
-              [r| with builtins.types;
+          saFunc
+            "block types are polymorphic"
+            [r| with builtins.types;
                 let
                   zeroExpr = {var res = 0; res };
-                in [] -> int {
+                in [] -> void {
                   var a: int = zeroExpr;
                   var b: double = zeroExpr;
                 }
             |],
-            saFunc
-              "closure type propagation"
-              [r| with builtins.types;
-                [] -> int {
+          saFunc
+            "closure type propagation"
+            [r| with builtins.types;
+                [] -> void {
                   var a: bool = true;
                   var x: int = (c: {if c then 3 else 4}) a;
                 }|],
-            negative $
-              saFunc
-                "closure type propagation (negative)"
-                [r| with builtins.types;
+          negative $
+            saFunc
+              "closure type propagation (negative)"
+              [r| with builtins.types;
                   [] -> int {
                     var a: int = 3;
                     var x: int = (c: {if c then 3 else 4}) a;
                   }
               |]
-          ],
+        ],
       testGroup
         "structs"
         [ saFunc
@@ -499,7 +501,7 @@ rtTests =
         [ saFunc
             "half-inlined while loop"
             [r| with builtins.types;
-                [] -> int {
+                [] -> void {
                   var x: int = 3;
                     (cond: loop@{
                       if cond then {break loop;} else {dummy@{ x = x + 1; }; continue loop;}; # TODO dummy
@@ -509,7 +511,7 @@ rtTests =
           saFunc
             "inline while loop"
             [r| with builtins.types;
-                [] -> int {
+                [] -> void {
                   var x: int = 3;
                   loop@{
                     if {x < 3} then {break loop;} else {
@@ -525,7 +527,7 @@ rtTests =
                 let while = cond: body: loop@{
                       if cond then {break loop;} else {body; continue loop;};
                     };
-                in [] -> int {
+                in [] -> void {
                   var x: int = 3;
                   while {x < 3} dummy@{ # TODO dummy
                     x = x + 1;
