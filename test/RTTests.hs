@@ -236,7 +236,7 @@ rtTests =
                 [] -> int lbl@{ {
                   var x : int = 4;
                   break lbl x;
-                }; }
+                } }
             |],
           saFunc
             "nested break return"
