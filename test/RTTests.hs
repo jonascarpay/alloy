@@ -282,162 +282,117 @@ rtTests =
                 }
             |]
         ],
-      testGroup
-        "types"
-        [ negative $
-            saFunc
-              "simple declaration type mismatch"
-              [r| with builtins.types;
+      focus $
+        testGroup
+          "types"
+          [ negative $
+              saFunc
+                "simple declaration type mismatch"
+                [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var z: double = x;
                   }
               |],
-          negative $
-            saFunc
-              "simple assignment type mismatch"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "simple assignment type mismatch"
+                [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var z: double = 4;
                     z = x;
                   }
               |],
-          saFunc
-            "typeOf forward expression"
-            [r| with builtins.types;
-                [] -> int {
-                  var x = 4;
-                  var y: builtins.typeOf x = x;
-                  return x;
-                }
-            |],
-          saFunc
-            "comparator arithop maintains type"
-            [r| with builtins.types;
-                [] -> int {
-                  var x: int = 4;
-                  var z: builtins.typeOf x = x + 3;
-                }
-            |],
-          negative $
-            saFunc
-              "comparator arithop maintains type (negative)"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "comparator arithop maintains type (negative)"
+                [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var z: bool = x + 3;
                   }
               |],
-          saFunc
-            "comparator binop resolves to bool"
-            [r| with builtins.types;
+            saFunc
+              "comparator binop resolves to bool"
+              [r| with builtins.types;
                 [] -> int {
                   var x: int = 4;
                   var z: bool = (x == 3);
                   3
                 }
             |],
-          negative $
             saFunc
-              "comparator binop resolves to bool (negative)"
+              "branches of conditional must match"
               [r| with builtins.types;
-                  [] -> int {
-                    var x: int = 4;
-                    var z: builtins.typeOf x = (x == 3);
-                  }
-              |],
-          saFunc
-            "branches of conditional must match"
-            [r| with builtins.types;
                 [] -> int {
                   var x: int = 4;
                   var y: int = 4;
                   var z = if true then x else y;
                 }
             |],
-          negative $
-            saFunc
-              "branches of conditional must match (negative)"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "branches of conditional must match (negative)"
+                [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var y: double = 4;
                     var z = if true then x else y;
                   }
               |],
-          saFunc
-            "conditional must be bool"
-            [r| with builtins.types;
+            saFunc
+              "conditional must be bool"
+              [r| with builtins.types;
                 [] -> int {
                   var x: int = 4;
                   var y: bool = true;
                   var z = if y then x else x;
                 }
             |],
-          negative $
-            saFunc
-              "conditional must be bool (negative)"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "conditional must be bool (negative)"
+                [r| with builtins.types;
                   [] -> int {
                     var x: int = 4;
                     var y: int = 4;
                     var z = if y then x else x;
                   }
               |],
-          funcWithNDeps
-            "argument parallel type inference"
-            1
-            [r| with builtins; with types;
-                let id = t: [a: t] -> t { return a; };
-                in [] -> void {
-                  var y = 1;
-                  var x: typeOf y = id int [y];
-                }
-            |],
-          funcWithNDeps
-            "argument parallel type inference"
-            1
-            [r| with builtins; with types;
-                let id = t: [a: t] -> t { return a; };
-                in [] -> void {
-                  var y = 1;
-                  var x: typeOf y = id int [{y + 2}];
-                }
-            |],
-          expectFailBecause "Cannot construct void for nums" $
+            expectFailBecause "Cannot construct void for nums" $
+              saFunc
+                "numerical void"
+                "with builtins.types; [] -> void { return 0; }",
             saFunc
-              "numerical void"
-              "with builtins.types; [] -> void { return 0; }",
-          saFunc
-            "struct field type inference"
-            [r| with builtins.types;
+              "struct field type inference"
+              [r| with builtins.types;
                 let
                   v = builtins.struct {x: int};
                 in [] -> void {
                   var x: v = {x: {0}};
                 }
             |],
-          negative $
-            funcWithNDeps
-              "function return type unification"
-              1
-              [r| with builtins.types;
+            negative $
+              funcWithNDeps
+                "function return type unification"
+                1
+                [r| with builtins.types;
                   let f = [] -> int { return 3; };
                   in [] -> int { var o: void = f[]; }
               |],
-          negative $
-            saFunc
-              "unify types of blockExprs"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "unify types of blockExprs"
+                [r| with builtins.types;
                   [] -> int {
                     var b: double = {var res: int = 0; res};
                   }
               |],
-          negative $
-            saFunc
-              "unify types of blockExprs"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "unify types of blockExprs"
+                [r| with builtins.types;
                   let
                     zeroExpr = {var res: int = 0; res };
                   in [] -> int {
@@ -445,9 +400,9 @@ rtTests =
                     var b: double = zeroExpr;
                   }
               |],
-          saFunc
-            "block types are not evaluated"
-            [r| with builtins.types;
+            saFunc
+              "block types are not evaluated"
+              [r| with builtins.types;
                 let
                   zeroExpr = {var res = 0; res };
                 in [] -> int {
@@ -455,43 +410,23 @@ rtTests =
                   var b: double = zeroExpr;
                 }
             |],
-          saFunc
-            "closure type propagation"
-            [r| with builtins.types;
+            saFunc
+              "closure type propagation"
+              [r| with builtins.types;
                 [] -> int {
                   var a: bool = true;
                   var x: int = (c: {if c then 3 else 4}) a;
                 }|],
-          negative $
-            saFunc
-              "closure type propagation (negative)"
-              [r| with builtins.types;
+            negative $
+              saFunc
+                "closure type propagation (negative)"
+                [r| with builtins.types;
                   [] -> int {
                     var a: int = 3;
                     var x: int = (c: {if c then 3 else 4}) a;
                   }
-              |],
-          saFunc
-            "weird matchType bug (with annotation)"
-            [r| with builtins; with types;
-                [] -> int {
-                  var x : int = 12;
-                  var z
-                    : matchType { int: builtins.types.int } (typeOf x)
-                    = 234;
-                  return x;
-                } |],
-          saFunc
-            "weird matchType bug (without annotation)"
-            [r| with builtins; with types;
-                [] -> int {
-                  var x = 12;
-                  var z
-                    : matchType { int: builtins.types.int } (typeOf x)
-                    = 234;
-                  return x;
-                } |]
-        ],
+              |]
+          ],
       testGroup
         "structs"
         [ saFunc
