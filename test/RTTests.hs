@@ -82,7 +82,7 @@ rtTests =
                     break here ([] -> int 3)[];
                   } else {
                     break here ([] -> int 4)[];
-                  };
+                  }
                 }
             |],
           funcWithNDeps
@@ -95,7 +95,7 @@ rtTests =
                     break here ([] -> int 3)[];
                   } else {
                     break here ([] -> int 4)[];
-                  };
+                  }
                 }
             |]
         ],
