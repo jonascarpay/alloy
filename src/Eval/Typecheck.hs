@@ -78,8 +78,9 @@ functionSig (RTFunc args ret _) = (args, ret)
 
 lookupSig :: Either FuncIX Hash -> Check s Sig
 lookupSig (Right hash) = view (closedFuncs . at hash) >>= maybe (throwError "Impossible") (pure . functionSig)
-lookupSig (Left ix) = view openFuncs >>= either pure (const $ throwError "Impossible") . find
+lookupSig (Left ix) = view openFuncs >>= either pure (const err) . find
   where
+    err = view openFuncs >>= \cg -> throwError (unwords ["Impossible -- Could not find ix", show ix, "in call graph", show cg])
     find :: Set CallGraph -> Either Sig ()
     find s = forM_ (S.toList s) $ \(CallGraph this body _ binds deps) -> do
       when (this == ix) $ Left (functionSig body)
