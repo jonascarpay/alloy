@@ -277,8 +277,8 @@ rtTests =
                 with types;
                 [] -> int {
                   var x = 3;
-                  var y = ([x: int] -> int { return x; })[x];
-                  return x;
+                  var y = ([x: int] -> int { x })[x];
+                  x
                 }
             |]
         ],

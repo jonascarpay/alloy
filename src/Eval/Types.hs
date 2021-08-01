@@ -118,8 +118,10 @@ data Bind b a
   deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
+-- TODO The (Maybe Type) field in Decl doesn't make sense after type checking, maybe make it
+-- variable that becomes () after TC
 data RTProg typ var blk fun
-  = Decl Type (RTValue typ var blk fun) (RTProg typ (Bind () var) blk fun)
+  = Decl (Maybe Type) (RTValue typ var blk fun) (RTProg typ (Bind () var) blk fun)
   | Assign (RTPlace typ var blk fun) (RTValue typ var blk fun) (RTProg typ var blk fun)
   | Break blk (RTValue typ var blk fun)
   | Continue blk
