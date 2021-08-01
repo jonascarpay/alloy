@@ -6,6 +6,10 @@
 -- vars have the type of the underlying variable. Maybe this should be a Ref
 -- type, and automatically deref?  Also relates to linearity
 
+-- TODO
+-- Once there are proper function types, we can treat `fun` the same as `var`
+-- and `blk`
+
 module Eval.Typecheck (typeCheck) where
 
 import Control.Monad.Except
@@ -17,6 +21,7 @@ import Data.UnionFind.ST qualified as UF
 import Data.Void
 import Eval.Lib (labels, types, vars)
 import Eval.Types
+import Expr
 import Lens.Micro.Platform
 
 valueType :: RTValue typ var lbl fun -> typ
@@ -105,26 +110,58 @@ typeCheck body args ret deps =
 -- TODO
 -- like other placees, this should be renamed to something more expr-y
 checkValue ::
-  forall a s var blk fun.
+  forall a s var blk.
   TypeVar s ->
-  RTValue a (Typed s var) (Typed s blk) fun ->
-  Check s (RTValue (Typed s a) var blk fun)
+  RTValue a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTValue (Typed s a) var blk (Either FuncIX Hash))
+checkValue ctx (RTArith op l r a) = do
+  l' <- checkValue ctx l
+  r' <- checkValue ctx r
+  pure $ RTArith op l' r' (Typed a ctx)
+checkValue ctx (RTComp op l r a) = do
+  judge ctx TBool
+  var <- fresh
+  l' <- checkValue var l
+  r' <- checkValue var r
+  pure $ RTComp op l' r' (Typed a ctx)
+checkValue ctx (RTPrim prim a) = do
+  case prim of
+    PInt _ -> pure () -- TODO restrict to int/double
+    PDouble _ -> judge ctx TDouble
+    PBool _ -> judge ctx TBool
+    PVoid -> judge ctx TVoid
+  pure $ RTPrim prim (Typed a ctx)
+checkValue ctx (RTCond c t f a) = do
+  vc <- freshAt TBool
+  c' <- checkValue vc c
+  t' <- checkValue ctx t
+  f' <- checkValue ctx f
+  pure $ RTCond c' t' f' (Typed a ctx)
+checkValue ctx (Call fn args a) = do
+  (argTypes, ret) <- lookupSig fn
+  judge ctx ret
+  -- TODO again, prove arg lengths _once_, somehow
+  unless (length args == length argTypes) $ throwError "Argument lenght mismatch"
+  args' <- zipWithM (\val typ -> freshAt typ >>= \var -> checkValue var val) args argTypes
+  pure $ Call fn args' (Typed a ctx)
+checkValue ctx (PlaceVal plc a) = do
+  plc' <- checkPlace ctx plc
+  pure $ PlaceVal plc' (Typed a ctx)
 checkValue ctx (Block blk a) = do
   let instantiateLabel :: Bind () (Typed s blk) -> Typed s (Bind () blk)
       instantiateLabel (Bound ()) = Typed (Bound ()) ctx
       instantiateLabel (Free t) = Free <$> t
   blk' <- checkProg ctx (over labels instantiateLabel blk)
   pure (Block blk' (Typed a ctx))
-checkValue ctx (PlaceVal plc a) = do
-  plc' <- checkPlace ctx plc
-  pure $ PlaceVal plc' (Typed a ctx)
-checkValue _ _ = error "todo: checkValue"
 
 checkPlace ::
   TypeVar s ->
-  RTPlace a (Typed s var) (Typed s blk) fun ->
-  Check s (RTPlace (Typed s a) var blk fun)
-checkPlace _ = error "todo: checkPlace"
+  RTPlace a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTPlace (Typed s a) var blk (Either FuncIX Hash))
+checkPlace ctx (Place (Typed var t) a) = do
+  unify ctx t
+  pure $ Place var (Typed a ctx)
+checkPlace _ _ = throwError "Deref type checkingnot yet implemented"
 
 -- TODO
 -- Break always takes a label but ExprStmt still allows breaking to an implicit
@@ -132,10 +169,10 @@ checkPlace _ = error "todo: checkPlace"
 -- consistency, which would remove the need for the block context type variable to be
 -- passed around.
 checkProg ::
-  forall a s var blk fun.
+  forall a s var blk.
   TypeVar s ->
-  RTProg a (Typed s var) (Typed s blk) fun ->
-  Check s (RTProg (Typed s a) var blk fun)
+  RTProg a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTProg (Typed s a) var blk (Either FuncIX Hash))
 checkProg blk (Decl typ val k) = do
   ctx <- freshAt typ
   val' <- checkValue ctx val
@@ -156,6 +193,5 @@ checkProg blk (ExprStmt val Nothing) = do
   val' <- checkValue blk val
   pure $ ExprStmt val' Nothing
 checkProg blk (ExprStmt val (Just k)) = do
-  var <- fresh
   val' <- checkValue blk val
   ExprStmt val' . Just <$> checkProg blk k

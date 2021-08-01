@@ -47,7 +47,7 @@ data Prim
   = PInt Int
   | PDouble Double
   | PBool Bool
-  | PVoid
+  | PVoid -- TODO PUnit
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
 
