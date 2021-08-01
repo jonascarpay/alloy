@@ -174,14 +174,15 @@ checkProg ::
   TypeVar s ->
   RTProg a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
   Check s (RTProg (Typed s a) var blk (Either FuncIX Hash))
-checkProg blk (Decl typ val k) = do
-  ctx <- freshAt typ
+checkProg blk (Decl mtyp val k) = do
+  ctx <- fresh
+  forM_ mtyp $ judge ctx
   val' <- checkValue ctx val
   let instantiateVar :: Bind () (Typed s var) -> Typed s (Bind () var)
       instantiateVar (Bound ()) = Typed (Bound ()) ctx
       instantiateVar (Free t) = Free <$> t
   k' <- checkProg blk $ over vars instantiateVar k
-  pure $ Decl typ val' k'
+  pure $ Decl mtyp val' k'
 checkProg blk (Assign lhs rhs k) = do
   var <- fresh
   lhs' <- checkPlace var lhs

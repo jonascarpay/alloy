@@ -154,8 +154,7 @@ pBlock = do
     pDecl = do
       token T.Var
       lhs <- pIdent
-      token T.Colon
-      typ <- pExpr
+      typ <- optional $ token T.Colon *> pExpr
       token T.Assign
       rhs <- pExpr
       semicolon

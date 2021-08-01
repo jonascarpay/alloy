@@ -175,15 +175,15 @@ compileBlock ::
   Comp (RTProg () VarIX BlockIX (Either FuncIX Hash))
 compileBlock = go
   where
-    go (DeclE name typ val k) = do
-      typ' <- lift (whnf typ) >>= ensureType
+    go (DeclE name mtyp val k) = do
+      mtyp' <- forM mtyp $ \typ -> lift (whnf typ) >>= ensureType
       val' <- lift (whnf val) >>= coerceRTValue
       k' <- do
         ix <- freshVar
         t <- refer (VRTPlace mempty $ Place ix ())
         local (binds . at name ?~ t) $
           abstract1Over vars ix <$> go k
-      pure (Decl typ' val' k')
+      pure (Decl mtyp' val' k')
     go (AssignE lhs rhs k) = do
       lhs' <- lift (whnf lhs) >>= coerceRTPlace
       rhs' <- lift (whnf rhs) >>= coerceRTValue

@@ -30,7 +30,7 @@ data Expr
   deriving stock (Eq, Show, Generic)
 
 data ProgE
-  = DeclE Name Expr Expr ProgE
+  = DeclE Name (Maybe Expr) Expr ProgE
   | AssignE Expr Expr ProgE
   | BreakE Expr (Maybe Expr)
   | ContinueE Expr
