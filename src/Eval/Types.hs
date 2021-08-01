@@ -92,7 +92,8 @@ newtype BlockIX = BlockIX Int
 newtype FuncIX = FuncIX {unFuncIX :: Int}
   deriving newtype (Eq, Ord, Show, Enum)
 
--- TODO Since this _only_ describes the implementation, structs with the same
+-- TODO
+-- Since this _only_ describes the implementation, structs with the same
 -- types of fields but different names shouldn't count as different values.
 -- Ideally we'd find some way to do name-based access, but erase the names at
 -- runtime
