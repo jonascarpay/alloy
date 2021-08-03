@@ -71,7 +71,7 @@ resolve :: Typed s a -> Check s (Type, a)
 resolve (Typed a (TypeVar v)) = do
   typ <- liftST $ UF.descriptor v
   case S.toList typ of
-    [] -> throwError "Ambiguous"
+    [] -> pure (TVoid, a)
     [t] -> pure (t, a)
     ts -> throwError $ "Mismatch: " <> show ts
 
@@ -194,5 +194,6 @@ checkProg blk (ExprStmt val Nothing) = do
   val' <- checkValue blk val
   pure $ ExprStmt val' Nothing
 checkProg blk (ExprStmt val (Just k)) = do
-  val' <- checkValue blk val
+  var <- fresh
+  val' <- checkValue var val
   ExprStmt val' . Just <$> checkProg blk k

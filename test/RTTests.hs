@@ -427,7 +427,16 @@ rtTests =
                     var a: int = 3;
                     var x: int = (c: {if c then 3 else 4}) a;
                   }
-              |]
+              |],
+          saFunc
+            "block expression type"
+            [r| with builtins.types;
+                [] -> int {
+                  var sum: int = 0;
+                  lbl@{ sum = 2; };
+                  sum
+                }
+            |]
         ],
       testGroup
         "structs"
@@ -524,9 +533,7 @@ rtTests =
           saFunc
             "while loop"
             [r| with builtins.types;
-                let while = cond: body: loop@{
-                      if cond then {break loop;} else {body; continue loop;};
-                    };
+                let while cond body = loop@{ if cond then {break loop;} else {body; continue loop;}; };
                 in [] -> void {
                   var x: int = 3;
                   while {x < 3} dummy@{ # TODO dummy
