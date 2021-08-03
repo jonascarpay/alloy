@@ -13,7 +13,9 @@ import Data.Foldable (toList)
 import Data.List (elemIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Set (Set)
 import Data.Set qualified as S
+import Data.Void
 import Eval.BinOp
 import Eval.Builtins (builtins)
 import Eval.Lib
@@ -136,36 +138,40 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
 
 compileFunc :: Maybe Name -> [(Name, Expr)] -> Expr -> Expr -> Eval (Deps, Either FuncIX Hash)
 compileFunc mlbl args ret body = do
-  ret' <- whnf ret >>= ensureType
+  retType <- whnf ret >>= ensureType
   args' <- forM args $ \(name, expr) -> do
     typ <- whnf expr >>= ensureType
     ix <- freshVar
     pure (name, typ, ix)
+  let argTypes = view _2 <$> args'
+      sig = (argTypes, retType)
   fun <- freshFunc
-  (body', deps@(Deps closed open)) <-
-    runWriterT $
-      bindFunction fun $
-        bindVars args' $
-          lift (whnf body) >>= coerceRTValue
-  let scoped = abstractOver vars (`elemIndex` (view _3 <$> args')) body'
-      argTypes = view _2 <$> args'
-  rtFunc <- do
+  (body', Deps closed open sigs) <-
+    runWriterT . bindFunction fun sig . bindVars args' $
+      lift (whnf body) >>= coerceRTValue
+  closedBody <- do
+    let scoped = abstractOver vars (`elemIndex` (view _3 <$> args')) body'
     closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (vars . traverse) scoped
-    closedBlks <- maybe (throwError "Labels would escape scope") pure $ closedOver labels closedVars
-    typeChecked <- liftEither $ typeCheck closedBlks argTypes ret' deps
-    pure $ RTFunc argTypes ret' (typeChecked & over types fst)
-  let cg = mkCallGraph fun rtFunc open
-  pure $ case closeFunc cg of
-    Nothing -> (Deps closed (S.singleton cg), Left fun)
-    Just (guid, closed') -> (Deps (closed <> closed') mempty, Right guid)
+    maybe (throwError "Labels would escape scope") pure $ closedOver labels closedVars
+  typeChecked <- do
+    let closedSigs = funcSig <$> closed
+    typeChecked <- liftEither $ typeCheck closedBody argTypes retType closedSigs sigs
+    pure $ RTFunc argTypes retType (typeChecked & over types fst)
+  pure $
+    let cg = mkCallGraph fun typeChecked open
+     in case closeFunc cg of
+          Nothing -> (Deps closed (S.singleton cg) (sigs & at fun ?~ sig), Left fun) -- TODO sigs here can be mempty, which scares me
+          Just (guid, closed') -> (Deps (closed <> closed') mempty mempty, Right guid)
   where
+    funcSig :: RTFunc fun -> Sig
+    funcSig fn = (fnArgs fn, fnRet fn)
     bindVars :: [(Name, Type, VarIX)] -> Comp a -> Comp a
     bindVars argIxs m = do
       argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix ())
       local (binds %~ mappend (M.fromList argThunks)) m
-    bindFunction :: FuncIX -> Comp a -> Comp a
-    bindFunction fun k = do
-      tnk <- refer $ VFunc mempty (Left fun)
+    bindFunction :: FuncIX -> Sig -> Comp a -> Comp a
+    bindFunction fun sig k = do
+      tnk <- refer $ VFunc (mempty & openSigs . at fun ?~ sig) (Left fun)
       case mlbl of
         Nothing -> k
         Just lbl -> local (binds . at lbl ?~ tnk) k

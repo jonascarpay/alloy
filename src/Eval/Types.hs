@@ -46,6 +46,8 @@ data Value f
   | VList (Seq f)
   deriving (Functor, Foldable, Traversable)
 
+type Sig = ([Type], Type)
+
 type WHNF = Value Thunk
 
 newtype NF = NF {unNF :: Value NF}
@@ -53,6 +55,12 @@ newtype NF = NF {unNF :: Value NF}
 newtype Hash = Hash {unHash :: Int}
   deriving newtype (Eq, Show, Ord, Hashable)
 
+-- Function calls form a sort of directed bigraph in which
+--   - there always is an edge between a parent and its direct children
+--   - edges can only go to direct ancestors/descendants (not cousins)
+-- The tree structure represents the static scope of functions, the edges are calls.
+-- TODO
+-- At some point a nameless representation might be nice
 data CallGraph = CallGraph
   { cgFunc :: FuncIX,
     cgBody :: RTFunc (Either FuncIX Hash),
@@ -70,13 +78,14 @@ instance Ord CallGraph where a `compare` b = cgFunc a `compare` cgFunc b
 
 data Deps = Deps
   { _closedFuncs :: HashMap Hash (RTFunc Hash),
-    _openFuncs :: Set CallGraph
+    _openFuncs :: Set CallGraph,
+    _openSigs :: Map FuncIX Sig
   }
 
 instance Semigroup Deps where
-  Deps ca oa <> Deps cb ob = Deps (ca <> cb) (oa <> ob)
+  Deps ca oa sa <> Deps cb ob sb = Deps (ca <> cb) (oa <> ob) (sa <> sb)
 
-instance Monoid Deps where mempty = Deps mempty mempty
+instance Monoid Deps where mempty = Deps mempty mempty mempty
 
 newtype Thunk = Thunk (IORef (Either (EvalBase WHNF) WHNF))
 
@@ -155,6 +164,11 @@ data RTFunc fun = RTFunc
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
+-- TODO
+-- This should be a more elaborate compilation state monad
+--   - keeps track of (dynamic) evaluation stack trace
+--   - keeps track of call graph (note that the stack trace is the tree of the bigraph)
+--     - obviates need for Deps!
 newtype EvalBase a = EvalBase {unEvalBase :: StateT Int (ExceptT String IO) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh)
 

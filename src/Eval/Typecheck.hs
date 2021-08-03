@@ -15,6 +15,8 @@ module Eval.Typecheck (typeCheck) where
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.ST
+import Data.HashMap.Strict (HashMap)
+import Data.Map (Map)
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.UnionFind.ST qualified as UF
@@ -38,9 +40,11 @@ placeType (Place _ t) = t
 placeType (Deref _ t) = t
 
 -- TypeVar s changes a lot, but Deps never changes, so we put them at different points in the stack
-type Check s = ReaderT Deps (ExceptT String (ST s))
+type Check s = ReaderT Sigs (ExceptT String (ST s))
 
-runCheck :: Deps -> (forall s. Check s a) -> Either String a
+type Sigs = (HashMap Hash Sig, Map FuncIX Sig)
+
+runCheck :: Sigs -> (forall s. Check s a) -> Either String a
 runCheck deps m = runST $ runExceptT $ runReaderT m deps
 
 newtype TypeVar s = TypeVar (UF.Point s (Set Type))
@@ -71,20 +75,14 @@ resolve (Typed a (TypeVar v)) = do
     [t] -> pure (t, a)
     ts -> throwError $ "Mismatch: " <> show ts
 
-type Sig = ([Type], Type)
-
-functionSig :: RTFunc a -> Sig
-functionSig (RTFunc args ret _) = (args, ret)
-
 lookupSig :: Either FuncIX Hash -> Check s Sig
-lookupSig (Right hash) = view (closedFuncs . at hash) >>= maybe (throwError "Impossible") (pure . functionSig)
-lookupSig (Left ix) = view openFuncs >>= either pure (const err) . find
+lookupSig func = view (lens func) >>= maybe err pure
   where
-    err = view openFuncs >>= \cg -> throwError (unwords ["Impossible -- Could not find ix", show ix, "in call graph", show cg])
-    find :: Set CallGraph -> Either Sig ()
-    find s = forM_ (S.toList s) $ \(CallGraph this body _ binds deps) -> do
-      when (this == ix) $ Left (functionSig body)
-      when (S.member ix binds) $ find deps
+    err = do
+      env <- ask
+      throwError $ "Impossible, could not find " <> show func <> " in env " <> show env
+    lens :: Either FuncIX Hash -> Lens' Sigs (Maybe Sig)
+    lens = either (\i -> _2 . at i) (\h -> _1 . at h)
 
 data Typed s a = Typed a (TypeVar s)
   deriving (Functor)
@@ -93,10 +91,11 @@ typeCheck ::
   RTValue a (Bind Int Void) Void (Either FuncIX Hash) ->
   [Type] ->
   Type ->
-  Deps ->
+  HashMap Hash Sig ->
+  Map FuncIX Sig ->
   Either String (RTValue (Type, a) (Bind Int Void) Void (Either FuncIX Hash))
-typeCheck body args ret deps =
-  runCheck deps $ do
+typeCheck body args ret closedSigs openSigs =
+  runCheck (closedSigs, openSigs) $ do
     ctx <- freshAt ret
     -- TODO somehow check _once_ that the length of argument list is correct, and then reuse proof
     let instantiateArg :: Bind Int Void -> Check s (Typed s (Bind Int Void))
