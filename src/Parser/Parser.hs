@@ -88,8 +88,7 @@ pFunc = do
         (liftA2 (,) pIdent (token T.Colon *> pExpr))
         (token T.Comma)
   -- TODO proper right arrow operator
-  token T.Sub
-  token T.Gt
+  token T.RArr
   ret <- pTerm
   Func lbl args ret <$> pExpr
 
