@@ -78,14 +78,13 @@ instance Ord CallGraph where a `compare` b = cgFunc a `compare` cgFunc b
 
 data Deps = Deps
   { _closedFuncs :: HashMap Hash (RTFunc Hash),
-    _openFuncs :: Set CallGraph,
-    _openSigs :: Map FuncIX Sig
+    _openFuncs :: Set CallGraph
   }
 
 instance Semigroup Deps where
-  Deps ca oa sa <> Deps cb ob sb = Deps (ca <> cb) (oa <> ob) (sa <> sb)
+  Deps ca oa <> Deps cb ob = Deps (ca <> cb) (oa <> ob)
 
-instance Monoid Deps where mempty = Deps mempty mempty mempty
+instance Monoid Deps where mempty = Deps mempty mempty
 
 newtype Thunk = Thunk (IORef (Either (EvalBase WHNF) WHNF))
 
@@ -164,13 +163,8 @@ data RTFunc fun = RTFunc
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
--- TODO
--- This should be a more elaborate compilation state monad
---   - keeps track of (dynamic) evaluation stack trace
---   - keeps track of call graph (note that the stack trace is the tree of the bigraph)
---     - obviates need for Deps!
-newtype EvalBase a = EvalBase {unEvalBase :: StateT Int (ExceptT String IO) a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh)
+newtype EvalBase a = EvalBase {unEvalBase :: ReaderT (Map FuncIX Sig) (StateT Int (ExceptT String IO)) a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh, MonadReader (Map FuncIX Sig))
 
 type Eval = ReaderT EvalEnv EvalBase
 

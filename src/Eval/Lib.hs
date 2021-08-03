@@ -199,3 +199,6 @@ flattenCallgraph cg = evalRWST (go cg) () mempty
          in traverse (either f pure) body
       tell $ HM.singleton h body'
       pure h
+
+liftLocal :: MonadReader r m => (r -> r) -> ReaderT r' m a -> ReaderT r' m a
+liftLocal f = mapReaderT (local f)
