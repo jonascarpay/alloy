@@ -26,7 +26,7 @@ funcWithNDeps name exp prog = testCase name $ do
   val <- assertParse prog >>= assertEval
   let throw err = assertFailure $ unlines [err, show (printNF val)]
   case val of
-    NF (VFunc (Deps close open _) call) -> do
+    NF (VFunc (Deps close open) call) -> do
       unless (isRight call) $ throw "unresolved temporary function id"
       unless (null open) $ throw "Function with dangling temporary functions"
       -- let calls = toListOf (traverse . funCalls) fn
