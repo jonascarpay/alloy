@@ -117,7 +117,7 @@ pBlock = do
   braces $ Run label <$> pStmts
   where
     pStmts :: Parser ProgE
-    pStmts = choice [pDecl, pAssign, pExprStatement, pTerminator]
+    pStmts = choice [pCont, pDecl, pAssign, pExprStatement, pTerminator]
 
     pTerminator =
       choice
@@ -138,6 +138,14 @@ pBlock = do
       lbl <- pTerm
       semicolon
       pure $ ContinueE lbl
+
+    pCont = do
+      arg <- pIdent
+      token T.LArr
+      fn <- pExpr
+      semicolon
+      k <- pStmts
+      pure $ ExprE (App fn (Lam arg (Run Nothing k))) Nothing
 
     pAssign = do
       lhs <- pExpr

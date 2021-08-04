@@ -540,6 +540,27 @@ rtTests =
                     x = x + 1;
                   };
                 }
+            |],
+          saFunc
+            "continuation notation"
+            [r| with builtins.types;
+                let range lo hi body = {
+                      var i: int = lo;
+                      loop@{
+                        if i < hi then {body i;} else {break loop;};
+                        i = i + 1;
+                        continue loop;
+                      };
+                    };
+                    zeroTo = range 0;
+                 in [] -> int {
+                   var sum = 0;
+                   { i <- zeroTo 10;
+                     j <- zeroTo i;
+                     sum = sum + j;
+                   };
+                   sum
+                 }
             |]
         ]
     ]

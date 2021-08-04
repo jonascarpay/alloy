@@ -43,6 +43,7 @@ data Token
   | Geq
   | Dot
   | RArr
+  | LArr
   | -- Punctuation
     Semicolon
   | Colon
