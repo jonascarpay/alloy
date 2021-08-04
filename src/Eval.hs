@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Eval where
+module Eval (runEval) where
 
 import Control.Applicative
 import Control.Monad.Except
@@ -15,7 +15,6 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as S
-import Data.Void
 import Eval.BinOp
 import Eval.Builtins (builtins)
 import Eval.Lib
