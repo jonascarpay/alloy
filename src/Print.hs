@@ -4,7 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Print where
+module Print (printNF) where
 
 import Control.Monad.Identity
 import Control.Monad.Reader
