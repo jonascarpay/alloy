@@ -440,9 +440,10 @@ rtTests =
         ],
       testGroup
         "structs"
-        [ saFunc
-            "simple struct literal"
-            [r| with builtins.types;
+        [ pending $
+            saFunc
+              "simple struct literal"
+              [r| with builtins.types;
                 let str = builtins.struct { a: int, b: double };
                 in [] -> void {
                   var x: str = {a: 3, b: 2};
@@ -466,18 +467,20 @@ rtTests =
                     var x: str = {a: 2};
                   }
               |],
-          saFunc
-            "non-literal struct expression"
-            [r| with builtins.types;
+          pending $
+            saFunc
+              "non-literal struct expression"
+              [r| with builtins.types;
                 let str = builtins.struct { a: int, b: double };
                 in [] -> void {
                   var y: int = 2;
                   var x: str = {a: y, b: 2};
                 }
             |],
-          saFunc
-            "struct fields are _runtime_ expressions"
-            [r| with builtins.types;
+          pending $
+            saFunc
+              "struct fields are _runtime_ expressions"
+              [r| with builtins.types;
                 let
                   v = builtins.struct {x: int};
                 in [] -> void {
@@ -485,17 +488,19 @@ rtTests =
                   # var y: v = {x: x.x};
                 }
             |],
-          saFunc
-            "simple RT field accessor"
-            [r| with builtins.types;
+          pending $
+            saFunc
+              "simple RT field accessor"
+              [r| with builtins.types;
                 [] -> int {
                   var v: builtins.struct {x: int} = { x: 0 };
                   return v.x;
                 }
             |],
-          saFunc
-            "nested RT field accessor"
-            [r| with builtins.types;
+          pending $
+            saFunc
+              "nested RT field accessor"
+              [r| with builtins.types;
                 let
                   nestedStruct = builtins.struct {x: int};
                   str = builtins.struct {nest: nestedStruct};
