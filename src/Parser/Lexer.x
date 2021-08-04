@@ -48,6 +48,7 @@ tokens :-
   "<="		{ tok Leq }
   ">="		{ tok Geq }
   "."		{ tok Dot }
+  "<-"		{ tok LArr }
   "->"		{ tok RArr }
 
   ";"		{ tok Semicolon }
