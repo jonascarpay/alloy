@@ -5,6 +5,10 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BS
 import Data.Char (toLower)
 
+-- TODO
+-- unicode
+-- λ
+
 data SourcePos = SourcePos
   { lineNumber :: Int,
     columnNumber :: Int

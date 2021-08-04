@@ -29,6 +29,7 @@ import Lens.Micro.Platform (makeLenses)
 
 -- TODO
 -- Compile-time numbers should probably be represented as Scientific
+-- Func should really be called procedure
 
 -- VRTPlace and VLbl can never escape the scope in which they're defined, because they can only occur after a definer in a runtime expression, and so the surrounding context must evaluate to a runtime expression.
 -- However, this definition makes it seem like we can have free-floating vars/lbls, similar to how a normal value can escape its lexical scope through closures.
