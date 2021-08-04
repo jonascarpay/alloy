@@ -10,7 +10,7 @@
       let
         overlay = self: _: {
           hsPkgs =
-            self.haskell-nix.project' {
+            self.haskell-nix.project' rec {
               src = ./.;
               compiler-nix-name = "ghc8105";
               shell = {
@@ -19,8 +19,15 @@
                   ghcid = { };
                   haskell-language-server = { };
                   hlint = { };
-                  ormolu = { };
                 };
+                buildInputs =
+                  let
+                    ormolu = pkgs.haskell-nix.tool compiler-nix-name "ormolu" "latest";
+                    ormolu-wrapped = pkgs.writeShellScriptBin "ormolu" ''
+                      ${ormolu}/bin/ormolu --ghc-opt=-XImportQualifiedPost $@
+                    '';
+                  in
+                  [ ormolu-wrapped ];
               };
             };
         };
