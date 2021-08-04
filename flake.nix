@@ -32,7 +32,13 @@
           ];
         };
         flake = pkgs.hsPkgs.flake { };
+        alloyc = flake.packages."alloy:exe:alloy-exe";
       in
-      flake // { defaultPackage = flake.packages."alloy:exe:alloy-exe"; }
+      flake // {
+        defaultPackage = alloyc;
+        packages.watcher = pkgs.writeShellScriptBin "alloy-watch" ''
+          echo $1 | entr -c ${alloyc}/bin/alloy-exe -f $1
+        '';
+      }
     );
 }
