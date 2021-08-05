@@ -7,7 +7,7 @@ license-file:    LICENSE
 author:          Jonas Carpay
 maintainer:      Jonas Carpay <jonascarpay@gmail.com>
 copyright:       2021 Jonas Carpay
-tested-with:     GHC ==8.6.3 || ==8.8.3 || ==8.10.2
+tested-with:     GHC ==8.6.3 || ==8.8.3 || ==8.10.5
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -21,23 +21,15 @@ extra-doc-files:
 --   location: git://github.com/FIXME/alloy.git
 
 common common-options
-  -- array is a dep of alex-generated modueles
   build-depends:
-    , array
-    , base                  >=4.9 && <5
+    , base           >=4.9 && <5
     , bytestring
     , containers
     , directory
     , filepath
-    , hashable
     , haskeline
-    , microlens-platform
     , mtl
-    , parser-combinators
     , pretty-simple
-    , union-find
-    , unordered-containers
-    , vector
 
   default-language:   Haskell2010
   default-extensions: ImportQualifiedPost
@@ -48,6 +40,15 @@ common common-options
 
 library
   import:             common-options
+  build-depends:
+    , array
+    , hashable
+    , microlens-platform
+    , parser-combinators
+    , union-find
+    , unordered-containers
+    , vector
+
   hs-source-dirs:     src
   exposed-modules:
     Eval
@@ -78,9 +79,7 @@ executable alloy-exe
 test-suite alloy-test
   import:         common-options
   type:           exitcode-stdio-1.0
-  hs-source-dirs: test src
-
-  -- hs-source-dirs: test
+  hs-source-dirs: test
   main-is:        Spec.hs
   other-modules:
     EvalTests
