@@ -65,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: [ '8.10.5', '9.0.1' ]
+        ghc: [ '8.10.5' ]
         os: [ ubuntu-latest, macos-latest ]
         required: [ required ]
         include:
