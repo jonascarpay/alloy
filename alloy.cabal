@@ -93,14 +93,3 @@ test-suite alloy-test
     , raw-strings-qq
 
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
-
-benchmark alloy-bench
-  import:         common-options
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: bench
-  main-is:        Main.hs
-  build-depends:
-    , alloy
-    , criterion
-
-  ghc-options:    -threaded -rtsopts -with-rtsopts=-N
