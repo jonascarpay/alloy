@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Print (printNF) where
 
@@ -14,12 +15,15 @@ import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Lazy qualified as BSL
 import Eval.Types
+import Expr
 
 newtype PrinterT m a = PrinterT {unPrinterT :: ReaderT Int (StateT Builder m) a}
   deriving (Functor, Monad, Applicative, MonadIO)
 
 instance MonadTrans PrinterT where
   lift = PrinterT . lift . lift
+
+type Prints a = a -> PrinterT (NameT Identity) ()
 
 runPrinterT :: Monad m => PrinterT m () -> m ByteString
 runPrinterT (PrinterT m) = BSL.toStrict . BSB.toLazyByteString <$> execStateT (runReaderT m 0) mempty
@@ -47,7 +51,10 @@ runNameT (NameT m) = evalStateT m 0
 printNF :: NF -> ByteString
 printNF = runIdentity . runNameT . runPrinterT . pNF
 
-pNF :: Monad m => NF -> PrinterT (NameT m) ()
+pPrim :: Prints Prim
+pPrim (PInt n) = undefined
+
+pNF :: Prints NF
 pNF = go . unNF
   where
     go VClosure {} = spit "<closure>"

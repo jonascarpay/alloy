@@ -4,15 +4,9 @@
 
 import EvalTests
 import RTTests
-import Test.Tasty
-import Test.Tasty.Focus
+import Test.Hspec
 
 main :: IO ()
-main =
-  defaultMain $
-    withFocus $
-      testGroup
-        "alloy-test"
-        [ evalTests,
-          rtTests
-        ]
+main = hspec $ do
+  evalTests
+  rtTests

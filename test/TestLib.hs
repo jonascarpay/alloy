@@ -4,14 +4,19 @@
 
 module TestLib where
 
+import Control.Exception (throwIO)
 import Data.ByteString.Char8 qualified as BS8
 import Data.Map qualified as M
 import Eval
 import Eval.Types
 import Expr
+import GHC.Exception (getCallStack)
+import GHC.Stack (callStack)
 import Parser.Parser
 import Print
-import Test.Tasty.HUnit
+import Test.HUnit (assertFailure)
+import Test.HUnit.Lang (FailureReason (..), HUnitFailure (HUnitFailure))
+import Test.Hspec
 
 assertFile :: FilePath -> IO String
 assertFile = readFile
@@ -45,17 +50,20 @@ shallowEq f = go
 nfEq :: NF -> NF -> Bool
 nfEq (NF a) (NF b) = shallowEq nfEq a b
 
-assertValueEq :: HasCallStack => NF -> NF -> Assertion
+nocompile :: HasCallStack => String -> String -> Spec
+nocompile name prog = it name $ do
+  expr <- assertParse prog
+  runEval expr >>= \case
+    Right _ -> expectationFailure "Compiled"
+    Left _ -> pure ()
+
+assertValueEq :: HasCallStack => NF -> NF -> Expectation
 assertValueEq exp got
   | nfEq exp got = pure ()
   | otherwise =
-    assertFailure $
-      unlines
-        [ "value mismatch, expected",
-          "  " <> BS8.unpack (printNF exp),
-          "but got",
-          "  " <> BS8.unpack (printNF got)
-        ]
+    throwIO $ HUnitFailure (Just loc) $ ExpectedButGot Nothing (BS8.unpack (printNF exp)) (BS8.unpack (printNF got))
+  where
+    loc = snd $ head $ getCallStack callStack
 
 -- assertFunc :: HasCallStack => Value -> IO (Dependencies, GUID)
 -- assertFunc (Fix (VFunc deps (Right guid))) = pure (deps, guid)
