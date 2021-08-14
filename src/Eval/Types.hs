@@ -14,12 +14,12 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.ByteString (ByteString)
+import Data.Foldable
 import Data.HashMap.Strict (HashMap)
 import Data.Hashable
 import Data.Hashable.Lifted
 import Data.IORef
 import Data.Map (Map)
-import Data.Map qualified as M
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Void
@@ -114,7 +114,7 @@ data Type
   | TDouble
   | TBool
   | TVoid
-  | TStruct (Map Name Type)
+  | TTuple (Seq Type)
   deriving stock (Eq, Show, Ord, Generic)
 
 instance Hashable Type where
@@ -122,7 +122,7 @@ instance Hashable Type where
   hashWithSalt s TDouble = hashWithSalt s (1 :: Int)
   hashWithSalt s TBool = hashWithSalt s (2 :: Int)
   hashWithSalt s TVoid = hashWithSalt s (3 :: Int)
-  hashWithSalt s (TStruct m) = hashWithSalt s (4 :: Int, M.toList m)
+  hashWithSalt s (TTuple m) = hashWithSalt s (4 :: Int, toList m)
 
 data Bind b a
   = Bound b

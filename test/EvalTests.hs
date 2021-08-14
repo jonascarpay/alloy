@@ -88,15 +88,15 @@ evalTests = describe "eval" $ do
   is9 "if comparison" "if 2 + 2 < 5 then 9 else 10"
   -- is9 "simple typeOf" "if builtins.typeOf {break;} == builtins.types.void then 9 else 8"
   is9 "matchType" "builtins.matchType { int = 9; default = builtins.undefined; } builtins.types.int"
-  is9 "matchType struct" $
+  is9 "matchType tuple" $
     [r| with builtins;
         with types;
-        let t = struct { x = double; y = int; };
+        let t = tuple [ double, int ];
         in matchType {
-             struct = ms: matchType  {
+             tuple = ms: matchType  {
                  int = 9;
                  default = undefined;
-               } ms.y;
+               } (builtins.index ms 1);
              default = undefined;
            } t
     |]
