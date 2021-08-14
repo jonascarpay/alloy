@@ -22,8 +22,8 @@ data Expr
   | Run (Maybe Name) ProgE
   | Let [Binding] Expr
   | Attr [Binding]
-  | String ByteString
-  | Acc Expr Name -- TODO rename sel
+  | String ByteString -- TODO better representation for strings
+  | Sel Expr Expr
   | With Expr Expr
   | List (Seq Expr)
   | Cond Expr Expr Expr

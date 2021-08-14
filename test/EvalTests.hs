@@ -88,28 +88,28 @@ evalTests = describe "eval" $ do
   is9 "if comparison" "if 2 + 2 < 5 then 9 else 10"
   -- is9 "simple typeOf" "if builtins.typeOf {break;} == builtins.types.void then 9 else 8"
   is9 "matchType" "builtins.matchType { int = 9; default = builtins.undefined; } builtins.types.int"
-  is9 "matchType tuple" $
-    [r| with builtins;
-        with types;
-        let t = tuple [ double, int ];
-        in matchType {
-             tuple = ms: matchType  {
-                 int = 9;
-                 default = undefined;
-               } (builtins.index ms 1);
-             default = undefined;
-           } t
-    |]
+  describe "indexing" $ do
+    is9 "matchType tuple" $
+      [r| with builtins;
+          with types;
+          let t = tuple [ double, int ];
+          in matchType {
+               tuple = ms: matchType  {
+                   int = 9;
+                   default = undefined;
+                 } ms.1;
+               default = undefined;
+             } t
+      |]
+    is9 "attrset string lookup" [r| { nine = 9; }."nine" |]
+    is9 "list indexing" "[1, 3, 9, 27].2"
+    is9 "index expression" [r| { nine = 9; }.("ni" + "ne") |]
+    is9 "list index expression" "[1, 3, 9, 27].(1+1)"
+    is9 "string indexing" [r| if "139".2 == "9" then 9 else builtins.undefined |]
   is9 "matchType default" "builtins.matchType { default = 9; } builtins.types.void"
-  is9 "attrset string lookup" $
-    [r| let attrs = { nine = 9; };
-            key = "nine";
-         in builtins.index attrs key
-    |]
-  is9 "list indexing" "builtins.index [1, 3, 9, 27] 2"
   is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]"
   is9 "string length" "builtins.length \"123456789\""
-  is9 "list concat" "builtins.index ([] + [9] + []) 0"
+  is9 "list concat" "([] + [9] + []).0"
   is9 "listToAttrs" "(builtins.listToAttrs [{ key = \"nine\"; value = 9; }]).nine"
   is9 "haskell function syntax 1" "let id x = x; in id 9"
   is9 "haskell function syntax 2" "let const x y = x; in const 9 10"

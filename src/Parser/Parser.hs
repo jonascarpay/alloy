@@ -104,7 +104,17 @@ pTerm = do
         parens pExpr,
         pVar
       ]
-  foldl' Acc val <$> many (token T.Dot *> pIdent)
+  foldl' Sel val <$> many (token T.Dot *> pAccessor)
+
+pAccessor :: Parser Expr
+pAccessor = lit <|> expr
+  where
+    lit = expect "accessor" $ \case
+      T.Num ix -> Just (Prim $ PInt ix)
+      T.Ident ix -> Just (String ix)
+      T.String ix -> Just (String ix)
+      _ -> Nothing
+    expr = parens pExpr
 
 pString :: Parser Expr
 pString = expect "string" $ \case
