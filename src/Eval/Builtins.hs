@@ -26,7 +26,6 @@ builtins =
     M.fromList
       [ ("nine", VPrim $ PInt 9),
         ("length", vLength),
-        ("index", vIndex),
         ("listToAttrs", vListToAttrs),
         ("types", vTypes),
         ("matchType", vMatchType),
@@ -48,27 +47,6 @@ vLength = VClosure $ \tList ->
     VList l -> pure . VPrim . PInt $ length l
     VString s -> pure . VPrim . PInt $ BS.length s
     val -> throwError $ "builtins.length: Cannot get the length of " <> describeValue val
-
-vIndex :: Value f
-vIndex = VClosure . expect "a list, string, or attribute set" $ \case
-  VList l -> Just . pure . VClosure . expect "an integer" $ \case
-    VPrim (PInt ix) -> Just $ case Seq.lookup ix l of
-      Nothing -> throwError $ "builtins.index: List index " <> show ix <> " is out of bounds"
-      Just t -> force t
-    _ -> Nothing
-  VString bs -> Just . pure . VClosure . expect "an integer" $ \case
-    VPrim (PInt ix) -> Just $ case indexMaybe bs ix of
-      Nothing -> throwError $ "builtins.index: List index " <> show ix <> " is out of bounds"
-      Just t -> pure . VString $ BS.singleton t
-    _ -> Nothing
-  VAttr attrs -> Just . pure . VClosure . expect "a string" $ \case
-    VString str -> Just $ case M.lookup (BSS.toShort str) attrs of
-      Nothing -> throwError $ "builtins.index: Attribute set does not contain field " <> show str
-      Just t -> force t
-    _ -> Nothing
-  _ -> Nothing
-  where
-    expect = forceExpect "builtins.index"
 
 vListToAttrs :: Value f
 vListToAttrs = VClosure . expect "a list" $ \case

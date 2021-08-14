@@ -9,10 +9,13 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as BSS
 import Data.Foldable (toList)
 import Data.List (elemIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as S
 import Eval.BinOp
@@ -74,12 +77,27 @@ whnf (Let bindings body) = do
   env <- resolveBindings bindings
   local (binds %~ mappend env) (whnf body)
 whnf (Attr bindings) = VAttr <$> resolveBindings bindings
-whnf (Acc attr field) =
-  whnf attr >>= \case
-    VAttr m -> case m ^. at field of
-      Nothing -> throwError $ "Attribute set does not contain field " <> show field
-      Just t -> lift $ force t
-    val -> throwError $ "Accessing field " <> show field <> " of " <> describeValue val <> " instead of an attribute set"
+whnf (Sel haystack needle) =
+  whnf haystack >>= \case
+    VList l ->
+      whnf needle >>= \case
+        VPrim (PInt ix) -> case Seq.lookup ix l of
+          Nothing -> throwError $ "List index " <> show ix <> " is out of bounds"
+          Just t -> lift $ force t
+        val -> throwError $ "list indexing requires an integer, but got " <> describeValue val
+    VString bs ->
+      whnf needle >>= \case
+        VPrim (PInt ix) -> case indexMaybe bs ix of
+          Nothing -> throwError $ "String index " <> show ix <> " is out of bounds"
+          Just t -> pure . VString $ BS.singleton t
+        val -> throwError $ "indexing into strings requires an integer, but got " <> describeValue val
+    VAttr attrs ->
+      whnf needle >>= \case
+        VString str -> case M.lookup (BSS.toShort str) attrs of
+          Nothing -> throwError $ "Attribute set does not contain field " <> show str
+          Just t -> lift $ force t
+        val -> throwError $ "indexing into an attr set requires a string, but got " <> describeValue val
+    val -> throwError $ "Indexing into " <> describeValue val <> " instead of a list, attribute set, or string"
 whnf (With attrs body) =
   whnf attrs >>= \case
     VAttr m -> local (binds %~ mappend m) (whnf body)
