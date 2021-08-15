@@ -150,6 +150,7 @@ data RTValue typ var blk fun
   = RTArith ArithOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
   | RTComp CompOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
   | RTPrim Prim typ
+  | ValueSel (RTValue typ var blk fun) Int typ
   | RTTuple (Seq (RTValue typ var blk fun)) typ
   | RTCond (RTValue typ var blk fun) (RTValue typ var blk fun) (RTValue typ var blk fun) typ
   | Call fun [RTValue typ var blk fun] typ
@@ -166,7 +167,7 @@ data RTValue typ var blk fun
 --   ((struct { int x; }){.x = 1}).x = 3;
 data RTPlace typ var blk fun
   = Place var typ -- TODO Rename
-  | RTSel (RTPlace typ var blk fun) Int typ
+  | PlaceSel (RTPlace typ var blk fun) Int typ
   | Deref (RTValue typ var blk fun) typ
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
@@ -216,6 +217,7 @@ instance RTAST RTValue where
       go (RTComp op l r t) = RTComp op <$> go l <*> go r <*> ft t
       go (Call fun args t) = Call <$> ff fun <*> traverse go args <*> ft t
       go (PlaceVal plc t) = PlaceVal <$> traverseAst ft fv fl ff plc <*> ft t
+      go (ValueSel h n t) = ValueSel <$> go h <*> pure n <*> ft t
       go (Block blk t) = Block <$> traverseAst ft fv (traverse fl) ff blk <*> ft t
       go (RTCond cond true false t) = RTCond <$> go cond <*> go true <*> go false <*> ft t
       go (RTTuple tup t) = RTTuple <$> traverse go tup <*> ft t
@@ -225,7 +227,7 @@ instance RTAST RTPlace where
   traverseAst ft fv fl ff = go
     where
       go (Place var t) = Place <$> fv var <*> ft t
-      go (RTSel lhs sel t) = RTSel <$> go lhs <*> pure sel <*> ft t
+      go (PlaceSel h n t) = PlaceSel <$> go h <*> pure n <*> ft t
       go (Deref val t) = Deref <$> traverseAst ft fv fl ff val <*> ft t
 
 instance RTAST RTProg where
