@@ -86,7 +86,6 @@ evalTests = describe "eval" $ do
   is9 "nested if true" "if true then if true then 9 else 10 else 10"
   is9 "nested if false" "if false then 10 else if false then 10 else 9"
   is9 "if comparison" "if 2 + 2 < 5 then 9 else 10"
-  -- is9 "simple typeOf" "if builtins.typeOf {break;} == builtins.types.void then 9 else 8"
   is9 "matchType" "builtins.matchType { int = 9; default = builtins.undefined; } builtins.types.int"
   describe "indexing" $ do
     is9 "matchType tuple" $
@@ -110,6 +109,8 @@ evalTests = describe "eval" $ do
   is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]"
   is9 "string length" "builtins.length \"123456789\""
   is9 "list concat" "([] + [9] + []).0"
+  is9 "right replication" "([9] * 9).8"
+  is9 "left replication" "(9 * [9]).8"
   is9 "listToAttrs" "(builtins.listToAttrs [{ key = \"nine\"; value = 9; }]).nine"
   is9 "haskell function syntax 1" "let id x = x; in id 9"
   is9 "haskell function syntax 2" "let const x y = x; in const 9 10"

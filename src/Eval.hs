@@ -10,6 +10,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as BSS
+import Data.Foldable
 import Data.Foldable (toList)
 import Data.List (elemIndex)
 import Data.Map (Map)
@@ -118,8 +119,10 @@ binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
+binOp (ArithOp Mul) (VList l) (VPrim (PInt n)) = pure $ VList $ fold $ replicate n l
+binOp (ArithOp Mul) (VPrim (PInt n)) (VList l) = pure $ VList $ fold $ replicate n l
 binOp op a b =
-  withError ("Could not make a binary expression for a " <> describeValue a <> " and a " <> describeValue b) $
+  withError ("Could not make a binary expression for " <> describeValue a <> " and " <> describeValue b) $
     fromComp VRTValue $ do
       a' <- coerceRTValue a
       b' <- coerceRTValue b
