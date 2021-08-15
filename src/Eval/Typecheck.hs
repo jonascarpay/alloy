@@ -111,12 +111,12 @@ unify (TypeVar a) (TypeVar b) = liftST $ UF.union' a b (\sa sb -> pure (sa <> sb
 judge :: TypeVar s -> Judgement Type -> Check s ()
 judge (TypeVar a) typ = liftST $ UF.modifyDescriptor a (mappend typ)
 
-resolve :: Typed s a -> Check s (Type, a)
-resolve (Typed a (TypeVar v)) = do
+resolve :: Typed s () -> Check s Type
+resolve (Typed () (TypeVar v)) = do
   liftST (UF.descriptor v) >>= \case
-    Any -> pure (TVoid, a)
-    OneOf ts -> pure (minimum2 ts, a)
-    Exactly t -> pure (t, a)
+    Any -> pure TVoid
+    OneOf ts -> pure (minimum2 ts)
+    Exactly t -> pure t
     None -> throwError "No valid types"
     Mismatch ts -> throwError $ "Mismatch: " <> show (toList2 ts)
 
@@ -133,12 +133,12 @@ data Typed s a = Typed a (TypeVar s)
   deriving (Functor)
 
 typeCheck ::
-  RTValue a RTLit (Bind Int Void) Void (Either FuncIX Hash) ->
+  RTValue () RTLit (Bind Int Void) Void (Either FuncIX Hash) ->
   [Type] ->
   Type ->
   HashMap Hash Sig ->
   Map FuncIX Sig ->
-  Either String (RTValue (Type, a) RTLit (Bind Int Void) Void (Either FuncIX Hash))
+  Either String (RTValue Type RTLit (Bind Int Void) Void (Either FuncIX Hash))
 typeCheck body args ret closedSigs openSigs =
   runCheck (closedSigs, openSigs) $ do
     ctx <- freshAt ret
@@ -148,13 +148,10 @@ typeCheck body args ret closedSigs openSigs =
         instantiateArg (Bound argIx) = case args ^? ix argIx of
           Just typ -> Typed (Bound argIx) <$> freshAt typ
           Nothing -> throwError "Impossible"
-    body' <- vars instantiateArg $ over labels absurd body
-    body'' <- checkValue ctx body'
-    types resolve body''
+        body' = over labels absurd body
+    vars instantiateArg body' >>= checkValue ctx >>= types resolve
 
--- TODO
--- like other placees, this should be renamed to something more expr-y
--- monomorphize where possible, roll up in a synonym
+-- TODO like other placees, this should be renamed to something more expr-y
 checkValue ::
   forall a s var blk.
   TypeVar s ->
@@ -181,7 +178,6 @@ checkValue ctx (RTLit lit a) = do
   pure $ RTLit lit (Typed a ctx)
 checkValue ctx (RTCond c t f a) = do
   vc <- freshAt TBool
-
   c' <- checkValue vc c
   t' <- checkValue ctx t
   f' <- checkValue ctx f
