@@ -177,7 +177,7 @@ compileFunc mlbl args ret body = do
           subSigs = mkSubSigs open
       superSigs <- lift ask
       typeChecked <- liftEither $ typeCheck closedBody argTypes retType closedSigs (superSigs <> subSigs)
-      pure $ RTFunc argTypes retType (typeChecked & over types fst)
+      pure $ RTFunc argTypes retType typeChecked
     pure $
       let cg = mkCallGraph fun typeChecked open
        in case closeFunc cg of
