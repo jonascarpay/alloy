@@ -119,11 +119,12 @@ binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op (VPrim a) (VPrim b) = binPrim op a b
 binOp op (VString l) (VString r) = binString op l r
 binOp op (VList l) (VList r) = binList op l r
-binOp op a b
-  | Just a' <- asRTValue a = fromComp VRTValue $ join $ liftA2 (rtBinOp op) a' (coerceRTValue b)
-  | Just b' <- asRTValue b = fromComp VRTValue $ join $ liftA2 (rtBinOp op) (coerceRTValue a) b'
-binOp (ArithOp _) l r = throwError $ unwords ["cannot perform arithmetic on ", describeValue l, "and ", describeValue r]
-binOp (CompOp _) l r = throwError $ unwords ["cannot compare ", describeValue l, "and ", describeValue r]
+binOp op a b =
+  withError ("Could not make a binary expression for a " <> describeValue a <> " and a " <> describeValue b) $
+    fromComp VRTValue $ do
+      a' <- coerceRTValue a
+      b' <- coerceRTValue b
+      rtBinOp op a' b'
 
 resolveBindings :: [Binding] -> Eval (Map Name Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
