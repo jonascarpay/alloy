@@ -293,12 +293,12 @@ rtTests = describe "rt" $ do
           }
       |]
     nocompile "numerical void" "with builtins.types; [] -> void { 0 }"
-    xsaFunc "struct field type inference" $
-      [r| with builtins.types;
-          let
-            v = builtins.struct {x: int};
+    saFunc "tuple field type inference" $
+      [r| let
+            inherit (builtins.types) tuple int void;
+            v = tuple [int];
           in [] -> void {
-            var x: v = {x: {0}};
+            var x: v = [0];
           }
       |]
     nocompile "function return type unification" $
@@ -352,7 +352,7 @@ rtTests = describe "rt" $ do
             sum
           }
       |]
-  fdescribe "tuples" $ do
+  describe "tuples" $ do
     saFunc "simple tuple literal" $
       [r| let inherit (builtins.types) tuple void int double;
               tup = tuple [int, double];
@@ -433,6 +433,12 @@ rtTests = describe "rt" $ do
             var v: tup = [[0]];
             v.0.0 = 3;
           }
+      |]
+    funcWithNDeps "tuple rvalue accessor" 1 $
+      [r| let
+            inherit (builtins.types) tuple int void;
+            tup = [] -> (tuple [int]) [2];
+          in [] -> int ((tup[]).0)
       |]
   describe "examples" $ do
     saFunc "half-inlined while loop" $

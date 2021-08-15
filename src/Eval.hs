@@ -11,7 +11,6 @@ import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as BSS
 import Data.Foldable
-import Data.Foldable (toList)
 import Data.List (elemIndex)
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -99,9 +98,13 @@ whnf (Sel haystack needle) =
         val -> throwError $ "indexing into an attr set requires a string, but got " <> describeValue val
     VRTPlace deps plc ->
       whnf needle >>= \case
-        VPrim (PInt ix) -> pure $ VRTPlace deps (RTSel plc ix ())
+        VPrim (PInt ix) -> pure $ VRTPlace deps (PlaceSel plc ix ())
         val -> throwError $ "indexing into a runtime lvalue set requires an int, but got " <> describeValue val
-    val -> throwError $ "Indexing into " <> describeValue val <> " instead of a list, attribute set, or string"
+    VRTValue deps val ->
+      whnf needle >>= \case
+        VPrim (PInt ix) -> pure $ VRTValue deps (ValueSel val ix ())
+        val -> throwError $ "indexing into a runtime rvalue set requires an int, but got " <> describeValue val
+    val -> throwError $ "Indexing into " <> describeValue val <> " instead of a list, attribute set, string, or runtime expression"
 whnf (With attrs body) =
   whnf attrs >>= \case
     VAttr m -> local (binds %~ mappend m) (whnf body)

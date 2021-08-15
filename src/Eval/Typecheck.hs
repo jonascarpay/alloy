@@ -88,9 +88,6 @@ instance Ord a => Semigroup (Set2 a) where
 set2 :: Ord a => a -> a -> Set2 a
 set2 a b = Set2 $ S.fromList [a, b]
 
-insert2 :: Ord a => a -> Set2 a -> Set2 a
-insert2 a (Set2 as) = Set2 (S.insert a as)
-
 intersection2 :: Ord a => (Set2 a -> r) -> (a -> r) -> r -> (Set2 a -> Set2 a -> r)
 intersection2 fn f1 f0 (Set2 a) (Set2 b) = case S.toList s of
   [] -> f0
@@ -244,6 +241,10 @@ checkValue ctx (RTCond c t f a) = do
   t' <- checkValue ctx t
   f' <- checkValue ctx f
   pure $ RTCond c' t' f' (Typed a ctx)
+checkValue ctx (ValueSel haystack needle a) = do
+  var <- fresh (Exactly $ TTuple' (IM.singleton needle ctx))
+  haystack' <- checkValue var haystack
+  pure $ ValueSel haystack' needle (Typed a ctx)
 checkValue ctx (Call fn args a) = do
   (argTypes, ret) <- lookupSig fn
   fromType ret >>= unify ctx
@@ -268,10 +269,10 @@ checkPlace ::
 checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
-checkPlace ctx (RTSel haystack needle a) = do
+checkPlace ctx (PlaceSel haystack needle a) = do
   var <- fresh (Exactly $ TTuple' (IM.singleton needle ctx))
   haystack' <- checkPlace var haystack
-  pure $ RTSel haystack' needle (Typed a ctx)
+  pure $ PlaceSel haystack' needle (Typed a ctx)
 checkPlace _ (Deref _ _) = throwError "Deref type checking not yet implemented"
 
 -- TODO
