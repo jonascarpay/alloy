@@ -201,7 +201,7 @@ compileFunc mlbl args ret body = do
 
 compileBlock ::
   ProgE ->
-  Comp (RTProg () VarIX BlockIX (Either FuncIX Hash))
+  Comp (EvalPhase RTProg)
 compileBlock = go
   where
     go (DeclE name mtyp val k) = do
@@ -221,7 +221,7 @@ compileBlock = go
     go (BreakE lbl mexpr) = do
       lbl' <- lift (whnf lbl) >>= ensureBlock
       expr' <- case mexpr of
-        Nothing -> pure $ RTPrim PVoid ()
+        Nothing -> pure $ RTLit (RTPrim PVoid) ()
         Just expr -> lift (whnf expr) >>= coerceRTValue
       pure $ Break lbl' expr'
     go (ContinueE lbl) = fmap Continue $ lift (whnf lbl) >>= ensureBlock

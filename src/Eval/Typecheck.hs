@@ -26,19 +26,6 @@ import Eval.Types
 import Expr
 import Lens.Micro.Platform
 
-valueType :: RTValue typ var lbl fun -> typ
-valueType (RTArith _ _ _ t) = t
-valueType (RTComp _ _ _ t) = t
-valueType (RTCond _ _ _ t) = t
-valueType (PlaceVal _ t) = t
-valueType (Block _ t) = t
-valueType (RTPrim _ t) = t
-valueType (Call _ _ t) = t
-
-placeType :: RTPlace typ var lbl fun -> typ
-placeType (Place _ t) = t
-placeType (Deref _ t) = t
-
 -- TypeVar s changes a lot, but Deps never changes, so we put them at different points in the stack
 type Check s = ReaderT Sigs (ExceptT String (ST s))
 
@@ -88,12 +75,12 @@ data Typed s a = Typed a (TypeVar s)
   deriving (Functor)
 
 typeCheck ::
-  RTValue a (Bind Int Void) Void (Either FuncIX Hash) ->
+  RTValue a RTLit (Bind Int Void) Void (Either FuncIX Hash) ->
   [Type] ->
   Type ->
   HashMap Hash Sig ->
   Map FuncIX Sig ->
-  Either String (RTValue (Type, a) (Bind Int Void) Void (Either FuncIX Hash))
+  Either String (RTValue (Type, a) RTLit (Bind Int Void) Void (Either FuncIX Hash))
 typeCheck body args ret closedSigs openSigs =
   runCheck (closedSigs, openSigs) $ do
     ctx <- freshAt ret
@@ -109,11 +96,12 @@ typeCheck body args ret closedSigs openSigs =
 
 -- TODO
 -- like other placees, this should be renamed to something more expr-y
+-- monomorphize where possible, roll up in a synonym
 checkValue ::
   forall a s var blk.
   TypeVar s ->
-  RTValue a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTValue (Typed s a) var blk (Either FuncIX Hash))
+  RTValue a RTLit (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTValue (Typed s a) RTLit var blk (Either FuncIX Hash))
 checkValue ctx (RTArith op l r a) = do
   l' <- checkValue ctx l
   r' <- checkValue ctx r
@@ -124,13 +112,15 @@ checkValue ctx (RTComp op l r a) = do
   l' <- checkValue var l
   r' <- checkValue var r
   pure $ RTComp op l' r' (Typed a ctx)
-checkValue ctx (RTPrim prim a) = do
-  case prim of
-    PInt _ -> pure () -- TODO restrict to int/double
-    PDouble _ -> judge ctx TDouble
-    PBool _ -> judge ctx TBool
-    PVoid -> judge ctx TVoid
-  pure $ RTPrim prim (Typed a ctx)
+checkValue ctx (RTLit lit a) = do
+  case lit of
+    RTPrim prim -> case prim of
+      PInt _ -> pure () -- TODO restrict to int/double
+      PDouble _ -> judge ctx TDouble
+      PBool _ -> judge ctx TBool
+      PVoid -> judge ctx TVoid
+    RTTuple t -> undefined
+  pure $ RTLit lit (Typed a ctx)
 checkValue ctx (RTCond c t f a) = do
   vc <- freshAt TBool
   c' <- checkValue vc c
@@ -156,8 +146,8 @@ checkValue ctx (Block blk a) = do
 
 checkPlace ::
   TypeVar s ->
-  RTPlace a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTPlace (Typed s a) var blk (Either FuncIX Hash))
+  RTPlace a RTLit (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTPlace (Typed s a) RTLit var blk (Either FuncIX Hash))
 checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
@@ -171,8 +161,8 @@ checkPlace _ _ = throwError "Deref type checkingnot yet implemented"
 checkProg ::
   forall a s var blk.
   TypeVar s ->
-  RTProg a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTProg (Typed s a) var blk (Either FuncIX Hash))
+  RTProg a RTLit (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTProg (Typed s a) RTLit var blk (Either FuncIX Hash))
 checkProg blk (Decl mtyp val k) = do
   ctx <- fresh
   forM_ mtyp $ judge ctx
