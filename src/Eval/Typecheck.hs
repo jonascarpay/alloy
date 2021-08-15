@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -34,7 +35,63 @@ type Sigs = (HashMap Hash Sig, Map FuncIX Sig)
 runCheck :: Sigs -> (forall s. Check s a) -> Either String a
 runCheck deps m = runST $ runExceptT $ runReaderT m deps
 
-newtype TypeVar s = TypeVar (UF.Point s (Set Type))
+newtype TypeVar s = TypeVar (UF.Point s (Judgement Type))
+
+-- TODO there is probably some sort of better, lattice-y name (class?) for this
+-- TODO is this where we should collect errors? Not just throw them?
+data Judgement a
+  = Any
+  | OneOf (Set2 a)
+  | Exactly a
+  | None
+  | Mismatch (Set2 a)
+
+newtype Set2 a = Set2 (Set a)
+
+instance Ord a => Semigroup (Set2 a) where
+  Set2 a <> Set2 b = Set2 (a <> b)
+
+set2 :: Ord a => a -> a -> Set2 a
+set2 a b = Set2 $ S.fromList [a, b]
+
+insert2 :: Ord a => a -> Set2 a -> Set2 a
+insert2 a (Set2 as) = Set2 (S.insert a as)
+
+intersection2 :: Ord a => (Set2 a -> r) -> (a -> r) -> r -> (Set2 a -> Set2 a -> r)
+intersection2 fn f1 f0 (Set2 a) (Set2 b) = case S.toList s of
+  [] -> f0
+  [e] -> f1 e
+  _ -> fn (Set2 s)
+  where
+    s = S.intersection a b
+
+member2 :: Ord a => a -> Set2 a -> Bool
+member2 a (Set2 as) = S.member a as
+
+toList2 :: Set2 a -> [a]
+toList2 (Set2 as) = S.toList as
+
+minimum2 :: Set2 a -> a
+minimum2 (Set2 as) = S.findMin as
+
+instance Ord a => Semigroup (Judgement a) where
+  Any <> t = t
+  OneOf t <> Any = OneOf t
+  OneOf a <> OneOf b = intersection2 OneOf Exactly None a b
+  OneOf ts <> Exactly t = if member2 t ts then Exactly t else None
+  OneOf _ <> None = None
+  OneOf _ <> Mismatch ts = Mismatch ts
+  Exactly t <> Any = Exactly t
+  Exactly t <> OneOf ts = if member2 t ts then Exactly t else None
+  Exactly a <> Exactly b = if a == b then Exactly a else Mismatch (set2 a b)
+  Exactly _ <> None = None
+  Exactly a <> Mismatch as = Mismatch (insert2 a as)
+  None <> _ = None
+  Mismatch as <> Mismatch bs = Mismatch (as <> bs)
+  Mismatch ts <> _ = Mismatch ts
+
+instance Ord a => Monoid (Judgement a) where
+  mempty = Any
 
 liftST :: ST s a -> Check s a
 liftST = lift . lift
@@ -45,22 +102,23 @@ fresh = liftST $ TypeVar <$> UF.fresh mempty
 freshAt :: Type -> Check s (TypeVar s)
 freshAt typ = do
   var <- fresh
-  judge var typ
+  judge var $ Exactly typ
   pure var
 
 unify :: TypeVar s -> TypeVar s -> Check s ()
 unify (TypeVar a) (TypeVar b) = liftST $ UF.union' a b (\sa sb -> pure (sa <> sb))
 
-judge :: TypeVar s -> Type -> Check s ()
-judge (TypeVar a) typ = liftST $ UF.modifyDescriptor a (S.insert typ)
+judge :: TypeVar s -> Judgement Type -> Check s ()
+judge (TypeVar a) typ = liftST $ UF.modifyDescriptor a (mappend typ)
 
 resolve :: Typed s a -> Check s (Type, a)
 resolve (Typed a (TypeVar v)) = do
-  typ <- liftST $ UF.descriptor v
-  case S.toList typ of
-    [] -> pure (TVoid, a)
-    [t] -> pure (t, a)
-    ts -> throwError $ "Mismatch: " <> show ts
+  liftST (UF.descriptor v) >>= \case
+    Any -> pure (TVoid, a)
+    OneOf ts -> pure (minimum2 ts, a)
+    Exactly t -> pure (t, a)
+    None -> throwError "No valid types"
+    Mismatch ts -> throwError $ "Mismatch: " <> show (toList2 ts)
 
 lookupSig :: Either FuncIX Hash -> Check s Sig
 lookupSig func = view (lens func) >>= maybe err pure
@@ -107,7 +165,7 @@ checkValue ctx (RTArith op l r a) = do
   r' <- checkValue ctx r
   pure $ RTArith op l' r' (Typed a ctx)
 checkValue ctx (RTComp op l r a) = do
-  judge ctx TBool
+  judge ctx $ Exactly TBool
   var <- fresh
   l' <- checkValue var l
   r' <- checkValue var r
@@ -115,21 +173,22 @@ checkValue ctx (RTComp op l r a) = do
 checkValue ctx (RTLit lit a) = do
   case lit of
     RTPrim prim -> case prim of
-      PInt _ -> pure () -- TODO restrict to int/double
-      PDouble _ -> judge ctx TDouble
-      PBool _ -> judge ctx TBool
-      PVoid -> judge ctx TVoid
+      PInt _ -> judge ctx $ OneOf (set2 TInt TDouble)
+      PDouble _ -> judge ctx $ Exactly TDouble
+      PBool _ -> judge ctx $ Exactly TBool
+      PVoid -> judge ctx $ Exactly TVoid
     RTTuple t -> undefined
   pure $ RTLit lit (Typed a ctx)
 checkValue ctx (RTCond c t f a) = do
   vc <- freshAt TBool
+
   c' <- checkValue vc c
   t' <- checkValue ctx t
   f' <- checkValue ctx f
   pure $ RTCond c' t' f' (Typed a ctx)
 checkValue ctx (Call fn args a) = do
   (argTypes, ret) <- lookupSig fn
-  judge ctx ret
+  judge ctx $ Exactly ret
   -- TODO again, prove arg lengths _once_, somehow
   unless (length args == length argTypes) $ throwError "Argument lenght mismatch"
   args' <- zipWithM (\val typ -> freshAt typ >>= \var -> checkValue var val) args argTypes
@@ -165,7 +224,7 @@ checkProg ::
   Check s (RTProg (Typed s a) RTLit var blk (Either FuncIX Hash))
 checkProg blk (Decl mtyp val k) = do
   ctx <- fresh
-  forM_ mtyp $ judge ctx
+  forM_ mtyp $ judge ctx . Exactly
   val' <- checkValue ctx val
   let instantiateVar :: Bind () (Typed s var) -> Typed s (Bind () var)
       instantiateVar (Bound ()) = Typed (Bound ()) ctx
