@@ -277,7 +277,7 @@ rtTests = describe "rt" $ do
       |]
     saFunc "conditional must be bool" $
       [r| with builtins.types;
-          [] -> void {
+          [] -> int {
             var x: int = 4;
             var y: bool = true;
             var z = if y then x else x;
@@ -292,7 +292,7 @@ rtTests = describe "rt" $ do
             var z = if y then x else x;
           }
       |]
-    xsaFunc "numerical void" "with builtins.types; [] -> void { 0 }"
+    nocompile "numerical void" "with builtins.types; [] -> void { 0 }"
     xsaFunc "struct field type inference" $
       [r| with builtins.types;
           let

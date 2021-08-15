@@ -105,15 +105,12 @@ newtype FuncIX = FuncIX {unFuncIX :: Int}
   deriving newtype (Eq, Ord, Show, Enum)
 
 -- TODO
--- Since this _only_ describes the implementation, structs with the same
--- types of fields but different names shouldn't count as different values.
--- Ideally we'd find some way to do name-based access, but erase the names at
--- runtime
+-- The ord instance determines the order of defaulting in the case of ambigous types. Not ideal.
 data Type
-  = TInt
-  | TDouble
+  = TVoid
   | TBool
-  | TVoid
+  | TInt
+  | TDouble
   | TTuple (Seq Type)
   deriving stock (Eq, Show, Ord, Generic)
 
