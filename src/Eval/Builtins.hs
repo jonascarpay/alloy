@@ -68,15 +68,15 @@ vTypes =
   VAttr $
     NF
       <$> M.fromList
-        [ ("int", VType (Type TInt)),
-          ("double", VType (Type TDouble)),
-          ("bool", VType (Type TBool)),
-          ("void", VType (Type TVoid)),
+        [ ("int", VType TInt),
+          ("double", VType TDouble),
+          ("bool", VType TBool),
+          ("void", VType TVoid),
           ("tuple", VClosure mkTuple)
         ]
   where
     mkTuple = forceExpect "builtins.types.tuple" "a list of member types" $ \case
-      VList m -> Just $ VType . Type . TTuple <$> traverse (force >=> ensureType) m
+      VList m -> Just $ VType . TTuple <$> traverse (force >=> ensureType) m
       _ -> Nothing
 
 vMatchType :: Value f
@@ -86,7 +86,7 @@ vMatchType = VClosure $
       pure $
         VClosure $
           expect "a type" $ \case
-            VType (Type t) ->
+            VType t ->
               Just $
                 case t of
                   TInt -> lookupDefault m "int"

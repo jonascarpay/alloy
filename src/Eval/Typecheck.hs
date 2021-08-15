@@ -18,9 +18,12 @@ import Control.Monad.Reader
 import Control.Monad.ST
 import Data.Foldable
 import Data.HashMap.Strict (HashMap)
+import Data.IntMap (IntMap)
+import Data.IntMap qualified as IM
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
+import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as S
@@ -53,7 +56,6 @@ typeCheck body args ret closedSigs openSigs =
     -- Currently, ints might still be doubles
     vars instantiateArg body' >>= checkValue ctx >>= types (resolve . getVar)
 
--- TypeVar s changes a lot, but Deps never changes, so we put them at different points in the stack
 type Check s = ReaderT Sigs (ExceptT String (ST s))
 
 type Sigs = (HashMap Hash Sig, Map FuncIX Sig)
@@ -63,11 +65,20 @@ runCheck deps m = runST $ runExceptT $ runReaderT m deps
 
 newtype TypeVar s = TypeVar (UF.Point s (Judgement s))
 
+data Type' f
+  = TVoid'
+  | TBool'
+  | TInt'
+  | TDouble'
+  | TKnownTuple' (Seq f)
+  | TTuple' (IntMap f) -- TODO there probably is a better way to represent constraints, maybe somehow combine with OneOf
+  deriving (Eq, Ord, Functor, Foldable, Traversable)
+
 -- TODO there is probably some sort of better, lattice-y name (class?) for this
 data Judgement s
   = Any
-  | OneOf (Set2 (TypeF Void)) -- TODO ambiguities are kind of primitive atm
-  | Exactly (TypeF (TypeVar s))
+  | OneOf (Set2 (Type' Void)) -- TODO ambiguities are kind of primitive atm
+  | Exactly (Type' (TypeVar s))
 
 newtype Set2 a = Set2 (Set a)
 
@@ -101,27 +112,40 @@ unify (TypeVar a) (TypeVar b) = do
   jc <- ja <=> jb
   liftST $ UF.union a b >> UF.setDescriptor a jc
   where
-    (<+>) :: TypeF (TypeVar s) -> TypeF (TypeVar s) -> Check s (TypeF (TypeVar s))
-    TVoid <+> TVoid = pure TVoid
-    TBool <+> TBool = pure TBool
-    TInt <+> TInt = pure TInt
-    TDouble <+> TDouble = pure TDouble
-    TTuple as <+> TTuple bs = do
+    (<+>) :: Type' (TypeVar s) -> Type' (TypeVar s) -> Check s (Type' (TypeVar s))
+    TVoid' <+> TVoid' = pure TVoid'
+    TBool' <+> TBool' = pure TBool'
+    TInt' <+> TInt' = pure TInt'
+    TDouble' <+> TDouble' = pure TDouble'
+    TKnownTuple' as <+> TKnownTuple' bs = do
       when (Seq.length as /= Seq.length bs) $ throwError "tuple length mismatch"
-      TTuple <$> sequence (Seq.zipWith (\a b -> a <$ unify a b) as bs)
+      TKnownTuple' <$> sequence (Seq.zipWith (\a b -> a <$ unify a b) as bs)
+    TKnownTuple' as <+> TTuple' bs = TKnownTuple' as <$ checkTuple as bs
+    TTuple' as <+> TKnownTuple' bs = TKnownTuple' bs <$ checkTuple bs as
+    TTuple' as <+> TTuple' bs = TTuple' <$> unionWithM (\a b -> a <$ unify a b) as bs
     a <+> b = unificationErr (pure a) (pure b)
 
-    unificationErr :: NonEmpty (TypeF ta) -> NonEmpty (TypeF tb) -> Check s a
+    unionWithM :: Monad m => (a -> a -> m a) -> IntMap a -> IntMap a -> m (IntMap a)
+    unionWithM f a b = sequence $ IM.unionWith (\ma mb -> join $ liftM2 f ma mb) (pure <$> a) (pure <$> b)
+
+    checkTuple :: Seq (TypeVar s) -> IntMap (TypeVar s) -> Check s ()
+    checkTuple sq im = void $
+      flip IM.traverseWithKey im $ \ix var -> case Seq.lookup ix sq of
+        Nothing -> throwError $ "Index " <> show ix <> " out of bounds for tuple"
+        Just var' -> unify var var'
+
+    unificationErr :: NonEmpty (Type' ta) -> NonEmpty (Type' tb) -> Check s a
     unificationErr as bs = throwError $ "Cannot match " <> describeTypes as <> " with " <> describeTypes bs
       where
         describeTypes (a :| []) = describeType a
         describeTypes as = "one of (" <> unwords (describeType <$> toList as) <> ")"
-        describeType :: TypeF a -> String
-        describeType TVoid = "void"
-        describeType TBool = "bool"
-        describeType TInt = "int"
-        describeType TDouble = "double"
-        describeType (TTuple _) = "tuple"
+        describeType :: Type' a -> String
+        describeType TVoid' = "void"
+        describeType TBool' = "bool"
+        describeType TInt' = "int"
+        describeType TDouble' = "double"
+        describeType (TTuple' _) = "tuple"
+        describeType (TKnownTuple' _) = "tuple"
 
     (<=>) :: Judgement s -> Judgement s -> Check s (Judgement s)
     Any <=> t = pure t
@@ -143,17 +167,26 @@ fresh :: Judgement s -> Check s (TypeVar s)
 fresh j = liftST $ TypeVar <$> UF.fresh j
 
 fromType :: Type -> Check s (TypeVar s)
-fromType (Type t) = traverse fromType t >>= fresh . Exactly
-
-fromTypeF :: TypeF Type -> Check s (TypeVar s)
-fromTypeF = fromType . Type
+fromType TInt = fresh $ Exactly TInt'
+fromType TDouble = fresh $ Exactly TDouble'
+fromType TBool = fresh $ Exactly TBool'
+fromType TVoid = fresh $ Exactly TVoid'
+fromType (TTuple ts) = traverse fromType ts >>= fresh . Exactly . TKnownTuple'
 
 resolve :: TypeVar s -> Check s Type
 resolve (TypeVar v) =
   liftST (UF.descriptor v) >>= \case
-    Any -> pure (Type TVoid)
-    (OneOf ts) -> Type . minimum <$> (traverse . traverse) resolve (fmap absurd <$> toList2 ts)
-    (Exactly t) -> Type <$> traverse resolve t
+    Any -> pure TVoid
+    (OneOf ts) -> minimum <$> traverse resolveType (fmap absurd <$> toList2 ts)
+    (Exactly t) -> resolveType t
+  where
+    resolveType :: Type' (TypeVar s) -> Check s Type
+    resolveType TVoid' = pure TVoid
+    resolveType TDouble' = pure TDouble
+    resolveType TInt' = pure TInt
+    resolveType TBool' = pure TBool
+    resolveType (TKnownTuple' s) = TTuple <$> traverse resolve s
+    resolveType (TTuple' _) = throwError "Ambiguous tuple type"
 
 lookupSig :: Either FuncIX Hash -> Check s Sig
 lookupSig func = view (lens func) >>= maybe err pure
@@ -171,10 +204,10 @@ data Typed s a = Typed
   deriving (Functor)
 
 checkPrim :: Prim -> Check s (TypeVar s)
-checkPrim (PInt _) = fresh (OneOf (set2 TInt TDouble))
-checkPrim (PDouble _) = fromTypeF TDouble
-checkPrim (PBool _) = fromTypeF TBool
-checkPrim PVoid = fromTypeF TVoid
+checkPrim (PInt _) = fresh (OneOf (set2 TInt' TDouble'))
+checkPrim (PDouble _) = fromType TDouble
+checkPrim (PBool _) = fromType TBool
+checkPrim PVoid = fromType TVoid
 
 -- checkLit (RTTuple t) = traverse checkLit t >>= fresh . Exactly . TTuple
 
@@ -189,7 +222,7 @@ checkValue ctx (RTArith op l r a) = do
   r' <- checkValue ctx r
   pure $ RTArith op l' r' (Typed a ctx)
 checkValue ctx (RTComp op l r a) = do
-  fromType (Type TBool) >>= unify ctx
+  fromType TBool >>= unify ctx
   var <- fresh Any
   l' <- checkValue var l
   r' <- checkValue var r
@@ -203,10 +236,10 @@ checkValue ctx (RTTuple tup a) = do
       var <- fresh Any
       expr' <- checkValue var expr
       pure (var, expr')
-  fresh (Exactly (TTuple types)) >>= unify ctx
+  fresh (Exactly (TKnownTuple' types)) >>= unify ctx
   pure $ RTTuple exprs (Typed a ctx)
 checkValue ctx (RTCond c t f a) = do
-  vc <- fromTypeF TBool
+  vc <- fromType TBool
   c' <- checkValue vc c
   t' <- checkValue ctx t
   f' <- checkValue ctx f
@@ -235,7 +268,11 @@ checkPlace ::
 checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
-checkPlace _ _ = throwError "Deref type checkingnot yet implemented"
+checkPlace ctx (RTSel haystack needle a) = do
+  var <- fresh (Exactly $ TTuple' (IM.singleton needle ctx))
+  haystack' <- checkPlace var haystack
+  pure $ RTSel haystack' needle (Typed a ctx)
+checkPlace _ (Deref _ _) = throwError "Deref type checking not yet implemented"
 
 -- TODO
 -- Break always takes a label but ExprStmt still allows breaking to an implicit

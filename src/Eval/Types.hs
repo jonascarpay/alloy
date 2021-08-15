@@ -107,18 +107,15 @@ newtype FuncIX = FuncIX {unFuncIX :: Int}
 
 -- TODO
 -- The ord instance determines the order of defaulting in the case of ambigous types. Not ideal.
-data TypeF f
-  = TVoid
+data Type
+  = TVoid -- TODO Can this be the empty tuple now?
   | TBool
   | TInt
   | TDouble
-  | TTuple (Seq f)
-  deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic)
+  | TTuple (Seq Type)
+  deriving stock (Eq, Show, Ord, Generic)
 
-newtype Type = Type (TypeF Type)
-  deriving newtype (Eq, Show, Hashable, Ord)
-
-instance Hashable f => Hashable (TypeF f) where
+instance Hashable Type where
   hashWithSalt s TInt = hashWithSalt s (0 :: Int)
   hashWithSalt s TDouble = hashWithSalt s (1 :: Int)
   hashWithSalt s TBool = hashWithSalt s (2 :: Int)
@@ -161,8 +158,15 @@ data RTValue typ var blk fun
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
+-- TODO
+-- DynamicSel, where the index is not statically known, for uniform tuple types?
+-- TODO
+-- Sel also exists for non-lvalues, in which case it is not assignable.
+-- Weirdly, C doesn't care, this is valid:
+--   ((struct { int x; }){.x = 1}).x = 3;
 data RTPlace typ var blk fun
   = Place var typ -- TODO Rename
+  | RTSel (RTPlace typ var blk fun) Int typ
   | Deref (RTValue typ var blk fun) typ
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
@@ -218,8 +222,11 @@ instance RTAST RTValue where
       go (RTPrim p t) = RTPrim p <$> ft t
 
 instance RTAST RTPlace where
-  traverseAst ft fv _ _ (Place var t) = Place <$> fv var <*> ft t
-  traverseAst ft fv fl ff (Deref val t) = Deref <$> traverseAst ft fv fl ff val <*> ft t
+  traverseAst ft fv fl ff = go
+    where
+      go (Place var t) = Place <$> fv var <*> ft t
+      go (RTSel lhs sel t) = RTSel <$> go lhs <*> pure sel <*> ft t
+      go (Deref val t) = Deref <$> traverseAst ft fv fl ff val <*> ft t
 
 instance RTAST RTProg where
   traverseAst ft fv fl ff (Decl typ val k) = Decl typ <$> traverseAst ft fv fl ff val <*> traverseAst ft (traverse fv) fl ff k
