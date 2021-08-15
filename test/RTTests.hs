@@ -353,18 +353,18 @@ rtTests = describe "rt" $ do
           }
       |]
   fdescribe "tuples" $ do
-    saFunc "simple struct literal" $
-      [r| with builtins.types;
-          let tup = builtins.types.tuple [int, double];
+    saFunc "simple tuple literal" $
+      [r| let inherit (builtins.types) tuple void int double;
+              tup = tuple [int, double];
           in [] -> void {
             var x: tup = [2, 3];
           }
       |]
     nocompile "struct member type error" $
-      [r| with builtins.types;
-          let str = builtins.struct { a: bool };
+      [r| let inherit (builtins.types) tuple bool void;
+              tup = tuple [bool];
           in [] -> void {
-            var x: str = {a: 2};
+            var x: tup = [2];
           }
       |]
     nocompile "missing struct members" $
@@ -382,33 +382,45 @@ rtTests = describe "rt" $ do
             var x: tup = [y, 3];
           }
       |]
-    saFunc "struct fields are _runtime_ expressions" $
-      [r| with builtins.types;
-          let
-            v = builtins.struct {x: int};
-          in [] -> void {
-            var x: v = {x: 0};
-            # var y: v = {x: x.x};
-          }
-      |]
-    saFunc "simple RT field accessor" $
-      [r| with builtins.types;
-          [] -> int {
-            var v: builtins.struct {x: int} = { x: 0 };
-            return v.x;
-          }
-      |]
-    saFunc "nested RT field accessor" $
-      [r| with builtins.types;
-          let
-            nestedStruct = builtins.struct {x: int};
-            str = builtins.struct {nest: nestedStruct};
-          in [] -> int {
-            var v: str = { nest: {x: 0} };
-            return v.nest.x;
-          }
-      |]
-
+    markPending $
+      saFunc "simple RT field accessor" $
+        [r| let inherit (builtins.types) int tuple;
+            in [] -> int {
+              var v: tuple [int] = [0];
+              v.0
+            }
+          |]
+    markPending $
+      saFunc "tuple fields are _runtime_ expressions" $
+        [r| let inherit (builtins.types) tuple void int;
+                tup = tuple [int];
+            in [] -> void {
+              var x: tup = [2];
+              var y: tup = [x.0];
+            }
+        |]
+    markPending $
+      saFunc "nested RT field accessor" $
+        [r| let
+              inherit (builtins.types) tuple int;
+              nest = tuple [int];
+              tup = tuple [nest];
+            in [] -> int {
+              var v: tup = [[0]];
+              v.0.0
+            }
+        |]
+    markPending $
+      saFunc "tuple assignment" $
+        [r| let
+                inherit (builtins.types) tuple int void;
+                nest = tuple [int];
+                tup = tuple [nest];
+              in [] -> void {
+                var v: tup = [[0]];
+                v.0.0 = 3;
+              }
+          |]
   describe "examples" $ do
     saFunc "half-inlined while loop" $
       [r| with builtins.types;

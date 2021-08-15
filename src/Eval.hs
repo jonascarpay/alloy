@@ -4,7 +4,6 @@
 
 module Eval (runEval) where
 
-import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
@@ -222,7 +221,7 @@ compileBlock = go
     go (BreakE lbl mexpr) = do
       lbl' <- lift (whnf lbl) >>= ensureBlock
       expr' <- case mexpr of
-        Nothing -> pure $ RTLit (RTPrim PVoid) ()
+        Nothing -> pure $ RTPrim PVoid ()
         Just expr -> lift (whnf expr) >>= coerceRTValue
       pure $ Break lbl' expr'
     go (ContinueE lbl) = fmap Continue $ lift (whnf lbl) >>= ensureBlock

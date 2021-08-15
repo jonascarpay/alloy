@@ -31,14 +31,14 @@ import Lens.Micro.Platform hiding (ix)
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
-labels :: RTAST f => Traversal (f typ lit var lbl fun) (f typ lit var lbl' fun) lbl lbl'
-labels f = traverseAst pure pure pure f pure
+labels :: RTAST f => Traversal (f typ var lbl fun) (f typ var lbl' fun) lbl lbl'
+labels f = traverseAst pure pure f pure
 
-vars :: RTAST f => Traversal (f typ lit var lbl fun) (f typ lit var' lbl fun) var var'
-vars f = traverseAst pure pure f pure pure
+vars :: RTAST f => Traversal (f typ var lbl fun) (f typ var' lbl fun) var var'
+vars f = traverseAst pure f pure pure
 
-types :: RTAST f => Traversal (f typ lit var lbl fun) (f typ' lit var lbl fun) typ typ'
-types f = traverseAst f pure pure pure pure
+types :: RTAST f => Traversal (f typ var lbl fun) (f typ' var lbl fun) typ typ'
+types f = traverseAst f pure pure pure
 
 -- TODO Describe primitives in more detail
 describeValue :: Value f -> String
@@ -136,17 +136,12 @@ indexMaybe ps n
 withError :: MonadError e m => e -> m a -> m a
 withError err m = catchError m (const $ throwError err)
 
-coerceRTLit :: WHNF -> Comp RTLit
-coerceRTLit (VPrim prim) = pure $ RTPrim prim
-coerceRTLit (VList l) = RTTuple <$> traverse (lift . lift . force >=> coerceRTLit) l
-coerceRTLit val = throwError $ "Could not coerce " <> describeValue val <> " into a literal"
-
 coerceRTValue :: WHNF -> Comp (EvalPhase RTValue)
 coerceRTValue (VRTValue deps val) = val <$ tell deps
 coerceRTValue (VRTPlace deps plc) = PlaceVal plc () <$ tell deps
-coerceRTValue val =
-  withError ("Could not coerce " <> describeValue val <> " into a runtime value") $
-    flip RTLit () <$> coerceRTLit val
+coerceRTValue (VPrim prim) = pure (RTPrim prim ())
+coerceRTValue (VList l) = flip RTTuple () <$> traverse (lift . lift . force >=> coerceRTValue) l
+coerceRTValue val = throwError ("Could not coerce " <> describeValue val <> " into a runtime value")
 
 coerceRTPlace :: WHNF -> Comp (EvalPhase RTPlace)
 coerceRTPlace (VRTPlace deps plc) = plc <$ tell deps
