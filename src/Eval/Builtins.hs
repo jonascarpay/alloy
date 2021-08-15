@@ -9,7 +9,6 @@ import Data.ByteString.Short qualified as BSS
 import Data.Foldable (toList)
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.Sequence qualified as Seq
 import Eval.Lib
 import Eval.Types
 import Expr
@@ -69,17 +68,15 @@ vTypes =
   VAttr $
     NF
       <$> M.fromList
-        [ ("int", VType TInt),
-          ("double", VType TDouble),
-          ("bool", VType TBool),
-          ("void", VType TVoid),
+        [ ("int", VType (Type TInt)),
+          ("double", VType (Type TDouble)),
+          ("bool", VType (Type TBool)),
+          ("void", VType (Type TVoid)),
           ("tuple", VClosure mkTuple)
         ]
   where
     mkTuple = forceExpect "builtins.types.tuple" "a list of member types" $ \case
-      VList m -> Just $ do
-        m' <- traverse (force >=> ensureType) m
-        pure $ VType $ TTuple m'
+      VList m -> Just $ VType . Type . TTuple <$> traverse (force >=> ensureType) m
       _ -> Nothing
 
 vMatchType :: Value f
@@ -89,7 +86,7 @@ vMatchType = VClosure $
       pure $
         VClosure $
           expect "a type" $ \case
-            VType t ->
+            VType (Type t) ->
               Just $
                 case t of
                   TInt -> lookupDefault m "int"

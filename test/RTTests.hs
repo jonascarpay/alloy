@@ -352,12 +352,12 @@ rtTests = describe "rt" $ do
             sum
           }
       |]
-  xdescribe "structs" $ do
+  fdescribe "tuples" $ do
     saFunc "simple struct literal" $
       [r| with builtins.types;
-          let str = builtins.struct { a: int, b: double };
+          let tup = builtins.types.tuple [int, double];
           in [] -> void {
-            var x: str = {a: 3, b: 2};
+            var x: tup = [2, 3];
           }
       |]
     nocompile "struct member type error" $
@@ -368,18 +368,18 @@ rtTests = describe "rt" $ do
           }
       |]
     nocompile "missing struct members" $
-      [r| with builtins.types;
-          let str = builtins.struct { a: int, b: int };
+      [r| let inherit (builtins.types) tuple int void;
+              tup = tuple [int, int];
           in [] -> void {
-            var x: str = {a: 2};
+            var x: tup = [2];
           }
       |]
     saFunc "non-literal struct expression" $
-      [r| with builtins.types;
-          let str = builtins.struct { a: int, b: double };
+      [r| let inherit (builtins.types) tuple int double void;
+              tup = tuple [int, double];
           in [] -> void {
             var y: int = 2;
-            var x: str = {a: y, b: 2};
+            var x: tup = [y, 3];
           }
       |]
     saFunc "struct fields are _runtime_ expressions" $

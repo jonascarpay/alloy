@@ -106,15 +106,18 @@ newtype FuncIX = FuncIX {unFuncIX :: Int}
 
 -- TODO
 -- The ord instance determines the order of defaulting in the case of ambigous types. Not ideal.
-data Type
+data TypeF f
   = TVoid
   | TBool
   | TInt
   | TDouble
-  | TTuple (Seq Type)
-  deriving stock (Eq, Show, Ord, Generic)
+  | TTuple (Seq f)
+  deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic)
 
-instance Hashable Type where
+newtype Type = Type (TypeF Type)
+  deriving newtype (Eq, Show, Hashable, Ord)
+
+instance Hashable f => Hashable (TypeF f) where
   hashWithSalt s TInt = hashWithSalt s (0 :: Int)
   hashWithSalt s TDouble = hashWithSalt s (1 :: Int)
   hashWithSalt s TBool = hashWithSalt s (2 :: Int)

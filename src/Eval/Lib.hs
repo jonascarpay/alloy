@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- TODO export list
+-- TODO Things not related to any of the eval types should probably be moved to a more general Eval module
 module Eval.Lib where
 
 import Control.Monad.Except
@@ -20,7 +21,6 @@ import Data.Hashable
 import Data.IORef
 import Data.Map (Map)
 import Data.Map qualified as M
-import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Word (Word8)
@@ -133,24 +133,24 @@ indexMaybe ps n
   | otherwise = Just $! BSU.unsafeIndex ps n
 {-# INLINE indexMaybe #-}
 
-{-# INLINE asRTValue #-}
-asRTValue :: WHNF -> Maybe (Comp (EvalPhase RTValue))
-asRTValue (VRTValue deps val) = Just $ val <$ tell deps
-asRTValue (VRTPlace deps plc) = Just $ PlaceVal plc () <$ tell deps
-asRTValue (VPrim prim) = Just $ pure $ RTLit (RTPrim prim) ()
-asRTValue _ = Nothing
+withError :: MonadError e m => e -> m a -> m a
+withError err m = catchError m (const $ throwError err)
+
+coerceRTLit :: WHNF -> Comp RTLit
+coerceRTLit (VPrim prim) = pure $ RTPrim prim
+coerceRTLit (VList l) = RTTuple <$> traverse (lift . lift . force >=> coerceRTLit) l
+coerceRTLit val = throwError $ "Could not coerce " <> describeValue val <> " into a literal"
 
 coerceRTValue :: WHNF -> Comp (EvalPhase RTValue)
-coerceRTValue val = fromMaybe (throwError $ "Could not coerce " <> describeValue val <> " into a runtime value") $ asRTValue val
-
-{-# INLINE asRTPlace #-}
--- TODO do we allow changing PlaceVal back into Place?
-asRTPlace :: WHNF -> Maybe (Comp (EvalPhase RTPlace))
-asRTPlace (VRTPlace deps plc) = Just $ plc <$ tell deps
-asRTPlace _ = Nothing
+coerceRTValue (VRTValue deps val) = val <$ tell deps
+coerceRTValue (VRTPlace deps plc) = PlaceVal plc () <$ tell deps
+coerceRTValue val =
+  withError ("Could not coerce " <> describeValue val <> " into a runtime value") $
+    flip RTLit () <$> coerceRTLit val
 
 coerceRTPlace :: WHNF -> Comp (EvalPhase RTPlace)
-coerceRTPlace plc = fromMaybe (throwError $ "Could not coerce " <> describeValue plc <> " into a runtime place expression") $ asRTPlace plc
+coerceRTPlace (VRTPlace deps plc) = plc <$ tell deps
+coerceRTPlace val = throwError $ "Could not coerce " <> describeValue val <> " into a runtime place expression"
 
 mkCallGraph :: FuncIX -> RTFunc (Either FuncIX Hash) -> Set CallGraph -> CallGraph
 mkCallGraph ix body deps = CallGraph ix body (S.difference open bind) bind deps
