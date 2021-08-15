@@ -1,3 +1,3 @@
 # Alloy
 
-Codename for a programming language experiment
+[Codename](https://github.com/jonascarpay/alloy/issues/6) for a programming language experiment
