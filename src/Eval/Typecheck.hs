@@ -16,7 +16,10 @@ module Eval.Typecheck (typeCheck) where
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.ST
+import Data.Foldable
 import Data.HashMap.Strict (HashMap)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
@@ -27,6 +30,28 @@ import Eval.Lib (closedOver, labels, types, vars)
 import Eval.Types
 import Expr
 import Lens.Micro.Platform
+
+typeCheck ::
+  RTValue () (Bind Int Void) Void (Either FuncIX Hash) ->
+  [Type] ->
+  Type ->
+  HashMap Hash Sig ->
+  Map FuncIX Sig ->
+  Either String (RTValue Type (Bind Int Void) Void (Either FuncIX Hash))
+typeCheck body args ret closedSigs openSigs =
+  runCheck (closedSigs, openSigs) $ do
+    ctx <- fromType ret
+    -- TODO somehow check _once_ that the length of argument list is correct, and then reuse proof
+    let instantiateArg :: Bind Int Void -> Check s (Typed s (Bind Int Void))
+        instantiateArg (Free v) = absurd v
+        instantiateArg (Bound argIx) = case args ^? ix argIx of
+          Just typ -> Typed (Bound argIx) <$> fromType typ
+          Nothing -> throwError "Impossible"
+        body' = over labels absurd body
+    -- TODO
+    -- After type checking is done, make sure that primitives have the correct type
+    -- Currently, ints might still be doubles
+    vars instantiateArg body' >>= checkValue ctx >>= types (resolve . getVar)
 
 -- TypeVar s changes a lot, but Deps never changes, so we put them at different points in the stack
 type Check s = ReaderT Sigs (ExceptT String (ST s))
@@ -66,8 +91,8 @@ intersection2 fn f1 f0 (Set2 a) (Set2 b) = case S.toList s of
 member2 :: Ord a => a -> Set2 a -> Bool
 member2 a (Set2 as) = S.member a as
 
-toList2 :: Set2 a -> [a]
-toList2 (Set2 as) = S.toList as
+toList2 :: Set2 a -> NonEmpty a
+toList2 (Set2 as) = NE.fromList $ S.toList as
 
 unify :: TypeVar s -> TypeVar s -> Check s ()
 unify (TypeVar a) (TypeVar b) = do
@@ -76,13 +101,6 @@ unify (TypeVar a) (TypeVar b) = do
   jc <- ja <=> jb
   liftST $ UF.union a b >> UF.setDescriptor a jc
   where
-    describeType :: TypeF a -> String
-    describeType TVoid = "void"
-    describeType TBool = "bool"
-    describeType TInt = "int"
-    describeType TDouble = "double"
-    describeType (TTuple _) = "tuple"
-
     (<+>) :: TypeF (TypeVar s) -> TypeF (TypeVar s) -> Check s (TypeF (TypeVar s))
     TVoid <+> TVoid = pure TVoid
     TBool <+> TBool = pure TBool
@@ -91,19 +109,31 @@ unify (TypeVar a) (TypeVar b) = do
     TTuple as <+> TTuple bs = do
       when (Seq.length as /= Seq.length bs) $ throwError "tuple length mismatch"
       TTuple <$> sequence (Seq.zipWith (\a b -> a <$ unify a b) as bs)
-    a <+> b = throwError $ "Type mismatch between " <> describeType a <> " and " <> describeType b
+    a <+> b = unificationErr (pure a) (pure b)
+
+    unificationErr :: NonEmpty (TypeF ta) -> NonEmpty (TypeF tb) -> Check s a
+    unificationErr as bs = throwError $ "Cannot match " <> describeTypes as <> " with " <> describeTypes bs
+      where
+        describeTypes (a :| []) = describeType a
+        describeTypes as = "one of (" <> unwords (describeType <$> toList as) <> ")"
+        describeType :: TypeF a -> String
+        describeType TVoid = "void"
+        describeType TBool = "bool"
+        describeType TInt = "int"
+        describeType TDouble = "double"
+        describeType (TTuple _) = "tuple"
 
     (<=>) :: Judgement s -> Judgement s -> Check s (Judgement s)
     Any <=> t = pure t
     OneOf t <=> Any = pure (OneOf t)
-    OneOf a <=> OneOf b = intersection2 (pure . OneOf) (pure . Exactly . fmap absurd) (throwError "Nil intersection") a b
+    OneOf a <=> OneOf b = intersection2 (pure . OneOf) (pure . Exactly . fmap absurd) (unificationErr (toList2 a) (toList2 b)) a b
     OneOf ts <=> Exactly t
       | Just t' <- closedOver traverse t, member2 t' ts = pure (Exactly t)
-      | otherwise = throwError "Nil intersection"
+      | otherwise = unificationErr (toList2 ts) (pure t)
     Exactly t <=> Any = pure (Exactly t)
     Exactly t <=> OneOf ts
       | Just t' <- closedOver traverse t, member2 t' ts = pure (Exactly t)
-      | otherwise = throwError "Nil intersection"
+      | otherwise = unificationErr (pure t) (toList2 ts)
     Exactly a <=> Exactly b = Exactly <$> (a <+> b)
 
 liftST :: ST s a -> Check s a
@@ -140,39 +170,20 @@ data Typed s a = Typed
   }
   deriving (Functor)
 
-typeCheck ::
-  RTValue () RTLit (Bind Int Void) Void (Either FuncIX Hash) ->
-  [Type] ->
-  Type ->
-  HashMap Hash Sig ->
-  Map FuncIX Sig ->
-  Either String (RTValue Type RTLit (Bind Int Void) Void (Either FuncIX Hash))
-typeCheck body args ret closedSigs openSigs =
-  runCheck (closedSigs, openSigs) $ do
-    ctx <- fromType ret
-    -- TODO somehow check _once_ that the length of argument list is correct, and then reuse proof
-    let instantiateArg :: Bind Int Void -> Check s (Typed s (Bind Int Void))
-        instantiateArg (Free v) = absurd v
-        instantiateArg (Bound argIx) = case args ^? ix argIx of
-          Just typ -> Typed (Bound argIx) <$> fromType typ
-          Nothing -> throwError "Impossible"
-        body' = over labels absurd body
-    vars instantiateArg body' >>= checkValue ctx >>= types (resolve . getVar)
+checkPrim :: Prim -> Check s (TypeVar s)
+checkPrim (PInt _) = fresh (OneOf (set2 TInt TDouble))
+checkPrim (PDouble _) = fromTypeF TDouble
+checkPrim (PBool _) = fromTypeF TBool
+checkPrim PVoid = fromTypeF TVoid
 
-checkLit :: RTLit -> Check s (TypeVar s)
-checkLit (RTPrim prim) = case prim of
-  PInt _ -> fresh (OneOf (set2 TInt TDouble))
-  PDouble _ -> fromTypeF TDouble
-  PBool _ -> fromTypeF TBool
-  PVoid -> fromTypeF TVoid
-checkLit (RTTuple t) = traverse checkLit t >>= fresh . Exactly . TTuple
+-- checkLit (RTTuple t) = traverse checkLit t >>= fresh . Exactly . TTuple
 
 -- TODO like other placees, this should be renamed to something more expr-y
 checkValue ::
   forall a s var blk.
   TypeVar s ->
-  RTValue a RTLit (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTValue (Typed s a) RTLit var blk (Either FuncIX Hash))
+  RTValue a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTValue (Typed s a) var blk (Either FuncIX Hash))
 checkValue ctx (RTArith op l r a) = do
   l' <- checkValue ctx l
   r' <- checkValue ctx r
@@ -183,9 +194,17 @@ checkValue ctx (RTComp op l r a) = do
   l' <- checkValue var l
   r' <- checkValue var r
   pure $ RTComp op l' r' (Typed a ctx)
-checkValue ctx (RTLit lit a) = do
-  checkLit lit >>= unify ctx
-  pure $ RTLit lit (Typed a ctx)
+checkValue ctx (RTPrim prim a) = do
+  checkPrim prim >>= unify ctx
+  pure $ RTPrim prim (Typed a ctx)
+checkValue ctx (RTTuple tup a) = do
+  (types, exprs) <- fmap Seq.unzip $
+    forM tup $ \expr -> do
+      var <- fresh Any
+      expr' <- checkValue var expr
+      pure (var, expr')
+  fresh (Exactly (TTuple types)) >>= unify ctx
+  pure $ RTTuple exprs (Typed a ctx)
 checkValue ctx (RTCond c t f a) = do
   vc <- fromTypeF TBool
   c' <- checkValue vc c
@@ -211,8 +230,8 @@ checkValue ctx (Block blk a) = do
 
 checkPlace ::
   TypeVar s ->
-  RTPlace a RTLit (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTPlace (Typed s a) RTLit var blk (Either FuncIX Hash))
+  RTPlace a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTPlace (Typed s a) var blk (Either FuncIX Hash))
 checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
@@ -226,8 +245,8 @@ checkPlace _ _ = throwError "Deref type checkingnot yet implemented"
 checkProg ::
   forall a s var blk.
   TypeVar s ->
-  RTProg a RTLit (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTProg (Typed s a) RTLit var blk (Either FuncIX Hash))
+  RTProg a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
+  Check s (RTProg (Typed s a) var blk (Either FuncIX Hash))
 checkProg blk (Decl mtyp val k) = do
   ctx <- fresh Any
   forM_ mtyp $ fromType >=> unify ctx
