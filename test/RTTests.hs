@@ -382,45 +382,58 @@ rtTests = describe "rt" $ do
             var x: tup = [y, 3];
           }
       |]
-    markPending $
-      saFunc "simple RT field accessor" $
-        [r| let inherit (builtins.types) int tuple;
-            in [] -> int {
-              var v: tuple [int] = [0];
-              v.0
-            }
-          |]
-    markPending $
-      saFunc "tuple fields are _runtime_ expressions" $
-        [r| let inherit (builtins.types) tuple void int;
-                tup = tuple [int];
-            in [] -> void {
-              var x: tup = [2];
-              var y: tup = [x.0];
-            }
+    saFunc "simple RT field accessor" $
+      [r| let inherit (builtins.types) int tuple;
+          in [] -> int {
+            var v: tuple [int] = [0];
+            v.0
+          }
         |]
-    markPending $
-      saFunc "nested RT field accessor" $
-        [r| let
-              inherit (builtins.types) tuple int;
-              nest = tuple [int];
-              tup = tuple [nest];
-            in [] -> int {
-              var v: tup = [[0]];
-              v.0.0
-            }
-        |]
-    markPending $
-      saFunc "tuple assignment" $
-        [r| let
-                inherit (builtins.types) tuple int void;
-                nest = tuple [int];
-                tup = tuple [nest];
-              in [] -> void {
-                var v: tup = [[0]];
-                v.0.0 = 3;
-              }
-          |]
+    saFunc "tuple fields are runtime expressions" $
+      [r| let inherit (builtins.types) tuple void int;
+              tup = tuple [int];
+          in [] -> void {
+            var x: tup = [2];
+            var y: tup = [x.0];
+          }
+      |]
+    saFunc "tuple accessors are runtime expressions" $
+      [r| let inherit (builtins.types) tuple void int;
+              tup = tuple [int];
+          in [] -> void {
+            var x: tup = [2];
+            var y: tup = [x.0];
+          }
+      |]
+    saFunc "nested RT field accessor" $
+      [r| let
+            inherit (builtins.types) tuple int;
+            nest = tuple [int];
+            tup = tuple [nest];
+          in [] -> int {
+            var v: tup = [[0]];
+            v.0.0
+          }
+      |]
+    saFunc "by-value array" $
+      [r| let
+            inherit (builtins.types) tuple int;
+            arr n t = tuple (n * [t]);
+          in [] -> int {
+            var v: arr 100 int = [4] * 100;
+            v.99
+          }
+      |]
+    saFunc "tuple assignment" $
+      [r| let
+            inherit (builtins.types) tuple int void;
+            nest = tuple [int];
+            tup = tuple [nest];
+          in [] -> void {
+            var v: tup = [[0]];
+            v.0.0 = 3;
+          }
+      |]
   describe "examples" $ do
     saFunc "half-inlined while loop" $
       [r| with builtins.types;

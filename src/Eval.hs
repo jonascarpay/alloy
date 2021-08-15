@@ -97,6 +97,10 @@ whnf (Sel haystack needle) =
           Nothing -> throwError $ "Attribute set does not contain field " <> show str
           Just t -> lift $ force t
         val -> throwError $ "indexing into an attr set requires a string, but got " <> describeValue val
+    VRTPlace deps plc ->
+      whnf needle >>= \case
+        VPrim (PInt ix) -> pure $ VRTPlace deps (RTSel plc ix ())
+        val -> throwError $ "indexing into a runtime lvalue set requires an int, but got " <> describeValue val
     val -> throwError $ "Indexing into " <> describeValue val <> " instead of a list, attribute set, or string"
 whnf (With attrs body) =
   whnf attrs >>= \case
