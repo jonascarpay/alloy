@@ -125,7 +125,8 @@ rtTests = describe "rt" $ do
           let
             a = [] -> int { var va: int = 4; va };
             b = [] -> int { var vb: int = 4; vb };
-          in [] -> int { a[] + b[] }
+          in
+            [] -> int { a[] + b[] }
       |]
     xfuncWithNDeps "deduplication behind bodyless function" 2 $
       [r| with builtins.types;
