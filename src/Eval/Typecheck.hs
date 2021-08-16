@@ -35,12 +35,12 @@ import Expr
 import Lens.Micro.Platform
 
 typeCheck ::
-  RTValue () (Bind Int Void) Void (Either FuncIX Hash) ->
+  RTValue (Bind Int Void) Void (Either FuncIX Hash) () ->
   [Type] ->
   Type ->
   HashMap Hash Sig ->
   Map FuncIX Sig ->
-  Either String (RTValue Type (Bind Int Void) Void (Either FuncIX Hash))
+  Either String (RTValue (Bind Int Void) Void (Either FuncIX Hash) Type)
 typeCheck body args ret closedSigs openSigs =
   runCheck (closedSigs, openSigs) $ do
     ctx <- fromType ret
@@ -212,8 +212,8 @@ checkPrim PVoid = fromType TVoid
 checkValue ::
   forall a s var blk.
   TypeVar s ->
-  RTValue a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTValue (Typed s a) var blk (Either FuncIX Hash))
+  RTValue (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
+  Check s (RTValue var blk (Either FuncIX Hash) (Typed s a))
 checkValue ctx (RTArith op l r a) = do
   l' <- checkValue ctx l
   r' <- checkValue ctx r
@@ -264,8 +264,8 @@ checkValue ctx (Block blk a) = do
 
 checkPlace ::
   TypeVar s ->
-  RTPlace a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTPlace (Typed s a) var blk (Either FuncIX Hash))
+  RTPlace (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
+  Check s (RTPlace var blk (Either FuncIX Hash) (Typed s a))
 checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
@@ -283,8 +283,8 @@ checkPlace _ (Deref _ _) = throwError "Deref type checking not yet implemented"
 checkProg ::
   forall a s var blk.
   TypeVar s ->
-  RTProg a (Typed s var) (Typed s blk) (Either FuncIX Hash) ->
-  Check s (RTProg (Typed s a) var blk (Either FuncIX Hash))
+  RTProg (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
+  Check s (RTProg var blk (Either FuncIX Hash) (Typed s a))
 checkProg blk (Decl mtyp val k) = do
   ctx <- fresh Any
   forM_ mtyp $ fromType >=> unify ctx
