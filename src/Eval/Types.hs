@@ -26,7 +26,7 @@ import Data.Set (Set)
 import Data.Void
 import Expr
 import GHC.Generics
-import Lens.Micro.Platform (makeLenses, mapped, over)
+import Lens.Micro.Platform (makeLenses)
 
 -- TODO
 -- Compile-time numbers should probably be represented as Scientific
@@ -74,8 +74,6 @@ data CallGraph = CallGraph
     cgDeps :: Set CallGraph
   }
   deriving stock (Show)
-
-data NamelessCG = NamelessCG
 
 instance Eq CallGraph where a == b = cgFunc a == cgFunc b
 

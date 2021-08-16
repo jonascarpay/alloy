@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Print.Printer where
+module Print.Printer (PrinterT, runPrinterT, indent, space, newline, align, emit, emits) where
 
 import Control.Monad.Reader
 import Control.Monad.State
@@ -48,41 +48,34 @@ runPrinterT (PrinterT m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder 
 indent :: Monad m => PrinterT m a -> PrinterT m a
 indent (PrinterT m) = PrinterT $ local (over pcIndent (+ 2)) m
 
-space :: Monad m => PrinterT m ()
-space = PrinterT $ psDelimiter %= max RequestedSpace
-
-adjustedColumn :: Monad m => PrinterT m Int
-adjustedColumn =
-  PrinterT $
-    use psDelimiter >>= \case
-      RequestedNone -> use psColumn
-      RequestedSpace -> (+ 1) <$> use psColumn
-      RequestedNewline -> view pcIndent
-
 align :: Monad m => PrinterT m a -> PrinterT m a
 align (PrinterT m) = PrinterT $ do
+  unPrinterT emitSpacer
   col <- use psColumn
   local (pcIndent .~ col) m
+
+space :: Monad m => PrinterT m ()
+space = PrinterT $ psDelimiter %= max RequestedSpace
 
 newline :: Monad m => PrinterT m ()
 newline = PrinterT $ psDelimiter %= max RequestedNewline
 
-{-# INLINE spitSpacer #-}
-spitSpacer :: Monad m => PrinterT m ()
-spitSpacer =
-  PrinterT $
+{-# INLINE emitSpacer #-}
+emitSpacer :: Monad m => PrinterT m ()
+emitSpacer =
+  PrinterT $ do
     use psDelimiter >>= \case
       RequestedNone -> pure ()
-      RequestedSpace -> unPrinterT $ spitRaw " "
-      RequestedNewline -> view pcIndent >>= \i -> unPrinterT (spitRaw $ "\n" <> stimes i " ")
+      RequestedSpace -> unPrinterT $ emitRaw " "
+      RequestedNewline -> view pcIndent >>= \i -> unPrinterT (emitRaw $ "\n" <> stimes i " ")
+    psDelimiter .= RequestedNone
 
-{-# INLINE spitRaw #-}
-spitRaw :: Monad m => Builder -> PrinterT m ()
-spitRaw s = PrinterT $ psBuilder %= flip mappend s
+{-# INLINE emitRaw #-}
+emitRaw :: Monad m => Builder -> PrinterT m ()
+emitRaw s = PrinterT $ psBuilder %= flip mappend s
 
-{-# INLINE spit #-}
-spit :: Monad m => Builder -> PrinterT m ()
-spit s = spitSpacer >> spitRaw s
+emit :: Monad m => Builder -> PrinterT m ()
+emit s = emitSpacer >> emitRaw s
 
-spits :: (Show a, Monad m) => a -> PrinterT m ()
-spits = spit . BSB.stringUtf8 . show
+emits :: (Show a, Monad m) => a -> PrinterT m ()
+emits = emit . BSB.stringUtf8 . show
