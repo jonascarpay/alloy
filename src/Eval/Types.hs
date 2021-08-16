@@ -26,7 +26,7 @@ import Data.Set (Set)
 import Data.Void
 import Expr
 import GHC.Generics
-import Lens.Micro.Platform (makeLenses)
+import Lens.Micro.Platform (makeLenses, mapped, over)
 
 -- TODO
 -- Compile-time numbers should probably be represented as Scientific
@@ -136,26 +136,26 @@ instance Hashable1 Seq where liftHashWithSalt f salt as = liftHashWithSalt f sal
 
 -- TODO The (Maybe Type) field in Decl doesn't make sense after type checking, maybe make it
 -- variable that becomes () after TC
-data RTProg typ var blk fun
-  = Decl (Maybe Type) (RTValue typ var blk fun) (RTProg typ (Bind () var) blk fun)
-  | Assign (RTPlace typ var blk fun) (RTValue typ var blk fun) (RTProg typ var blk fun)
-  | Break blk (RTValue typ var blk fun)
+data RTProg var blk fun info
+  = Decl (Maybe Type) (RTValue var blk fun info) (RTProg (Bind () var) blk fun info)
+  | Assign (RTPlace var blk fun info) (RTValue var blk fun info) (RTProg var blk fun info)
+  | Break blk (RTValue var blk fun info)
   | Continue blk
-  | ExprStmt (RTValue typ var blk fun) (Maybe (RTProg typ var blk fun))
+  | ExprStmt (RTValue var blk fun info) (Maybe (RTProg var blk fun info))
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
 -- TODO Name is misleading. Makes sense in contrast to place, but is an epxression more than a value
-data RTValue typ var blk fun
-  = RTArith ArithOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
-  | RTComp CompOp (RTValue typ var blk fun) (RTValue typ var blk fun) typ
-  | RTPrim Prim typ
-  | ValueSel (RTValue typ var blk fun) Int typ
-  | RTTuple (Seq (RTValue typ var blk fun)) typ
-  | RTCond (RTValue typ var blk fun) (RTValue typ var blk fun) (RTValue typ var blk fun) typ
-  | Call fun [RTValue typ var blk fun] typ
-  | PlaceVal (RTPlace typ var blk fun) typ
-  | Block (RTProg typ var (Bind () blk) fun) typ
+data RTValue var blk fun info
+  = RTArith ArithOp (RTValue var blk fun info) (RTValue var blk fun info) info
+  | RTComp CompOp (RTValue var blk fun info) (RTValue var blk fun info) info
+  | RTPrim Prim info
+  | ValueSel (RTValue var blk fun info) Int info
+  | RTTuple (Seq (RTValue var blk fun info)) info
+  | RTCond (RTValue var blk fun info) (RTValue var blk fun info) (RTValue var blk fun info) info
+  | Call fun [RTValue var blk fun info] info
+  | PlaceVal (RTPlace var blk fun info) info
+  | Block (RTProg var (Bind () blk) fun info) info
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
@@ -165,22 +165,22 @@ data RTValue typ var blk fun
 -- Sel also exists for non-lvalues, in which case it is not assignable.
 -- Weirdly, C doesn't care, this is valid:
 --   ((struct { int x; }){.x = 1}).x = 3;
-data RTPlace typ var blk fun
-  = Place var typ -- TODO Rename
-  | PlaceSel (RTPlace typ var blk fun) Int typ
-  | Deref (RTValue typ var blk fun) typ
+data RTPlace var blk fun info
+  = Place var info -- TODO Rename
+  | PlaceSel (RTPlace var blk fun info) Int info
+  | Deref (RTValue var blk fun info) info
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
-type EvalPhase ast = ast () VarIX BlockIX (Either FuncIX Hash)
+type EvalPhase ast = ast VarIX BlockIX (Either FuncIX Hash) ()
 
 data RTFunc fun = RTFunc
   { fnArgs :: [Type],
     fnRet :: Type,
-    fnBody :: RTValue Type (Bind Int Void) Void fun
+    fnBody :: RTValue (Bind Int Void) Void fun Type
   }
-  deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
-  deriving anyclass (Hashable, Hashable1)
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (Hashable)
 
 newtype EvalBase a = EvalBase {unEvalBase :: ReaderT (Map FuncIX Sig) (StateT Int (ExceptT String IO)) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh, MonadReader (Map FuncIX Sig))
@@ -198,41 +198,41 @@ type Comp = WriterT Deps Eval
 
 newtype EvalEnv = EvalEnv {_binds :: Map Name Thunk} -- TODO Just `type`?
 
-makeLenses ''EvalEnv
-makeLenses ''Deps
-
 class RTAST f where
   traverseAst ::
     Applicative m =>
-    (typ -> m typ') ->
     (var -> m var') ->
     (lbl -> m lbl') ->
     (fun -> m fun') ->
-    (f typ var lbl fun -> m (f typ' var' lbl' fun'))
+    (inf -> m inf') ->
+    (f var lbl fun inf -> m (f var' lbl' fun' inf'))
 
 instance RTAST RTValue where
-  traverseAst ft fv fl ff = go
+  traverseAst fv fl ff fi = go
     where
-      go (RTArith op l r t) = RTArith op <$> go l <*> go r <*> ft t
-      go (RTComp op l r t) = RTComp op <$> go l <*> go r <*> ft t
-      go (Call fun args t) = Call <$> ff fun <*> traverse go args <*> ft t
-      go (PlaceVal plc t) = PlaceVal <$> traverseAst ft fv fl ff plc <*> ft t
-      go (ValueSel h n t) = ValueSel <$> go h <*> pure n <*> ft t
-      go (Block blk t) = Block <$> traverseAst ft fv (traverse fl) ff blk <*> ft t
-      go (RTCond cond true false t) = RTCond <$> go cond <*> go true <*> go false <*> ft t
-      go (RTTuple tup t) = RTTuple <$> traverse go tup <*> ft t
-      go (RTPrim p t) = RTPrim p <$> ft t
+      go (RTArith op l r t) = RTArith op <$> go l <*> go r <*> fi t
+      go (RTComp op l r t) = RTComp op <$> go l <*> go r <*> fi t
+      go (Call fun args t) = Call <$> ff fun <*> traverse go args <*> fi t
+      go (PlaceVal plc t) = PlaceVal <$> traverseAst fv fl ff fi plc <*> fi t
+      go (ValueSel h n t) = ValueSel <$> go h <*> pure n <*> fi t
+      go (Block blk t) = Block <$> traverseAst fv (traverse fl) ff fi blk <*> fi t
+      go (RTCond cond true false t) = RTCond <$> go cond <*> go true <*> go false <*> fi t
+      go (RTTuple tup t) = RTTuple <$> traverse go tup <*> fi t
+      go (RTPrim p t) = RTPrim p <$> fi t
 
 instance RTAST RTPlace where
-  traverseAst ft fv fl ff = go
+  traverseAst fv fl ff fi = go
     where
-      go (Place var t) = Place <$> fv var <*> ft t
-      go (PlaceSel h n t) = PlaceSel <$> go h <*> pure n <*> ft t
-      go (Deref val t) = Deref <$> traverseAst ft fv fl ff val <*> ft t
+      go (Place var t) = Place <$> fv var <*> fi t
+      go (PlaceSel h n t) = PlaceSel <$> go h <*> pure n <*> fi t
+      go (Deref val t) = Deref <$> traverseAst fv fl ff fi val <*> fi t
 
 instance RTAST RTProg where
-  traverseAst ft fv fl ff (Decl typ val k) = Decl typ <$> traverseAst ft fv fl ff val <*> traverseAst ft (traverse fv) fl ff k
-  traverseAst ft fv fl ff (Assign lhs rhs k) = Assign <$> traverseAst ft fv fl ff lhs <*> traverseAst ft fv fl ff rhs <*> traverseAst ft fv fl ff k
-  traverseAst ft fv fl ff (Break lbl val) = Break <$> fl lbl <*> traverseAst ft fv fl ff val
-  traverseAst ft fv fl ff (ExprStmt val k) = ExprStmt <$> traverseAst ft fv fl ff val <*> traverse (traverseAst ft fv fl ff) k
-  traverseAst _ _ fl _ (Continue lbl) = Continue <$> fl lbl
+  traverseAst fv fl ff fi (Decl typ val k) = Decl typ <$> traverseAst fv fl ff fi val <*> traverseAst (traverse fv) fl ff fi k
+  traverseAst fv fl ff fi (Assign lhs rhs k) = Assign <$> traverseAst fv fl ff fi lhs <*> traverseAst fv fl ff fi rhs <*> traverseAst fv fl ff fi k
+  traverseAst fv fl ff fi (Break lbl val) = Break <$> fl lbl <*> traverseAst fv fl ff fi val
+  traverseAst fv fl ff fi (ExprStmt val k) = ExprStmt <$> traverseAst fv fl ff fi val <*> traverse (traverseAst fv fl ff fi) k
+  traverseAst _ fl _ _ (Continue lbl) = Continue <$> fl lbl
+
+makeLenses ''EvalEnv
+makeLenses ''Deps

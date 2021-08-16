@@ -31,14 +31,17 @@ import Lens.Micro.Platform hiding (ix)
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
-labels :: RTAST f => Traversal (f typ var lbl fun) (f typ var lbl' fun) lbl lbl'
-labels f = traverseAst pure pure f pure
+labels :: RTAST f => Traversal (f var lbl fun info) (f var lbl' fun info) lbl lbl'
+labels f = traverseAst pure f pure pure
 
-vars :: RTAST f => Traversal (f typ var lbl fun) (f typ var' lbl fun) var var'
-vars f = traverseAst pure f pure pure
+vars :: RTAST f => Traversal (f var lbl fun info) (f var' lbl fun info) var var'
+vars f = traverseAst f pure pure pure
 
-types :: RTAST f => Traversal (f typ var lbl fun) (f typ' var lbl fun) typ typ'
-types f = traverseAst f pure pure pure
+types :: RTAST f => Traversal (f var lbl fun info) (f var lbl fun info') info info'
+types = traverseAst pure pure pure
+
+rtFuncCalls :: Traversal (RTFunc a) (RTFunc b) a b
+rtFuncCalls f (RTFunc a r b) = RTFunc a r <$> traverseAst pure pure f pure b
 
 -- TODO Describe primitives in more detail
 describeValue :: Value f -> String
@@ -151,7 +154,7 @@ mkCallGraph :: FuncIX -> RTFunc (Either FuncIX Hash) -> Set CallGraph -> CallGra
 mkCallGraph ix body deps = CallGraph ix body (S.difference open bind) bind deps
   where
     bind = S.insert ix $ foldMap cgBind deps
-    open = foldMap cgOpen deps <> S.fromList (body ^.. traverse . _Left)
+    open = foldMap cgOpen deps <> S.fromList (body ^.. rtFuncCalls . _Left)
 
 closeFunc :: CallGraph -> Maybe (Hash, HashMap Hash (RTFunc Hash))
 closeFunc cg
@@ -169,7 +172,7 @@ hashCallGraph cg = Hash $ evalState (go cg) (mempty, 0)
     go :: CallGraph -> State (Map FuncIX Int, Int) Int
     go (CallGraph ix body _ _ deps) = do
       _ <- label ix
-      body' <- (traverse . _Left) label body
+      body' <- (rtFuncCalls . _Left) label body
       hDeps <- traverse go (S.toAscList deps)
       pure $ hash (body', hDeps)
 
@@ -191,7 +194,7 @@ flattenCallgraph cg = evalRWST (go cg) () mempty
       forM_ (S.toList deps) go
       body' <-
         let f ix = use (at ix) >>= maybe (throwError ix) pure
-         in traverse (either f pure) body
+         in rtFuncCalls (either f pure) body
       tell $ HM.singleton h body'
       pure h
 
