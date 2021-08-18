@@ -3,7 +3,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Print.Printer (PrinterT, runPrinterT, indent, space, newline, align, emit, emits) where
+module Print.Printer
+  ( PrinterT,
+    runPrinterT,
+    indent,
+    space,
+    newline,
+    align,
+    emit,
+    emits,
+  )
+where
 
 import Control.Monad.Reader
 import Control.Monad.State
