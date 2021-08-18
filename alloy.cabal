@@ -63,6 +63,7 @@ library
     Parser.Parser
     Parser.Token
     Print
+    Print.Bifree
     Print.Doc
     Print.Printer
     Print.Render
