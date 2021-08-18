@@ -65,6 +65,7 @@ library
     Print
     Print.Doc
     Print.Printer
+    Print.Render
 
   build-tool-depends: alex:alex >=3.2.5
 

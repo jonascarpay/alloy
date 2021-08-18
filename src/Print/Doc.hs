@@ -11,7 +11,7 @@ import Data.ByteString.Builder qualified as BSB
 import Data.Foldable
 import Data.Functor.Identity
 import Data.Map (Map)
-import Eval.Lib (extractVal, instantiate1Over, labels, types, vars)
+import Eval.Lib (extractVal, instantiate1Over, labels, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
 
