@@ -1,12 +1,16 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Print.Doc where
 
 import Control.Applicative
 import Control.Monad.State
+import Data.Bifunctor
+import Data.Bitraversable
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.Foldable
@@ -15,6 +19,7 @@ import Data.Map (Map)
 import Eval.Lib (extractVal, instantiate1Over, labels, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
+import Print.Bifree
 
 newtype FreshT m a = FreshT {unNameT :: StateT Int m a}
   deriving newtype (Functor, Applicative, Monad)
@@ -41,6 +46,20 @@ data DocF stm doc
   | Cond doc doc doc
   deriving (Functor, Foldable, Traversable)
 
+instance Bifunctor DocF where
+  bimap _ r (Parens doc) = Parens (r doc)
+  bimap _ _ (Symbol sym) = Symbol sym
+  bimap _ _ (Prim prim) = Prim prim
+  bimap _ r (List docs) = List (r <$> docs)
+  bimap _ r (Attr attrs) = Attr (r <$> attrs)
+  bimap _ r (Brackets doc) = Brackets (r doc)
+  bimap _ r (Deref' doc) = Deref' (r doc)
+  bimap _ r (Operator sym lhs rhs) = Operator sym (r lhs) (r rhs)
+  bimap _ r (Sel h n) = Sel (r h) (r n)
+  bimap _ r (Call' sym args) = Call' sym (r <$> args)
+  bimap l _ (Prog sym blk) = Prog sym (l blk)
+  bimap _ r (Cond c t f) = Cond (r c) (r t) (r f)
+
 data StatementF doc stm
   = SDecl Symbol doc doc stm
   | SAssign doc doc stm
@@ -49,15 +68,20 @@ data StatementF doc stm
   | SExpr doc (Maybe stm)
   deriving (Functor, Foldable, Traversable)
 
-newtype Fix2 flip self = Fix2 (self (Fix2 self flip) (Fix2 flip self))
+instance Bifunctor StatementF where
+  bimap l r (SDecl sym lhs rhs k) = SDecl sym (l lhs) (l rhs) (r k)
+  bimap l r (SAssign lhs rhs k) = SAssign (l lhs) (l rhs) (r k)
+  bimap l _ (SBreak sym expr) = SBreak sym (l expr)
+  bimap _ _ (SContinue sym) = SContinue sym
+  bimap l r (SExpr expr mk) = SExpr (l expr) (r <$> mk)
 
-type Statement = Fix2 DocF StatementF
+type Statement = Bifix DocF StatementF
 
-type Doc = Fix2 StatementF DocF
+type Doc = Bifix StatementF DocF
 
 parens :: Bool -> Doc -> Doc
 parens False d = d
-parens True d = Fix2 $ Parens d
+parens True d = Bifix $ Parens d
 
 arithPrec :: ArithOp -> Int
 arithPrec Add = 3
@@ -96,18 +120,18 @@ pCompOp Geq = ">="
 operator :: Applicative m => (op -> Builder) -> (op -> Int) -> (Int -> a -> m Doc) -> op -> a -> a -> Int -> m Doc
 operator pOp opPrec pRec op l r precCtx =
   liftA2
-    (\l' r' -> parens (prec < precCtx) $ Fix2 $ Operator (pOp op) l' r')
+    (\l' r' -> parens (prec < precCtx) $ Bifix $ Operator (pOp op) l' r')
     (pRec prec l)
     (pRec prec r)
   where
     prec = opPrec op
 
 pType :: Type -> Doc
-pType TVoid = Fix2 $ Symbol "void"
-pType TBool = Fix2 $ Symbol "bool"
-pType TInt = Fix2 $ Symbol "int"
-pType TDouble = Fix2 $ Symbol "double"
-pType (TTuple ts) = Fix2 $ List $ pType <$> toList ts
+pType TVoid = Bifix $ Symbol "void"
+pType TBool = Bifix $ Symbol "bool"
+pType TInt = Bifix $ Symbol "int"
+pType TDouble = Bifix $ Symbol "double"
+pType (TTuple ts) = Bifix $ List $ pType <$> toList ts
 
 pProg :: RTProg Symbol Symbol Symbol Type -> Fresh Statement
 pProg (Decl _ val k) = do
@@ -115,27 +139,27 @@ pProg (Decl _ val k) = do
   var <- freshVar
   k' <- pProg $ instantiate1Over vars var k
   let typ = pType $ extractVal val
-  pure $ Fix2 $ SDecl var typ val' k'
-pProg (Assign plc val k) = Fix2 <$> liftA3 SAssign (pPlace 0 plc) (pValue 0 val) (pProg k)
-pProg (Break lbl val) = Fix2 . SBreak lbl <$> pValue 0 val
-pProg (Continue lbl) = pure $ Fix2 $ SContinue lbl
-pProg (ExprStmt expr mk) = Fix2 <$> liftA2 SExpr (pValue 0 expr) (traverse pProg mk)
+  pure $ Bifix $ SDecl var typ val' k'
+pProg (Assign plc val k) = Bifix <$> liftA3 SAssign (pPlace 0 plc) (pValue 0 val) (pProg k)
+pProg (Break lbl val) = Bifix . SBreak lbl <$> pValue 0 val
+pProg (Continue lbl) = pure $ Bifix $ SContinue lbl
+pProg (ExprStmt expr mk) = Bifix <$> liftA2 SExpr (pValue 0 expr) (traverse pProg mk)
 
 pValue :: Int -> RTValue Symbol Symbol Symbol Type -> Fresh Doc
 pValue prec (RTArith op a b _) = operator pArithOp arithPrec pValue op a b prec
 pValue prec (RTComp op a b _) = operator pCompOp compPrec pValue op a b prec
-pValue prec (ValueSel h n _) = parens (prec > 8) . (\h' -> Fix2 . Sel h' . Fix2 . Prim $ PInt n) <$> pValue 8 h
-pValue prec (RTCond c t f _) = parens (prec > 0) . Fix2 <$> liftA3 Cond (pValue 0 c) (pValue 0 t) (pValue 0 f)
-pValue _ (RTTuple tup _) = Fix2 . List <$> traverse (pValue 0) (toList tup)
-pValue _ (RTPrim prim _) = pure $ Fix2 (Prim prim)
+pValue prec (ValueSel h n _) = parens (prec > 8) . (\h' -> Bifix . Sel h' . Bifix . Prim $ PInt n) <$> pValue 8 h
+pValue prec (RTCond c t f _) = parens (prec > 0) . Bifix <$> liftA3 Cond (pValue 0 c) (pValue 0 t) (pValue 0 f)
+pValue _ (RTTuple tup _) = Bifix . List <$> traverse (pValue 0) (toList tup)
+pValue _ (RTPrim prim _) = pure $ Bifix (Prim prim)
 pValue _ (Block blk _) = do
   lbl <- freshBlk
   blk' <- pProg $ instantiate1Over labels lbl blk
-  pure $ Fix2 $ Prog lbl blk'
-pValue _ (Call f args _) = Fix2 . Call' f <$> traverse (pValue 0) args
+  pure $ Bifix $ Prog lbl blk'
+pValue _ (Call f args _) = Bifix . Call' f <$> traverse (pValue 0) args
 pValue prec (PlaceVal pl _) = pPlace prec pl
 
 pPlace :: Int -> RTPlace Symbol Symbol Symbol Type -> Fresh Doc
-pPlace _ (Place sym _) = pure . Fix2 $ Symbol sym
-pPlace _ (PlaceSel h n _) = (\h' -> Fix2 $ Sel h' $ Fix2 $ Prim $ PInt n) <$> pPlace 9 h
-pPlace prec (Deref val _) = parens (prec > 9) . Fix2 . Deref' <$> pValue 9 val
+pPlace _ (Place sym _) = pure . Bifix $ Symbol sym
+pPlace _ (PlaceSel h n _) = (\h' -> Bifix $ Sel h' $ Bifix $ Prim $ PInt n) <$> pPlace 9 h
+pPlace prec (Deref val _) = parens (prec > 9) . Bifix . Deref' <$> pValue 9 val
