@@ -9,18 +9,18 @@ module Print (printNF) where
 
 import Control.Monad.Identity
 import Control.Monad.State
-import Data.ByteString
+import Data.Bool
+import Data.ByteString (ByteString)
+import Data.ByteString.Builder (Builder)
+import Data.Map (Map)
+import Data.Sequence (Seq)
+import Data.Sequence qualified as Seq
+import Eval.Lib
 import Eval.Types
 import Expr
 import Print.Printer
 
-type Prints a = a -> PrinterT (NameT Identity) ()
-
-newtype NameT m a = NameT {unNameT :: StateT Int m a}
-  deriving (Functor, Applicative, Monad)
-
-runNameT :: Monad m => NameT m a -> m a
-runNameT (NameT m) = evalStateT m 0
+type Prints a = a -> Printer
 
 printNF :: NF -> ByteString
 printNF = runIdentity . runNameT . runPrinterT . pNF
@@ -31,27 +31,15 @@ pPrim (PDouble n) = emits n
 pPrim (PBool n) = emits n
 pPrim PVoid = emit "<void>"
 
-pArithOp :: Prints ArithOp
-pArithOp Add = emit "+"
-pArithOp Div = emit "/"
-pArithOp Mul = emit "*"
-pArithOp Sub = emit "-"
-
-pCompOp :: Prints CompOp
-pCompOp Eq = emit "=="
-
-parens :: Monad m => PrinterT m a -> PrinterT m a
-parens m = space *> emit "(" *> m <* emit ")"
-
-pValue :: Prints (RTValue typ var lbl fun)
-pValue (RTPrim p _) = pPrim p
+pProg :: Prints (RTProg var lbl fun Type)
+pProg = undefined
 
 pNF :: Prints NF
 pNF = go . unNF
   where
     go VClosure {} = emit "<closure>"
     go VRTPlace {} = emit "<runtime place>"
-    go (VRTValue deps val) = pValue val
+    go (VRTValue deps val) = pValue 0 $ valStyle val
     go VFunc {} = emit "<function>"
     go VType {} = emit "<type>"
     go VBlk {} = emit "<block ref>"

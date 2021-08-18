@@ -63,6 +63,7 @@ library
     Parser.Parser
     Parser.Token
     Print
+    Print.Doc
     Print.Printer
 
   build-tool-depends: alex:alex >=3.2.5
