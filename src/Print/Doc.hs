@@ -9,8 +9,8 @@ module Print.Doc where
 
 import Control.Applicative
 import Control.Monad.State
+import Data.Bifoldable
 import Data.Bifunctor
-import Data.Bitraversable
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.Foldable
@@ -57,8 +57,22 @@ instance Bifunctor DocF where
   bimap _ r (Operator sym lhs rhs) = Operator sym (r lhs) (r rhs)
   bimap _ r (Sel h n) = Sel (r h) (r n)
   bimap _ r (Call' sym args) = Call' sym (r <$> args)
-  bimap l _ (Prog sym blk) = Prog sym (l blk)
   bimap _ r (Cond c t f) = Cond (r c) (r t) (r f)
+  bimap l _ (Prog sym blk) = Prog sym (l blk)
+
+instance Bifoldable DocF where
+  bifoldr _ r a (Parens doc) = r doc a
+  bifoldr _ _ a (Symbol _) = a
+  bifoldr _ _ a (Prim _) = a
+  bifoldr _ r a (List docs) = foldr r a docs
+  bifoldr _ r a (Attr attrs) = foldr r a attrs
+  bifoldr _ r a (Brackets doc) = r doc a
+  bifoldr _ r a (Deref' doc) = r doc a
+  bifoldr _ r a (Operator _ lhs rhs) = r lhs (r rhs a)
+  bifoldr _ r a (Sel h n) = r h (r n a)
+  bifoldr _ r a (Call' _ args) = foldr r a args
+  bifoldr _ r a (Cond c t f) = r c (r t (r f a))
+  bifoldr l _ a (Prog _ blk) = l blk a
 
 data StatementF doc stm
   = SDecl Symbol doc doc stm
@@ -74,6 +88,13 @@ instance Bifunctor StatementF where
   bimap l _ (SBreak sym expr) = SBreak sym (l expr)
   bimap _ _ (SContinue sym) = SContinue sym
   bimap l r (SExpr expr mk) = SExpr (l expr) (r <$> mk)
+
+instance Bifoldable StatementF where
+  bifoldr l r a (SDecl _ lhs rhs k) = l lhs (l rhs (r k a))
+  bifoldr l r a (SAssign lhs rhs k) = l lhs (l rhs (r k a))
+  bifoldr l _ a (SBreak _ expr) = l expr a
+  bifoldr _ _ a (SContinue _) = a
+  bifoldr l r a (SExpr expr mk) = l expr (foldr r a mk)
 
 type Statement = Bifix DocF StatementF
 
