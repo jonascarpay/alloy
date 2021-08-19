@@ -15,7 +15,6 @@ import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.Foldable
 import Data.Functor.Identity
-import Data.Map (Map)
 import Eval.Lib (extractVal, instantiate1Over, labels, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
@@ -36,7 +35,6 @@ data DocF stm doc
   | Symbol Symbol
   | Prim Prim
   | List [doc]
-  | Attr (Map Name doc)
   | Brackets doc
   | Deref' doc
   | Operator Symbol doc doc
@@ -51,7 +49,6 @@ instance Bifunctor DocF where
   bimap _ _ (Symbol sym) = Symbol sym
   bimap _ _ (Prim prim) = Prim prim
   bimap _ r (List docs) = List (r <$> docs)
-  bimap _ r (Attr attrs) = Attr (r <$> attrs)
   bimap _ r (Brackets doc) = Brackets (r doc)
   bimap _ r (Deref' doc) = Deref' (r doc)
   bimap _ r (Operator sym lhs rhs) = Operator sym (r lhs) (r rhs)
@@ -65,7 +62,6 @@ instance Bifoldable DocF where
   bifoldr _ _ a (Symbol _) = a
   bifoldr _ _ a (Prim _) = a
   bifoldr _ r a (List docs) = foldr r a docs
-  bifoldr _ r a (Attr attrs) = foldr r a attrs
   bifoldr _ r a (Brackets doc) = r doc a
   bifoldr _ r a (Deref' doc) = r doc a
   bifoldr _ r a (Operator _ lhs rhs) = r lhs (r rhs a)
