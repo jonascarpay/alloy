@@ -4,7 +4,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Print.Printer
-  ( PrinterT,
+  ( Printer,
     runPrinterT,
     indent,
     space,
@@ -22,6 +22,7 @@ import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Lazy qualified as BSL
 import Data.Semigroup
+import Data.String
 import Lens.Micro.Platform
 
 newtype PrinterContext = PrinterContext
@@ -43,37 +44,43 @@ data RequestedSpacer
 makeLenses ''PrinterContext
 makeLenses ''PrinterState
 
-newtype PrinterT m a = PrinterT {unPrinterT :: ReaderT PrinterContext (StateT PrinterState m) a}
-  deriving (Functor, Monad, Applicative, MonadIO)
+newtype Printer = Printer {unPrinterT :: ReaderT PrinterContext (State PrinterState) ()}
 
-instance MonadTrans PrinterT where
-  lift = PrinterT . lift . lift
+instance Semigroup Printer where
+  Printer a <> Printer b = Printer (a >> b)
 
-runPrinterT :: Monad m => PrinterT m () -> m ByteString
-runPrinterT (PrinterT m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder <$> execStateT (runReaderT m c0) s0
+instance Monoid Printer where
+  mempty = Printer (pure ())
+
+instance IsString Printer where
+  fromString = emit . fromString
+
+runPrinterT :: Printer -> ByteString
+runPrinterT (Printer m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder $ execState (runReaderT m c0) s0
   where
     c0 = PrinterContext 0
     s0 = PrinterState mempty 0 RequestedNone
 
-indent :: Monad m => PrinterT m a -> PrinterT m a
-indent (PrinterT m) = PrinterT $ local (over pcIndent (+ 2)) m
+-- TODO could be implemented just using align
+indent :: Printer -> Printer
+indent (Printer m) = Printer $ local (over pcIndent (+ 2)) m
 
-align :: Monad m => PrinterT m a -> PrinterT m a
-align (PrinterT m) = PrinterT $ do
+align :: Printer -> Printer
+align (Printer m) = Printer $ do
   unPrinterT emitSpacer
   col <- use psColumn
   local (pcIndent .~ col) m
 
-space :: Monad m => PrinterT m ()
-space = PrinterT $ psDelimiter %= max RequestedSpace
+space :: Printer
+space = Printer $ psDelimiter %= max RequestedSpace
 
-newline :: Monad m => PrinterT m ()
-newline = PrinterT $ psDelimiter %= max RequestedNewline
+newline :: Printer
+newline = Printer $ psDelimiter %= max RequestedNewline
 
 {-# INLINE emitSpacer #-}
-emitSpacer :: Monad m => PrinterT m ()
+emitSpacer :: Printer
 emitSpacer =
-  PrinterT $ do
+  Printer $ do
     use psDelimiter >>= \case
       RequestedNone -> pure ()
       RequestedSpace -> unPrinterT $ emitRaw " "
@@ -81,11 +88,11 @@ emitSpacer =
     psDelimiter .= RequestedNone
 
 {-# INLINE emitRaw #-}
-emitRaw :: Monad m => Builder -> PrinterT m ()
-emitRaw s = PrinterT $ psBuilder %= flip mappend s
+emitRaw :: Builder -> Printer
+emitRaw s = Printer $ psBuilder %= flip mappend s
 
-emit :: Monad m => Builder -> PrinterT m ()
-emit s = emitSpacer >> emitRaw s
+emit :: Builder -> Printer
+emit s = emitSpacer <> emitRaw s
 
-emits :: (Show a, Monad m) => a -> PrinterT m ()
+emits :: Show a => a -> Printer
 emits = emit . BSB.stringUtf8 . show
