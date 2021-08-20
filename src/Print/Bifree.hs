@@ -4,17 +4,18 @@ module Print.Bifree where
 
 import Data.Bifunctor
 
-newtype Bifix flip self = Bifix (self (Bifix self flip) (Bifix flip self))
+-- | Mutually recursive fixpoint over two bifunctors
+newtype Bifix verso recto = Bifix (recto (Bifix recto verso) (Bifix verso recto))
 
-data Bifree flip self a = Bipure a | Bifree (self (Bifree self flip a) (Bifree flip self a))
+data Bifree verso recto a = Bipure a | Bifree (recto (Bifree recto verso a) (Bifree verso recto a))
 
 instance (Bifunctor g, Bifunctor f) => Functor (Bifree g f) where
   fmap fn (Bipure a) = Bipure (fn a)
   fmap fn (Bifree f) = Bifree (bimap (fmap fn) (fmap fn) f)
 
-data Bicofree flip self a = (:<)
+data Bicofree verso recto a = (:<)
   { biextract :: a,
-    biunwrap :: self (Bicofree self flip a) (Bicofree flip self a)
+    biunwrap :: recto (Bicofree recto verso a) (Bicofree verso recto a)
   }
 
 instance (Bifunctor g, Bifunctor f) => Functor (Bicofree g f) where
