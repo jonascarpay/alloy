@@ -133,7 +133,7 @@ instance Hashable1 Seq where liftHashWithSalt f salt as = liftHashWithSalt f sal
 -- TODO The RT* data types don't gain anything by being traversable
 
 -- TODO The (Maybe Type) field in Decl doesn't make sense after type checking, maybe make it
--- variable that becomes () after TC
+-- variable that becomes () after TC. This should also help with printing
 data RTProg var blk fun info
   = Decl (Maybe Type) (RTValue var blk fun info) (RTProg (Bind () var) blk fun info)
   | Assign (RTPlace var blk fun info) (RTValue var blk fun info) (RTProg var blk fun info)

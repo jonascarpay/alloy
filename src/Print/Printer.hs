@@ -84,7 +84,7 @@ emitSpacer =
     use psDelimiter >>= \case
       RequestedNone -> pure ()
       RequestedSpace -> unPrinterT $ emitRaw " "
-      RequestedNewline -> view pcIndent >>= \i -> unPrinterT (emitRaw $ "\n" <> stimes i " ")
+      RequestedNewline -> view pcIndent >>= \i -> unPrinterT (emitRaw $ "\n" <> mtimesDefault i " ")
     psDelimiter .= RequestedNone
 
 {-# INLINE emitRaw #-}
