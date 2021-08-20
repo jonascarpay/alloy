@@ -35,7 +35,6 @@ data DocF stm doc
   | Symbol Symbol
   | Prim Prim
   | List [doc]
-  | Brackets doc
   | Deref' doc
   | Operator Symbol doc doc
   | Sel doc doc
@@ -49,7 +48,6 @@ instance Bifunctor DocF where
   bimap _ _ (Symbol sym) = Symbol sym
   bimap _ _ (Prim prim) = Prim prim
   bimap _ r (List docs) = List (r <$> docs)
-  bimap _ r (Brackets doc) = Brackets (r doc)
   bimap _ r (Deref' doc) = Deref' (r doc)
   bimap _ r (Operator sym lhs rhs) = Operator sym (r lhs) (r rhs)
   bimap _ r (Sel h n) = Sel (r h) (r n)
@@ -62,7 +60,6 @@ instance Bifoldable DocF where
   bifoldr _ _ a (Symbol _) = a
   bifoldr _ _ a (Prim _) = a
   bifoldr _ r a (List docs) = foldr r a docs
-  bifoldr _ r a (Brackets doc) = r doc a
   bifoldr _ r a (Deref' doc) = r doc a
   bifoldr _ r a (Operator _ lhs rhs) = r lhs (r rhs a)
   bifoldr _ r a (Sel h n) = r h (r n a)
@@ -70,6 +67,7 @@ instance Bifoldable DocF where
   bifoldr _ r a (Cond c t f) = r c (r t (r f a))
   bifoldr l _ a (Prog _ blk) = l blk a
 
+-- TODO StatementDocF? SDocF? ProgF? PDoc?
 data StatementF doc stm
   = SDecl Symbol doc doc stm
   | SAssign doc doc stm
