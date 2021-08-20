@@ -40,6 +40,9 @@ vars f = traverseAst f pure pure pure
 types :: RTAST f => Traversal (f var lbl fun info) (f var lbl fun info') info info'
 types = traverseAst pure pure pure
 
+calls :: RTAST f => Traversal (f var lbl fun info) (f var lbl fun' info) fun fun'
+calls f = traverseAst pure pure f pure
+
 rtFuncCalls :: Traversal (RTFunc a) (RTFunc b) a b
 rtFuncCalls f (RTFunc a r b) = RTFunc a r <$> traverseAst pure pure f pure b
 
@@ -257,3 +260,12 @@ extendProg fv fp (Assign lhs rhs k) = Assign (extendPlace fv fp lhs) (extendVal 
 extendProg fv fp (Break lbl val) = Break lbl (extendVal fv fp val)
 extendProg _ _ (Continue lbl) = Continue lbl
 extendProg fv fp (ExprStmt expr mk) = ExprStmt (extendVal fv fp expr) (extendProg fv fp <$> mk)
+
+-- TODO maybe move to a fixpoint module?
+foldNF :: (Value r -> r) -> NF -> r
+foldNF f = go where go (NF v) = f (go <$> v)
+
+foldMNF :: Monad m => (Value r -> m r) -> NF -> m r
+foldMNF f = go
+  where
+    go (NF v) = traverse go v >>= f
