@@ -5,7 +5,7 @@
 
 module Print.Printer
   ( Printer,
-    runPrinterT,
+    runPrinter,
     indent,
     space,
     newline,
@@ -55,8 +55,8 @@ instance Monoid Printer where
 instance IsString Printer where
   fromString = emit . fromString
 
-runPrinterT :: Printer -> ByteString
-runPrinterT (Printer m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder $ execState (runReaderT m c0) s0
+runPrinter :: Printer -> ByteString
+runPrinter (Printer m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder $ execState (runReaderT m c0) s0
   where
     c0 = PrinterContext 0
     s0 = PrinterState mempty 0 RequestedNone
