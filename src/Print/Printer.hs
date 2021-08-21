@@ -6,10 +6,9 @@
 module Print.Printer
   ( Printer,
     runPrinter,
-    indent,
     space,
     newline,
-    align,
+    indent,
     emit,
     emits,
   )
@@ -17,7 +16,7 @@ where
 
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.ByteString
+import Data.ByteString (ByteString)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Lazy qualified as BSL
@@ -32,7 +31,8 @@ newtype PrinterContext = PrinterContext
 data PrinterState = PrinterState
   { _psBuilder :: Builder,
     _psColumn :: Int,
-    _psDelimiter :: RequestedSpacer
+    _psDelimiter :: RequestedSpacer,
+    _psFreshIndent :: Bool
   }
 
 data RequestedSpacer
@@ -44,7 +44,9 @@ data RequestedSpacer
 makeLenses ''PrinterContext
 makeLenses ''PrinterState
 
-newtype Printer = Printer {unPrinterT :: ReaderT PrinterContext (State PrinterState) ()}
+type RawPrinter = ReaderT PrinterContext (State PrinterState)
+
+newtype Printer = Printer {unPrinterT :: RawPrinter ()}
 
 instance Semigroup Printer where
   Printer a <> Printer b = Printer (a >> b)
@@ -59,17 +61,25 @@ runPrinter :: Printer -> ByteString
 runPrinter (Printer m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder $ execState (runReaderT m c0) s0
   where
     c0 = PrinterContext 0
-    s0 = PrinterState mempty 0 RequestedNone
+    s0 = PrinterState mempty 0 RequestedNone True
 
--- TODO could be implemented just using align
 indent :: Printer -> Printer
-indent (Printer m) = Printer $ local (over pcIndent (+ 2)) m
-
-align :: Printer -> Printer
-align (Printer m) = Printer $ do
-  unPrinterT emitSpacer
-  col <- use psColumn
-  local (pcIndent .~ col) m
+indent (Printer m) = Printer $ do
+  use psFreshIndent >>= \case
+    True -> m
+    False -> local (over pcIndent (+ 2)) $ do
+      psFreshIndent .= True
+      spacer
+      m
+  where
+    spacer :: RawPrinter ()
+    spacer = do
+      col <- use psColumn
+      ind <- view pcIndent
+      case compare col ind of
+        LT -> emitRaw (const ind) (replicate (ind - col) ' ')
+        EQ -> pure ()
+        GT -> unPrinterT newline
 
 space :: Printer
 space = Printer $ psDelimiter %= max RequestedSpace
@@ -78,21 +88,28 @@ newline :: Printer
 newline = Printer $ psDelimiter %= max RequestedNewline
 
 {-# INLINE emitSpacer #-}
-emitSpacer :: Printer
-emitSpacer =
-  Printer $ do
-    use psDelimiter >>= \case
-      RequestedNone -> pure ()
-      RequestedSpace -> unPrinterT $ emitRaw " "
-      RequestedNewline -> view pcIndent >>= \i -> unPrinterT (emitRaw $ "\n" <> mtimesDefault i " ")
-    psDelimiter .= RequestedNone
+emitSpacer :: RawPrinter ()
+emitSpacer = do
+  use psDelimiter >>= \case
+    RequestedNone -> pure ()
+    RequestedSpace -> emitRaw (+ 1) " "
+    RequestedNewline -> do
+      i <- view pcIndent
+      emitRaw id "\n"
+      emitRaw (const i) $ mtimesDefault i " "
+  psDelimiter .= RequestedNone
 
 {-# INLINE emitRaw #-}
-emitRaw :: Builder -> Printer
-emitRaw s = Printer $ psBuilder %= flip mappend s
+emitRaw :: (Int -> Int) -> String -> RawPrinter ()
+emitRaw fcol s = do
+  psBuilder %= flip mappend (BSB.string7 s)
+  psColumn %= fcol
 
-emit :: Builder -> Printer
-emit s = emitSpacer <> emitRaw s
+emit :: String -> Printer
+emit s = Printer $ do
+  psFreshIndent .= False
+  emitSpacer
+  emitRaw (+ length s) s
 
 emits :: Show a => a -> Printer
-emits = emit . BSB.stringUtf8 . show
+emits = emit . show

@@ -18,8 +18,6 @@ import Control.Monad.State
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bool
-import Data.ByteString.Builder (Builder)
-import Data.ByteString.Builder qualified as BSB
 import Data.Foldable
 import Data.String
 import Eval.Lib (calls, extractVal, foldMNF, instantiate1Over, labels, types, vars)
@@ -33,7 +31,7 @@ toDoc = runFresh . pNF
 newtype Fresh a = Fresh {_unFresh :: State Int a}
   deriving newtype (Functor, Applicative, Monad)
 
-type Symbol = Builder
+type Symbol = String
 
 runFresh :: Fresh a -> a
 runFresh (Fresh m) = evalState m 0
@@ -127,10 +125,10 @@ fresh :: Fresh Int
 fresh = Fresh $ state (\n -> (n, n + 1))
 
 freshBlk :: Fresh Symbol
-freshBlk = (\i -> "lbl_" <> BSB.string7 (show i)) <$> fresh
+freshBlk = (\i -> "lbl_" <> show i) <$> fresh
 
 freshVar :: Fresh Symbol
-freshVar = (\i -> "var_" <> BSB.string7 (show i)) <$> fresh
+freshVar = (\i -> "var_" <> show i) <$> fresh
 
 pCompOp :: CompOp -> Symbol
 pCompOp Eq = "=="
@@ -162,7 +160,7 @@ pNF = foldMNF go
         >>= pValue 0
     go (VType typ) = pure $ pType typ
     go (VPrim prim) = pure $ pPrim prim
-    go (VFunc _ (Right (Hash hash))) = pure . Bifix . Symbol $ "function_" <> BSB.string7 (take 7 $ show hash)
+    go (VFunc _ (Right (Hash hash))) = pure . Bifix . Symbol $ "function_" <> take 7 (show hash)
     go (VFunc _ _) = pure $ Bifix "<open function index, how did you do this this is a bug>"
     go (VString str) = pure . showDoc $ str
     go (VList l) = pure . Bifix . List $ toList l
@@ -170,7 +168,7 @@ pNF = foldMNF go
     go (VRTPlace _ _) = pure $ Bifix "<lvalue, how did you do this this is a bug>"
 
 showDoc :: Show a => a -> Doc
-showDoc = Bifix . Symbol . BSB.string7 . show
+showDoc = Bifix . Symbol . show
 
 pType :: Type -> Doc
 pType TVoid = Bifix $ Symbol "void"
