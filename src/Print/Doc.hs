@@ -19,6 +19,7 @@ import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bool
 import Data.Foldable
+import Data.Map (Map)
 import Data.String
 import Eval.Lib (calls, extractVal, foldMNF, instantiate1Over, labels, types, vars)
 import Eval.Types
@@ -45,6 +46,7 @@ data DocF stm doc
   | Sel doc doc
   | Call' doc [doc]
   | Prog doc stm
+  | Attrs' (Map Name doc)
   | Cond doc doc doc
   deriving (Functor, Foldable, Traversable)
 
@@ -59,6 +61,7 @@ instance Bifunctor DocF where
   bimap _ r (Operator sym lhs rhs) = Operator (r sym) (r lhs) (r rhs)
   bimap _ r (Sel h n) = Sel (r h) (r n)
   bimap _ r (Call' sym args) = Call' (r sym) (r <$> args)
+  bimap _ r (Attrs' m) = Attrs' (r <$> m)
   bimap _ r (Cond c t f) = Cond (r c) (r t) (r f)
   bimap l r (Prog sym blk) = Prog (r sym) (l blk)
 
@@ -70,6 +73,7 @@ instance Bifoldable DocF where
   bifoldr _ r a (Operator _ lhs rhs) = r lhs (r rhs a)
   bifoldr _ r a (Sel h n) = r h (r n a)
   bifoldr _ r a (Call' _ args) = foldr r a args
+  bifoldr _ r a (Attrs' m) = foldr r a m
   bifoldr _ r a (Cond c t f) = r c (r t (r f a))
   bifoldr l _ a (Prog _ blk) = l blk a
 
@@ -163,6 +167,7 @@ pNF = foldMNF go
     go (VFunc _ (Right (Hash hash))) = pure . Bifix . Symbol $ "function_" <> take 7 (show hash)
     go (VFunc _ _) = pure $ Bifix "<open function index, how did you do this this is a bug>"
     go (VString str) = pure . showDoc $ str
+    go (VAttr m) = pure . Bifix $ Attrs' m
     go (VList l) = pure . Bifix . List $ toList l
     go (VBlk _) = pure $ Bifix "<block index, how did you do this this is a bug>"
     go (VRTPlace _ _) = pure $ Bifix "<lvalue, how did you do this this is a bug>"

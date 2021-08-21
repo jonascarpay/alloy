@@ -9,7 +9,8 @@ module Print.Printer
     newline,
     indent,
     emit,
-    emits,
+    emitSbs,
+    emitShow,
   )
 where
 
@@ -19,6 +20,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Lazy qualified as BSL
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
+import Data.Semigroup (mtimesDefault, stimes)
 import Data.String
 import Lens.Micro.Platform
 
@@ -61,23 +65,26 @@ indent (Printer m) =
       col <- use psColumn
       ind <- view pcIndent
       case compare col ind of
-        LT -> emitRaw (const ind) (replicate (ind - col) ' ')
+        LT -> emitRaw (const ind) (stimes (ind - col) " ")
         EQ -> pure ()
         GT -> unPrinterT newline
 
 newline :: Printer
 newline = Printer $ do
   i <- view pcIndent
-  emitRaw (const i) ("\n" <> replicate i ' ')
+  emitRaw (const i) ("\n" <> mtimesDefault i " ")
 
 {-# INLINE emitRaw #-}
-emitRaw :: (Int -> Int) -> String -> RawPrinter ()
+emitRaw :: (Int -> Int) -> Builder -> RawPrinter ()
 emitRaw fcol s = do
-  psBuilder %= flip mappend (BSB.string7 s)
+  psBuilder %= flip mappend s
   psColumn %= fcol
 
 emit :: String -> Printer
-emit s = Printer $ emitRaw (+ length s) s
+emit s = Printer $ emitRaw (+ length s) (BSB.stringUtf8 s)
 
-emits :: Show a => a -> Printer
-emits = emit . show
+emitSbs :: ShortByteString -> Printer
+emitSbs s = Printer $ emitRaw (+ SBS.length s) (BSB.shortByteString s)
+
+emitShow :: Show a => a -> Printer
+emitShow = emit . show

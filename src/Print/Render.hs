@@ -7,6 +7,7 @@ import Data.Bifoldable
 import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.List (intersperse)
+import Data.Map qualified as M
 import Print.Bifree
 import Print.Doc
 import Print.Printer as P
@@ -41,6 +42,13 @@ renderDoc _ (Sel h n) = h <> "." <> n
 renderDoc sty (Call' fn args) = fn <> renderDoc sty (List args)
 renderDoc Single (Prog lbl blk) = lbl <> "@{" <> blk <> "}"
 renderDoc Multi (Prog lbl blk) = lbl <> "@{" <> newline <> indent blk <> newline <> "}"
+renderDoc Single (Attrs' m) = "{ " <> foldMap (\(nm, d) -> emitSbs nm <> " = " <> d <> "; ") (M.toList m) <> "}"
+renderDoc Multi (Attrs' m) =
+  mconcat
+    [ "{",
+      indent $ foldMap (\(nm, d) -> emitSbs nm <> " = " <> indent d <> ";" <> newline) (M.toList m),
+      "}"
+    ]
 renderDoc Single (Cond c t f) = fold $ intersperse space ["if", c, "then", t, "else", f]
 renderDoc Multi (Cond c t f) = "if" <> space <> c <> newline <> "then" <> space <> t <> newline <> "else" <> space <> f
 
