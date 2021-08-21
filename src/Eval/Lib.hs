@@ -112,6 +112,10 @@ instantiate1Over t sub = over t $ \case
   Free a -> a
   Bound () -> sub
 
+unbind :: (b -> r) -> (a -> r) -> (Bind b a -> r)
+unbind fb _ (Bound b) = fb b
+unbind _ fa (Free a) = fa a
+
 -- TODO prisms?
 ensureValue :: MonadError String m => String -> (WHNF -> Maybe r) -> WHNF -> m r
 ensureValue ex f v = case f v of

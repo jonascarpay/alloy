@@ -17,13 +17,19 @@ import Control.Applicative
 import Control.Monad.State
 import Data.Bifoldable
 import Data.Bifunctor
+import Data.Bitraversable
 import Data.Bool
 import Data.Foldable
+import Data.HashMap.Strict qualified as HM
 import Data.Map (Map)
+import Data.Map qualified as M
 import Data.String
-import Eval.Lib (calls, extractVal, foldMNF, instantiate1Over, labels, types, vars)
+import Data.Void
+import Eval.Lib (calls, extractVal, foldMNF, instantiate1Over, labels, rtFuncCalls, types, unbind, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
+import Lens.Micro.Platform (over)
+import Numeric (showHex)
 import Print.Bifree
 
 toDoc :: NF -> Doc
@@ -45,8 +51,10 @@ data DocF stm doc
   | Operator doc doc doc
   | Sel doc doc
   | Call' doc [doc]
+  | Func [(doc, doc)] doc doc
   | Prog doc stm
   | Attrs' (Map Name doc)
+  | Module (Map String doc) doc
   | Cond doc doc doc
   deriving (Functor, Foldable, Traversable)
 
@@ -61,7 +69,9 @@ instance Bifunctor DocF where
   bimap _ r (Operator sym lhs rhs) = Operator (r sym) (r lhs) (r rhs)
   bimap _ r (Sel h n) = Sel (r h) (r n)
   bimap _ r (Call' sym args) = Call' (r sym) (r <$> args)
+  bimap _ r (Func args ret body) = Func (bimap r r <$> args) (r ret) (r body)
   bimap _ r (Attrs' m) = Attrs' (r <$> m)
+  bimap _ r (Module m d) = Module (r <$> m) (r d)
   bimap _ r (Cond c t f) = Cond (r c) (r t) (r f)
   bimap l r (Prog sym blk) = Prog (r sym) (l blk)
 
@@ -73,7 +83,9 @@ instance Bifoldable DocF where
   bifoldr _ r a (Operator _ lhs rhs) = r lhs (r rhs a)
   bifoldr _ r a (Sel h n) = r h (r n a)
   bifoldr _ r a (Call' _ args) = foldr r a args
+  bifoldr _ r a (Func args ret body) = foldr (flip $ bifoldr r r) (r ret (r body a)) args
   bifoldr _ r a (Attrs' m) = foldr r a m
+  bifoldr _ r a (Module m d) = foldr r (r d a) m
   bifoldr _ r a (Cond c t f) = r c (r t (r f a))
   bifoldr l _ a (Prog _ blk) = l blk a
 
@@ -151,20 +163,47 @@ operator pOp opPrec pRec op l r precCtx =
   where
     prec = opPrec op
 
+pDeps :: Deps -> Fresh (Map String Doc)
+pDeps (Deps closed _) = M.fromList <$> traverse (bitraverse (pure . pHash) toDoc) (HM.toList closed)
+  where
+    toDoc :: RTFunc Hash -> Fresh Doc
+    toDoc func = pFunc $ over rtFuncCalls (Bifix . Symbol . pHash) func
+
+pFunc :: RTFunc Doc -> Fresh Doc
+pFunc (RTFunc args ret body) = do
+  args' <- forM args $ \typ -> do
+    ix <- fresh
+    pure (Bifix $ Symbol $ "arg_" <> show ix, pType typ)
+  let ret' = pType ret
+  body' <-
+    pValue 0 $
+      over labels absurd $
+        over vars (unbind (\ix -> fst (args' !! ix)) absurd) $
+          fmap pType body
+  pure $ Bifix $ Func args' ret' body'
+
+pHash :: Hash -> String
+pHash (Hash h) = take 7 (showHex (fromIntegral h :: Word) "")
+
 pNF :: NF -> Fresh Doc
 pNF = foldMNF go
   where
     go :: Value Doc -> Fresh Doc
     go (VClosure _) = pure . Bifix $ Symbol "<closure>"
-    go (VRTValue _ val) =
-      labels (error "impossible") val
-        >>= vars (error "impossible")
-        >>= calls (error "impossible")
-        >>= types (const $ pure $ Bifix "?")
-        >>= pValue 0
+    go (VRTValue deps val) = do
+      val' <-
+        labels (error "impossible -- label escaped scope") val
+          >>= vars (error "impossible -- variable escaped scope")
+          >>= calls (either undefined (pure . Bifix . Symbol . pHash))
+          >>= types (const $ pure $ Bifix "?")
+          >>= pValue 0
+      deps' <- pDeps deps
+      pure $ Bifix $ Module deps' val'
     go (VType typ) = pure $ pType typ
     go (VPrim prim) = pure $ pPrim prim
-    go (VFunc _ (Right (Hash hash))) = pure . Bifix . Symbol $ "function_" <> take 7 (show hash)
+    go (VFunc deps (Right hash)) = do
+      deps' <- pDeps deps
+      pure . Bifix $ Module deps' (Bifix . Symbol $ pHash hash)
     go (VFunc _ _) = pure $ Bifix "<open function index, how did you do this this is a bug>"
     go (VString str) = pure . showDoc $ str
     go (VAttr m) = pure . Bifix $ Attrs' m

@@ -39,6 +39,18 @@ renderDoc Multi (List doc) =
 renderDoc _ (Deref' d) = "*" <> d
 renderDoc Single (Operator op l r) = l <> space <> op <> space <> r
 renderDoc Multi (Operator op l r) = l <> newline <> op <> space <> r
+renderDoc _ (Module deps body) | null deps = body
+renderDoc _ (Module deps body) =
+  indent $
+    mconcat
+      [ "Module dependencies:",
+        indent . mconcat . intersperse newline . flip fmap (M.toList deps) $ \(str, p) ->
+          emit str <> " = " <> p <> ";",
+        newline,
+        "Module body:",
+        indent body
+      ]
+renderDoc _ (Func args ret body) = renderDoc Single (List $ (\(arg, typ) -> arg <> ": " <> typ) <$> args) <> " -> " <> ret <> space <> body
 renderDoc _ (Sel h n) = h <> "." <> n
 renderDoc sty (Call' fn args) = fn <> renderDoc sty (List args)
 renderDoc Single (Prog lbl blk) = lbl <> "@{" <> blk <> "}"
@@ -68,6 +80,7 @@ annotate :: Doc -> AnnDoc
 annotate = toBicofree fStmt fExpr
   where
     fExpr :: DocF Style Style -> Style
+    fExpr (Module deps _) | not (null deps) = Multi
     fExpr doc = bifoldr max max Single doc
     fStmt :: StatementF Style Style -> Style
     fStmt SDecl {} = Multi
