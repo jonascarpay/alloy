@@ -53,7 +53,7 @@ renderDoc _ (Module deps body) =
 renderDoc _ (Func args ret body) = renderDoc Single (List $ (\(arg, typ) -> arg <> ": " <> typ) <$> args) <> " -> " <> ret <> space <> body
 renderDoc _ (Sel h n) = h <> "." <> n
 renderDoc sty (Call' fn args) = fn <> renderDoc sty (List args)
-renderDoc Single (Prog lbl blk) = lbl <> "@{" <> blk <> "}"
+renderDoc Single (Prog lbl blk) = lbl <> "@{ " <> blk <> " }"
 renderDoc Multi (Prog lbl blk) = lbl <> "@{" <> newline <> indent blk <> newline <> "}"
 renderDoc Single (Attrs' m) = "{ " <> foldMap (\(nm, d) -> emitSbs nm <> " = " <> d <> "; ") (M.toList m) <> "}"
 renderDoc Multi (Attrs' m) =
@@ -65,7 +65,7 @@ renderDoc Multi (Attrs' m) =
           "}"
         ]
 renderDoc Single (Cond c t f) = fold $ intersperse space ["if", c, "then", t, "else", f]
-renderDoc Multi (Cond c t f) = "if" <> space <> c <> newline <> "then" <> space <> t <> newline <> "else" <> space <> f
+renderDoc Multi (Cond c t f) = "if" <> space <> c <> newline <> indent ("then" <> space <> t) <> newline <> indent ("else" <> space <> f)
 
 renderStmt :: Style -> StatementF Printer Printer -> Printer
 renderStmt _ (SDecl sym typ rhs k) =
