@@ -183,7 +183,7 @@ pFunc (RTFunc args ret body) = do
   pure $ Bifix $ Func args' ret' body'
 
 pHash :: Hash -> String
-pHash (Hash h) = take 7 (showHex (fromIntegral h :: Word) "")
+pHash (Hash h) = mappend "fn_" $ take 7 (showHex (fromIntegral h :: Word) "")
 
 pNF :: NF -> Fresh Doc
 pNF = foldMNF go
@@ -194,7 +194,7 @@ pNF = foldMNF go
       val' <-
         labels (error "impossible -- label escaped scope") val
           >>= vars (error "impossible -- variable escaped scope")
-          >>= calls (either undefined (pure . Bifix . Symbol . pHash))
+          >>= calls (either (error "impossible -- open function escaped scope") (pure . Bifix . Symbol . pHash))
           >>= types (const $ pure $ Bifix "?")
           >>= pValue 0
       deps' <- pDeps deps
