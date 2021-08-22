@@ -86,8 +86,17 @@ evalTests = describe "eval" $ do
   is9 "nested if true" "if true then if true then 9 else 10 else 10"
   is9 "nested if false" "if false then 10 else if false then 10 else 9"
   is9 "if comparison" "if 2 + 2 < 5 then 9 else 10"
-  is9 "matchType" "builtins.matchType { int = 9; default = builtins.undefined; } builtins.types.int"
-  describe "indexing" $ do
+  describe "matchType" $ do
+    is9 "matchType" "builtins.matchType { int = 9; default = builtins.undefined; } builtins.types.int"
+    is9 "matchType default" "builtins.matchType { default = 9; } builtins.types.void"
+    is9 "matchType pointer" $
+      [r| let inherit (builtins.types) int ptr;
+              match = builtins.matchType {
+                int = 7;
+                ptr x = (match x) + 1;
+              };
+          in match (ptr (ptr int))
+      |]
     is9 "matchType tuple" $
       [r| with builtins;
           with types;
@@ -100,12 +109,12 @@ evalTests = describe "eval" $ do
                default = undefined;
              } t
       |]
+  describe "indexing" $ do
     is9 "attrset string lookup" [r| { nine = 9; }."nine" |]
     is9 "list indexing" "[1, 3, 9, 27].2"
     is9 "index expression" [r| { nine = 9; }.("ni" + "ne") |]
     is9 "list index expression" "[1, 3, 9, 27].(1+1)"
     is9 "string indexing" [r| if "139".2 == "9" then 9 else builtins.undefined |]
-  is9 "matchType default" "builtins.matchType { default = 9; } builtins.types.void"
   is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]"
   is9 "string length" "builtins.length \"123456789\""
   is9 "list concat" "([] + [9] + []).0"
