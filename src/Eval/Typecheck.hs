@@ -70,6 +70,7 @@ data Type' f
   | TBool'
   | TInt'
   | TDouble'
+  | TPointer' f
   | TKnownTuple' (Seq f)
   | TTuple' (IntMap f) -- TODO there probably is a better way to represent constraints, maybe somehow combine with OneOf
   deriving (Eq, Ord, Functor, Foldable, Traversable)
@@ -114,6 +115,7 @@ unify (TypeVar a) (TypeVar b) = do
     TBool' <+> TBool' = pure TBool'
     TInt' <+> TInt' = pure TInt'
     TDouble' <+> TDouble' = pure TDouble'
+    TPointer' ta <+> TPointer' tb = TPointer' ta <$ unify ta tb
     TKnownTuple' as <+> TKnownTuple' bs = do
       when (Seq.length as /= Seq.length bs) $ throwError "tuple length mismatch"
       TKnownTuple' <$> sequence (Seq.zipWith (\a b -> a <$ unify a b) as bs)
@@ -143,6 +145,7 @@ unify (TypeVar a) (TypeVar b) = do
         describeType TDouble' = "double"
         describeType (TTuple' _) = "tuple"
         describeType (TKnownTuple' _) = "tuple"
+        describeType (TPointer' _) = "pointer"
 
     (<=>) :: Judgement s -> Judgement s -> Check s (Judgement s)
     Any <=> t = pure t
@@ -169,6 +172,7 @@ fromType TDouble = fresh $ Exactly TDouble'
 fromType TBool = fresh $ Exactly TBool'
 fromType TVoid = fresh $ Exactly TVoid'
 fromType (TTuple ts) = traverse fromType ts >>= fresh . Exactly . TKnownTuple'
+fromType (TPtr t) = fromType t >>= fresh . Exactly . TPointer'
 
 resolve :: TypeVar s -> Check s Type
 resolve (TypeVar v) =
@@ -184,6 +188,7 @@ resolve (TypeVar v) =
     resolveType TBool' = pure TBool
     resolveType (TKnownTuple' s) = TTuple <$> traverse resolve s
     resolveType (TTuple' _) = throwError "Ambiguous tuple type"
+    resolveType (TPointer' t) = TPtr <$> resolve t
 
 lookupSig :: Either FuncIX Hash -> Check s Sig
 lookupSig func = view (lens func) >>= maybe err pure
@@ -261,6 +266,12 @@ checkValue ctx (Block blk a) = do
       instantiateLabel (Free t) = Free <$> t
   blk' <- checkProg ctx (over labels instantiateLabel blk)
   pure (Block blk' (Typed a ctx))
+checkValue ctx (RTRef plc a) = do
+  tInner <- fresh Any
+  var <- fresh (Exactly (TPointer' tInner))
+  unify ctx var
+  plc' <- checkPlace tInner plc
+  pure $ RTRef plc' (Typed a ctx)
 
 checkPlace ::
   TypeVar s ->
@@ -273,7 +284,10 @@ checkPlace ctx (PlaceSel haystack needle a) = do
   var <- fresh (Exactly $ TTuple' (IM.singleton needle ctx))
   haystack' <- checkPlace var haystack
   pure $ PlaceSel haystack' needle (Typed a ctx)
-checkPlace _ (Deref _ _) = throwError "Deref type checking not yet implemented"
+checkPlace ctx (RTDeref val a) = do
+  var <- fresh (Exactly $ TPointer' ctx)
+  val' <- checkValue var val
+  pure $ RTDeref val' (Typed a ctx)
 
 -- TODO
 -- Break always takes a label but ExprStmt still allows breaking to an implicit

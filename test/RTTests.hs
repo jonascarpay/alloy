@@ -441,6 +441,27 @@ rtTests = describe "rt" $ do
             tup = [] -> (tuple [int]) [2];
           in [] -> int ((tup[]).0)
       |]
+  describe "pointers" $ do
+    saFunc "pointer dereference" $
+      [r| let
+            inherit (builtins.types) int ptr;
+          in [] -> int {
+            var q: int = 0;
+            var pq: ptr int = &q;
+            ^pq = 2;
+            q
+          }
+      |]
+    nocompile "invalid pointer dereference" $
+      [r| let
+            inherit (builtins.types) int double ptr;
+          in [] -> int {
+            var q: int = 0;
+            var pq: ptr double = &q;
+            ^pq = 2;
+            q
+          }
+      |]
   describe "examples" $ do
     -- TODO
     -- There's an interesting point about the type system for these loops.  Say

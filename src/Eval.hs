@@ -121,6 +121,8 @@ whnf (Cond cond true false) =
       pure $ RTCond cond' true' false' ()
 whnf (String str) = pure $ VString str
 whnf (List l) = VList <$> traverse (whnf >=> refer) l
+whnf (Ref expr) = fromComp VRTValue $ fmap (`RTRef` ()) $ lift (whnf expr) >>= coerceRTPlace
+whnf (Deref expr) = fromComp VRTPlace $ fmap (`RTDeref` ()) $ lift (whnf expr) >>= coerceRTValue
 
 binOp :: BinOp -> WHNF -> WHNF -> Eval WHNF
 binOp op (VPrim a) (VPrim b) = binPrim op a b

@@ -94,17 +94,21 @@ pFunc = do
 
 pTerm :: Parser Expr
 pTerm = do
-  val <-
-    choice
-      [ Prim <$> pAtom,
-        pList,
-        pAttr,
-        pString,
-        pBlock,
-        parens pExpr,
-        pVar
-      ]
-  foldl' Sel val <$> many (token T.Dot *> pAccessor)
+  refs <- many $ (Deref <$ token T.Caret) <|> (Ref <$ token T.Ampersand)
+  val <- pTerm0
+  sels <- many (token T.Dot *> pAccessor)
+  pure $ foldl' Sel (foldr id val refs) sels
+  where
+    pTerm0 =
+      choice
+        [ Prim <$> pAtom,
+          pList,
+          pAttr,
+          pString,
+          pBlock,
+          parens pExpr,
+          pVar
+        ]
 
 pAccessor :: Parser Expr
 pAccessor = lit <|> expr
