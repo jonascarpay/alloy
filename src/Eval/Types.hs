@@ -110,6 +110,7 @@ data Type
   | TBool
   | TInt
   | TDouble
+  | TPtr Type
   | TTuple (Seq Type)
   deriving stock (Eq, Show, Ord, Generic)
 
@@ -119,6 +120,7 @@ instance Hashable Type where
   hashWithSalt s TBool = hashWithSalt s (2 :: Int)
   hashWithSalt s TVoid = hashWithSalt s (3 :: Int)
   hashWithSalt s (TTuple m) = hashWithSalt s (4 :: Int, toList m)
+  hashWithSalt s (TPtr t) = hashWithSalt s (5 :: Int, t)
 
 data Bind b a
   = Bound b

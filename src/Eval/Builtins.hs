@@ -72,11 +72,15 @@ vTypes =
           ("double", VType TDouble),
           ("bool", VType TBool),
           ("void", VType TVoid),
-          ("tuple", VClosure mkTuple)
+          ("tuple", VClosure mkTuple),
+          ("ptr", VClosure mkPtr)
         ]
   where
     mkTuple = forceExpect "builtins.types.tuple" "a list of member types" $ \case
       VList m -> Just $ VType . TTuple <$> traverse (force >=> ensureType) m
+      _ -> Nothing
+    mkPtr = forceExpect "builtins.types.ptr" "a type" $ \case
+      VType t -> Just $ pure $ VType $ TPtr t
       _ -> Nothing
 
 vMatchType :: Value f
@@ -99,6 +103,11 @@ vMatchType = VClosure $
                         members' <- traverse (refer . VType) members
                         refer (VList members') >>= k
                       val -> throwError $ "builtins.matchType: Matcher for tuple fields was not a closure but " <> describeValue val
+                  TPtr t ->
+                    lookupDefault m "ptr" >>= \case
+                      VClosure k ->
+                        refer (VType t) >>= k
+                      val -> throwError $ "builtins.matchType: Matcher for pointer type was not a closure but " <> describeValue val
             _ -> Nothing
     _ -> Nothing
   where
