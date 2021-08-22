@@ -257,4 +257,4 @@ pValue prec (PlaceVal pl _) = pPlace prec pl
 pPlace :: Int -> RTPlace Doc Doc Doc Doc -> Fresh Doc
 pPlace _ (Place sym _) = pure sym
 pPlace _ (PlaceSel h n _) = (\h' -> Bifix $ Sel h' $ pPrim $ PInt n) <$> pPlace 9 h
-pPlace prec (Deref val _) = parens (prec > 9) . Bifix . Deref' <$> pValue 9 val
+pPlace prec (RTDeref val _) = parens (prec > 9) . Bifix . Deref' <$> pValue 9 val

@@ -220,11 +220,12 @@ extractVal (RTCond _ _ _ i) = i
 extractVal (Call _ _ i) = i
 extractVal (PlaceVal _ i) = i
 extractVal (Block _ i) = i
+extractVal (RTRef _ i) = i
 
 extractPlace :: RTPlace var blk fun info -> info
 extractPlace (Place _ i) = i
 extractPlace (PlaceSel _ _ i) = i
-extractPlace (Deref _ i) = i
+extractPlace (RTDeref _ i) = i
 
 extendVal ::
   (forall var blk fun. RTValue var blk fun a -> b) ->
@@ -242,6 +243,7 @@ extendVal fv fp = go
     go s@(Call f args _) = Call f (go <$> args) (fv s)
     go s@(PlaceVal pl _) = PlaceVal (extendPlace fv fp pl) (fv s)
     go s@(Block blk _) = Block (extendProg fv fp blk) (fv s)
+    go s@(RTRef p _) = RTRef (extendPlace fv fp p) (fv s)
 
 extendPlace ::
   (forall var blk fun. RTValue var blk fun a -> b) ->
@@ -252,7 +254,7 @@ extendPlace fv fp = go
   where
     go s@(Place var _) = Place var (fp s)
     go s@(PlaceSel h n _) = PlaceSel (go h) n (fp s)
-    go s@(Deref v _) = Deref (extendVal fv fp v) (fp s)
+    go s@(RTDeref v _) = RTDeref (extendVal fv fp v) (fp s)
 
 extendProg ::
   (forall var blk fun. RTValue var blk fun a -> b) ->

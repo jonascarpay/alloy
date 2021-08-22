@@ -51,6 +51,9 @@ tokens :-
   "<-"		{ tok LArr }
   "->"		{ tok RArr }
 
+  "^"		{ tok Caret }
+  "&"		{ tok Ampersand }
+
   ";"		{ tok Semicolon }
   ":"		{ tok Colon }
   ","		{ tok Comma }

@@ -48,6 +48,9 @@ data Token
   | Dot
   | RArr
   | LArr
+  | -- Referencing operators
+    Ampersand
+  | Caret
   | -- Punctuation
     Semicolon
   | Colon

@@ -156,6 +156,7 @@ data RTValue var blk fun info
   | Call fun [RTValue var blk fun info] info
   | PlaceVal (RTPlace var blk fun info) info
   | Block (RTProg var (Bind () blk) fun info) info
+  | RTRef (RTPlace var blk fun info) info
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
@@ -168,7 +169,7 @@ data RTValue var blk fun info
 data RTPlace var blk fun info
   = Place var info -- TODO Rename
   | PlaceSel (RTPlace var blk fun info) Int info
-  | Deref (RTValue var blk fun info) info
+  | RTDeref (RTValue var blk fun info) info
   deriving stock (Eq, Ord, Show, Functor, Foldable, Traversable, Generic, Generic1)
   deriving anyclass (Hashable, Hashable1)
 
@@ -219,13 +220,14 @@ instance RTAST RTValue where
       go (RTCond cond true false t) = RTCond <$> go cond <*> go true <*> go false <*> fi t
       go (RTTuple tup t) = RTTuple <$> traverse go tup <*> fi t
       go (RTPrim p t) = RTPrim p <$> fi t
+      go (RTRef r i) = RTRef <$> traverseAst fv fl ff fi r <*> fi i
 
 instance RTAST RTPlace where
   traverseAst fv fl ff fi = go
     where
       go (Place var t) = Place <$> fv var <*> fi t
       go (PlaceSel h n t) = PlaceSel <$> go h <*> pure n <*> fi t
-      go (Deref val t) = Deref <$> traverseAst fv fl ff fi val <*> fi t
+      go (RTDeref val t) = RTDeref <$> traverseAst fv fl ff fi val <*> fi t
 
 instance RTAST RTProg where
   traverseAst fv fl ff fi (Decl typ val k) = Decl typ <$> traverseAst fv fl ff fi val <*> traverseAst (traverse fv) fl ff fi k

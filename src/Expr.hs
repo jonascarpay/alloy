@@ -27,6 +27,8 @@ data Expr
   | With Expr Expr
   | List (Seq Expr)
   | Cond Expr Expr Expr
+  | Ref Expr
+  | Deref Expr
   deriving stock (Eq, Show, Generic)
 
 data ProgE
