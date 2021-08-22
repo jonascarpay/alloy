@@ -442,6 +442,19 @@ rtTests = describe "rt" $ do
           in [] -> int ((tup[]).0)
       |]
   describe "examples" $ do
+    -- TODO
+    -- There's an interesting point about the type system for these loops.  Say
+    -- you want somthing like
+    -- {
+    --   var q: int = 0;
+    --   i <- for 0 q;
+    --   q = q+ i;
+    -- }
+    -- This does not make it clear whether it takes q as a reference or a
+    -- value, and observably changes its behavior based on that.  The larger
+    -- issue is just that q implicitly fulfills the roles of lvalue, lvalue
+    -- reference, and rvalue.  Conversions could be made mandatory or more
+    -- explicit, or the type system at least tells you what things are cast to.
     saFunc "half-inlined while loop" $
       [r| with builtins.types;
           [] -> void {
