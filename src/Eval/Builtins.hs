@@ -14,7 +14,6 @@ import Eval.Types
 import Expr
 
 -- TODO
--- matchvalue
 -- import
 
 {-# ANN module ("hlint: ignore Use >=>" :: String) #-}
@@ -73,16 +72,33 @@ vTypes =
           ("bool", VType TBool),
           ("void", VType TVoid),
           ("tuple", VClosure mkTuple),
+          ("array", mkArray),
           ("ptr", VClosure mkPtr)
         ]
   where
     mkTuple = forceExpect "builtins.types.tuple" "a list of member types" $ \case
       VList m -> Just $ VType . TTuple <$> traverse (force >=> ensureType) m
       _ -> Nothing
+    mkArray =
+      let expect str tn k = forceExpect "builtins.types.tuple" str k tn
+       in VClosure $ \tn ->
+            expect "the array size" tn $ \case
+              VPrim (PInt n) -> Just $
+                pure $
+                  VClosure $ \tt ->
+                    expect "the array element type" tt $ \case
+                      VType t -> Just $ pure $ VType $ TArray n t
+                      _ -> Nothing
+              _ -> Nothing
     mkPtr = forceExpect "builtins.types.ptr" "a type" $ \case
       VType t -> Just $ pure $ VType $ TPtr t
       _ -> Nothing
 
+-- TODO
+-- Instead of pattern matching on the matchers and applying arguments in the
+-- case of array/tuple/pointer, it would be better to have some sort of
+-- general-purpose apply function.  Maybe we then just have good enough stack
+-- traces to be able to infer what's wrong from context.
 vMatchType :: Value f
 vMatchType = VClosure $
   expect "an attribute set" $ \case
@@ -108,6 +124,14 @@ vMatchType = VClosure $
                       VClosure k ->
                         refer (VType t) >>= k
                       val -> throwError $ "builtins.matchType: Matcher for pointer type was not a closure but " <> describeValue val
+                  TArray n t ->
+                    lookupDefault m "array" >>= \case
+                      VClosure k ->
+                        refer (VPrim $ PInt n) >>= k >>= \case
+                          VClosure k' ->
+                            refer (VType t) >>= k'
+                          _ -> throwError "builtins.matchType: Matcher for array was not a function taking two arguments"
+                      _ -> throwError "builtins.matchType: Matcher for array was not a function taking two arguments"
             _ -> Nothing
     _ -> Nothing
   where
