@@ -25,7 +25,7 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String
 import Data.Void
-import Eval.Lib (calls, extractVal, foldMNF, instantiate1Over, labels, rtFuncCalls, types, unbind, vars)
+import Eval.Lib (calls, extractVal, foldMNF, foldType, instantiate1Over, labels, rtFuncCalls, types, unbind, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
 import Lens.Micro.Platform (over)
@@ -215,11 +215,14 @@ showDoc :: Show a => a -> Doc
 showDoc = Bifix . Symbol . show
 
 pType :: Type -> Doc
-pType TVoid = Bifix $ Symbol "void"
-pType TBool = Bifix $ Symbol "bool"
-pType TInt = Bifix $ Symbol "int"
-pType TDouble = Bifix $ Symbol "double"
-pType (TTuple ts) = Bifix $ List $ pType <$> toList ts
+pType = foldType go
+  where
+    go :: TypeF Doc -> Doc
+    go TVoid = Bifix $ Symbol "void"
+    go TBool = Bifix $ Symbol "bool"
+    go TInt = Bifix $ Symbol "int"
+    go TDouble = Bifix $ Symbol "double"
+    go (TTuple ts) = Bifix $ List $ toList ts
 
 pProg :: RTProg Doc Doc Doc Doc -> Fresh Statement
 pProg (Decl _ val k) = do

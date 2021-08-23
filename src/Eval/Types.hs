@@ -105,17 +105,20 @@ newtype FuncIX = FuncIX {unFuncIX :: Int}
 
 -- TODO
 -- The ord instance determines the order of defaulting in the case of ambigous types. Not ideal.
-data Type
+data TypeF f
   = TVoid -- TODO Can this be the empty tuple now?
   | TBool
   | TInt
   | TDouble
-  | TPtr Type
-  | TTuple (Seq Type)
-  | TArray Int Type
-  deriving stock (Eq, Show, Ord, Generic)
+  | TPtr f
+  | TTuple (Seq f)
+  | TArray Int f
+  deriving stock (Eq, Show, Ord, Generic, Functor, Foldable, Traversable)
 
-instance Hashable Type where
+-- TODO unify fixpoints? Newtype deriving is nice tho
+newtype Type = Type (TypeF Type) deriving newtype (Show, Eq, Ord, Hashable)
+
+instance Hashable f => Hashable (TypeF f) where
   hashWithSalt s TInt = hashWithSalt s (0 :: Int)
   hashWithSalt s TDouble = hashWithSalt s (1 :: Int)
   hashWithSalt s TBool = hashWithSalt s (2 :: Int)

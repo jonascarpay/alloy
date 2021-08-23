@@ -13,26 +13,16 @@
 
 module Eval.Typecheck (typeCheck) where
 
-import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.ST
-import Data.Foldable
 import Data.HashMap.Strict (HashMap)
-import Data.IntMap (IntMap)
-import Data.IntMap qualified as IM
-import Data.List.NonEmpty (NonEmpty (..))
-import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
-import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
-import Data.Set (Set)
-import Data.Set qualified as S
 import Data.UnionFind.ST qualified as UF
 import Data.Void
-import Eval.Lib (closedOver, labels, types, vars)
+import Eval.Lib (labels, structuralZip, types, vars)
 import Eval.Types
-import Expr
 import Lens.Micro.Platform
 
 typeCheck ::
@@ -44,12 +34,12 @@ typeCheck ::
   Either String (RTValue (Bind Int Void) Void (Either FuncIX Hash) Type)
 typeCheck body args ret closedSigs openSigs =
   runCheck (closedSigs, openSigs) $ do
-    ctx <- fromType ret
+    ctx <- freshT ret
     -- TODO somehow check _once_ that the length of argument list is correct, and then reuse proof
     let instantiateArg :: Bind Int Void -> Check s (Typed s (Bind Int Void))
         instantiateArg (Free v) = absurd v
         instantiateArg (Bound argIx) = case args ^? ix argIx of
-          Just typ -> Typed (Bound argIx) <$> fromType typ
+          Just typ -> Typed (Bound argIx) <$> freshT typ
           Nothing -> throwError "Impossible"
         body' = over labels absurd body
     -- TODO
@@ -64,153 +54,42 @@ type Sigs = (HashMap Hash Sig, Map FuncIX Sig)
 runCheck :: Sigs -> (forall s. Check s a) -> Either String a
 runCheck deps m = runST $ runExceptT $ runReaderT m deps
 
-newtype TypeVar s = TypeVar (UF.Point s (Judgement s))
+newtype TypeVar s = TypeVar (UF.Point s (Maybe (TypeF (TypeVar s))))
 
--- TODO
--- I think the type system is too advanced.  We should be able to say that
--- types should follow immediately from values, or at least from the context.
--- We don't need this level of inference.
--- Maybe you always know the type of the context, that sounds doable
--- TODO
--- Unify TTuple and TKnownTuple into TTuple (Maybe (Seq f))?  Maybe there's a
--- better way of recursively filling in information that works across all
--- `Maybe` fields? Just some kind of fixpoint. In the case of something like
--- Seq you could make sure the structures match using (() <$ a) == (() <$ b)...
---
--- The above two points are related
-data Type' f
-  = TVoid'
-  | TBool'
-  | TInt'
-  | TDouble'
-  | TPointer' f -- TODO Rename TPtr'
-  | TArray' (Maybe Int) f
-  | TKnownTuple' (Seq f)
-  | TTuple' (IntMap f) -- TODO there probably is a better way to represent constraints, maybe somehow combine with OneOf
-  deriving (Eq, Ord, Functor, Foldable, Traversable)
-
--- TODO there is probably some sort of better, lattice-y name (class?) for this
-data Judgement s
-  = Any
-  | OneOf (Set2 (Type' Void)) -- TODO ambiguities are kind of primitive atm
-  | Exactly (Type' (TypeVar s))
-
-newtype Set2 a = Set2 (Set a)
-
-instance Ord a => Semigroup (Set2 a) where
-  Set2 a <> Set2 b = Set2 (a <> b)
-
-set2 :: Ord a => a -> a -> Set2 a
-set2 a b = Set2 $ S.fromList [a, b]
-
-intersection2 :: Ord a => (Set2 a -> r) -> (a -> r) -> r -> (Set2 a -> Set2 a -> r)
-intersection2 fn f1 f0 (Set2 a) (Set2 b) = case S.toList s of
-  [] -> f0
-  [e] -> f1 e
-  _ -> fn (Set2 s)
-  where
-    s = S.intersection a b
-
-member2 :: Ord a => a -> Set2 a -> Bool
-member2 a (Set2 as) = S.member a as
-
-toList2 :: Set2 a -> NonEmpty a
-toList2 (Set2 as) = NE.fromList $ S.toList as
+joinMaybes :: Applicative m => (a -> a -> m a) -> Maybe a -> Maybe a -> m (Maybe a)
+joinMaybes f (Just a) (Just b) = Just <$> f a b
+joinMaybes _ Nothing b = pure b
+joinMaybes _ a Nothing = pure a
 
 unify :: TypeVar s -> TypeVar s -> Check s ()
 unify (TypeVar a) (TypeVar b) = do
-  ja <- liftST $ UF.descriptor a
-  jb <- liftST $ UF.descriptor b
-  jc <- ja <=> jb
-  liftST $ UF.union a b >> UF.setDescriptor a jc
+  mta <- liftST $ UF.descriptor a
+  mtb <- liftST $ UF.descriptor b
+  mt <- joinMaybes unifyTypes mta mtb
+  liftST $ UF.union a b >> UF.setDescriptor a mt
   where
-    (<+>) :: Type' (TypeVar s) -> Type' (TypeVar s) -> Check s (Type' (TypeVar s))
-    TVoid' <+> TVoid' = pure TVoid'
-    TBool' <+> TBool' = pure TBool'
-    TInt' <+> TInt' = pure TInt'
-    TDouble' <+> TDouble' = pure TDouble'
-    TPointer' ta <+> TPointer' tb = TPointer' ta <$ unify ta tb
-    TArray' (Just na) ta <+> TArray' (Just nb) tb = do
-      when (na /= nb) $ throwError "array length mismatch"
-      TArray' (Just na) ta <$ unify ta tb
-    TArray' mna ta <+> TArray' mnb tb = TArray' (mna <|> mnb) ta <$ unify ta tb
-    TKnownTuple' as <+> TKnownTuple' bs = do
-      when (Seq.length as /= Seq.length bs) $ throwError "tuple length mismatch"
-      TKnownTuple' <$> sequence (Seq.zipWith (\a b -> a <$ unify a b) as bs)
-    TKnownTuple' as <+> TTuple' bs = TKnownTuple' as <$ checkTuple as bs
-    TTuple' as <+> TKnownTuple' bs = TKnownTuple' bs <$ checkTuple bs as
-    TTuple' as <+> TTuple' bs = TTuple' <$> unionWithM (\a b -> a <$ unify a b) as bs
-    a <+> b = unificationErr (pure a) (pure b)
-
-    unionWithM :: Monad m => (a -> a -> m a) -> IntMap a -> IntMap a -> m (IntMap a)
-    unionWithM f a b = sequence $ IM.unionWith (\ma mb -> join $ liftM2 f ma mb) (pure <$> a) (pure <$> b)
-
-    checkTuple :: Seq (TypeVar s) -> IntMap (TypeVar s) -> Check s ()
-    checkTuple sq im = void $
-      flip IM.traverseWithKey im $ \ix var -> case Seq.lookup ix sq of
-        Nothing -> throwError $ "Index " <> show ix <> " out of bounds for tuple"
-        Just var' -> unify var var'
-
-    unificationErr :: NonEmpty (Type' ta) -> NonEmpty (Type' tb) -> Check s a
-    unificationErr as bs = throwError $ "Cannot match " <> describeTypes as <> " with " <> describeTypes bs
+    unifyTypes :: TypeF (TypeVar s) -> TypeF (TypeVar s) -> Check s (TypeF (TypeVar s))
+    unifyTypes a b = structuralZip (\a b -> a <$ unify a b) err a b
       where
-        describeTypes (a :| []) = describeType a
-        describeTypes as = "one of (" <> unwords (describeType <$> toList as) <> ")"
-        describeType :: Type' a -> String
-        describeType TVoid' = "void"
-        describeType TBool' = "bool"
-        describeType TInt' = "int"
-        describeType TDouble' = "double"
-        describeType (TTuple' _) = "tuple"
-        describeType (TKnownTuple' _) = "tuple"
-        describeType (TPointer' _) = "pointer"
-        describeType (TArray' _ _) = "array"
-
-    (<=>) :: Judgement s -> Judgement s -> Check s (Judgement s)
-    Any <=> t = pure t
-    OneOf t <=> Any = pure (OneOf t)
-    OneOf a <=> OneOf b = intersection2 (pure . OneOf) (pure . Exactly . fmap absurd) (unificationErr (toList2 a) (toList2 b)) a b
-    OneOf ts <=> Exactly t
-      | Just t' <- closedOver traverse t, member2 t' ts = pure (Exactly t)
-      | otherwise = unificationErr (toList2 ts) (pure t)
-    Exactly t <=> Any = pure (Exactly t)
-    Exactly t <=> OneOf ts
-      | Just t' <- closedOver traverse t, member2 t' ts = pure (Exactly t)
-      | otherwise = unificationErr (pure t) (toList2 ts)
-    Exactly a <=> Exactly b = Exactly <$> (a <+> b)
+        err = throwError $ "Couldn't unify " <> show (() <$ a) <> " with " <> show (() <$ b)
 
 liftST :: ST s a -> Check s a
 liftST = lift . lift
 
-fresh :: Judgement s -> Check s (TypeVar s)
+fresh :: Maybe (TypeF (TypeVar s)) -> Check s (TypeVar s)
 fresh j = liftST $ TypeVar <$> UF.fresh j
 
-fromType :: Type -> Check s (TypeVar s)
-fromType TInt = fresh $ Exactly TInt'
-fromType TDouble = fresh $ Exactly TDouble'
-fromType TBool = fresh $ Exactly TBool'
-fromType TVoid = fresh $ Exactly TVoid'
-fromType (TTuple ts) = traverse fromType ts >>= fresh . Exactly . TKnownTuple'
-fromType (TPtr t) = fromType t >>= fresh . Exactly . TPointer'
-fromType (TArray n t) = fromType t >>= fresh . Exactly . TArray' (Just n)
+freshT :: Type -> Check s (TypeVar s)
+freshT (Type t) = traverse freshT t >>= fresh . Just
 
 resolve :: TypeVar s -> Check s Type
-resolve (TypeVar v) =
+resolve var = fmap Type $ resolve1 var >>= traverse resolve
+
+resolve1 :: TypeVar s -> Check s (TypeF (TypeVar s))
+resolve1 (TypeVar v) = do
   liftST (UF.descriptor v) >>= \case
-    Any -> pure TVoid
-    (OneOf ts) -> minimum <$> traverse resolveType (fmap absurd <$> toList2 ts)
-    (Exactly t) -> resolveType t
-  where
-    resolveType :: Type' (TypeVar s) -> Check s Type
-    resolveType TVoid' = pure TVoid
-    resolveType TDouble' = pure TDouble
-    resolveType TInt' = pure TInt
-    resolveType TBool' = pure TBool
-    resolveType (TArray' (Just n) t) = TArray n <$> resolve t
-    resolveType (TArray' Nothing _) = throwError "Array of ambiguous length"
-    resolveType (TKnownTuple' s) = TTuple <$> traverse resolve s
-    resolveType (TTuple' _) = throwError "Ambiguous tuple type"
-    resolveType (TPointer' t) = TPtr <$> resolve t
+    Just t -> pure t
+    Nothing -> pure TVoid
 
 lookupSig :: Either FuncIX Hash -> Check s Sig
 lookupSig func = view (lens func) >>= maybe err pure
@@ -227,12 +106,6 @@ data Typed s a = Typed
   }
   deriving (Functor)
 
-checkPrim :: Prim -> Check s (TypeVar s)
-checkPrim (PInt _) = fresh (OneOf (set2 TInt' TDouble'))
-checkPrim (PDouble _) = fromType TDouble
-checkPrim (PBool _) = fromType TBool
-checkPrim PVoid = fromType TVoid
-
 -- checkLit (RTTuple t) = traverse checkLit t >>= fresh . Exactly . TTuple
 
 -- TODO like other placees, this should be renamed to something more expr-y
@@ -246,38 +119,41 @@ checkValue ctx (RTArith op l r a) = do
   r' <- checkValue ctx r
   pure $ RTArith op l' r' (Typed a ctx)
 checkValue ctx (RTComp op l r a) = do
-  fromType TBool >>= unify ctx
-  var <- fresh Any
+  freshT (Type TBool) >>= unify ctx
+  var <- fresh Nothing
   l' <- checkValue var l
   r' <- checkValue var r
   pure $ RTComp op l' r' (Typed a ctx)
-checkValue ctx (RTPrim prim a) = do
-  checkPrim prim >>= unify ctx
-  pure $ RTPrim prim (Typed a ctx)
+checkValue ctx (RTPrim prim a) = pure $ RTPrim prim (Typed a ctx)
 checkValue ctx (RTTuple tup a) = do
   (types, exprs) <- fmap Seq.unzip $
     forM tup $ \expr -> do
-      var <- fresh Any
+      var <- fresh Nothing
       expr' <- checkValue var expr
       pure (var, expr')
-  fresh (Exactly (TKnownTuple' types)) >>= unify ctx
+  fresh (Just $ TTuple types) >>= unify ctx
   pure $ RTTuple exprs (Typed a ctx)
 checkValue ctx (RTCond c t f a) = do
-  vc <- fromType TBool
+  vc <- freshT (Type TBool)
   c' <- checkValue vc c
   t' <- checkValue ctx t
   f' <- checkValue ctx f
   pure $ RTCond c' t' f' (Typed a ctx)
 checkValue ctx (ValueSel haystack needle a) = do
-  var <- fresh (Exactly $ TTuple' (IM.singleton needle ctx))
+  var <- fresh Nothing
   haystack' <- checkValue var haystack
+  resolve1 var >>= \case
+    (TTuple ts) -> case Seq.lookup needle ts of
+      Nothing -> throwError "Tuple index out of bounds"
+      Just t -> unify t ctx
+    _ -> throwError "Indexing into something that's not a tuple"
   pure $ ValueSel haystack' needle (Typed a ctx)
 checkValue ctx (Call fn args a) = do
   (argTypes, ret) <- lookupSig fn
-  fromType ret >>= unify ctx
+  freshT ret >>= unify ctx
   -- TODO again, prove arg lengths _once_, somehow
   unless (length args == length argTypes) $ throwError "Argument length mismatch"
-  args' <- zipWithM (\val typ -> fromType typ >>= \var -> checkValue var val) args argTypes
+  args' <- zipWithM (\val typ -> freshT typ >>= \var -> checkValue var val) args argTypes
   pure $ Call fn args' (Typed a ctx)
 checkValue ctx (PlaceVal plc a) = do
   plc' <- checkPlace ctx plc
@@ -289,10 +165,9 @@ checkValue ctx (Block blk a) = do
   blk' <- checkProg ctx (over labels instantiateLabel blk)
   pure (Block blk' (Typed a ctx))
 checkValue ctx (RTRef plc a) = do
-  tInner <- fresh Any
-  var <- fresh (Exactly (TPointer' tInner))
-  unify ctx var
-  plc' <- checkPlace tInner plc
+  vInner <- fresh Nothing
+  plc' <- checkPlace vInner plc
+  fresh (Just $ TPtr vInner) >>= unify ctx
   pure $ RTRef plc' (Typed a ctx)
 
 checkPlace ::
@@ -303,12 +178,21 @@ checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
 checkPlace ctx (PlaceSel haystack needle a) = do
-  var <- fresh (Exactly $ TTuple' (IM.singleton needle ctx))
+  -- TODO combine with ValueSel
+  var <- fresh Nothing
   haystack' <- checkPlace var haystack
+  resolve1 var >>= \case
+    (TTuple ts) -> case Seq.lookup needle ts of
+      Nothing -> throwError "Tuple index out of bounds"
+      Just t -> unify t ctx
+    _ -> throwError "Indexing into something that's not a tuple"
   pure $ PlaceSel haystack' needle (Typed a ctx)
 checkPlace ctx (RTDeref val a) = do
-  var <- fresh (Exactly $ TPointer' ctx)
+  var <- fresh Nothing
   val' <- checkValue var val
+  resolve1 var >>= \case
+    TPtr t -> unify t ctx
+    _ -> throwError "Dereferencing something that's not a pointer"
   pure $ RTDeref val' (Typed a ctx)
 
 -- TODO
@@ -322,8 +206,8 @@ checkProg ::
   RTProg (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
   Check s (RTProg var blk (Either FuncIX Hash) (Typed s a))
 checkProg blk (Decl mtyp val k) = do
-  ctx <- fresh Any
-  forM_ mtyp $ fromType >=> unify ctx
+  ctx <- fresh Nothing
+  forM_ mtyp $ freshT >=> unify ctx
   val' <- checkValue ctx val
   let instantiateVar :: Bind () (Typed s var) -> Typed s (Bind () var)
       instantiateVar (Bound ()) = Typed (Bound ()) ctx
@@ -331,7 +215,7 @@ checkProg blk (Decl mtyp val k) = do
   k' <- checkProg blk $ over vars instantiateVar k
   pure $ Decl mtyp val' k'
 checkProg blk (Assign lhs rhs k) = do
-  var <- fresh Any
+  var <- fresh Nothing
   lhs' <- checkPlace var lhs
   rhs' <- checkValue var rhs
   k' <- checkProg blk k
@@ -342,6 +226,6 @@ checkProg blk (ExprStmt val Nothing) = do
   val' <- checkValue blk val
   pure $ ExprStmt val' Nothing
 checkProg blk (ExprStmt val (Just k)) = do
-  var <- fresh Any
+  var <- fresh Nothing
   val' <- checkValue var val
   ExprStmt val' . Just <$> checkProg blk k

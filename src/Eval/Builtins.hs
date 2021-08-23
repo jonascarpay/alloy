@@ -67,17 +67,17 @@ vTypes =
   VAttr $
     NF
       <$> M.fromList
-        [ ("int", VType TInt),
-          ("double", VType TDouble),
-          ("bool", VType TBool),
-          ("void", VType TVoid),
+        [ ("int", VType $ Type TInt),
+          ("double", VType $ Type TDouble),
+          ("bool", VType $ Type TBool),
+          ("void", VType $ Type TVoid),
           ("tuple", VClosure mkTuple),
           ("array", mkArray),
           ("ptr", VClosure mkPtr)
         ]
   where
     mkTuple = forceExpect "builtins.types.tuple" "a list of member types" $ \case
-      VList m -> Just $ VType . TTuple <$> traverse (force >=> ensureType) m
+      VList m -> Just $ VType . Type . TTuple <$> traverse (force >=> ensureType) m
       _ -> Nothing
     mkArray =
       let expect str tn k = forceExpect "builtins.types.tuple" str k tn
@@ -87,11 +87,11 @@ vTypes =
                 pure $
                   VClosure $ \tt ->
                     expect "the array element type" tt $ \case
-                      VType t -> Just $ pure $ VType $ TArray n t
+                      VType t -> Just $ pure $ VType $ Type $ TArray n t
                       _ -> Nothing
               _ -> Nothing
     mkPtr = forceExpect "builtins.types.ptr" "a type" $ \case
-      VType t -> Just $ pure $ VType $ TPtr t
+      VType t -> Just $ pure $ VType $ Type $ TPtr t
       _ -> Nothing
 
 -- TODO
@@ -106,7 +106,7 @@ vMatchType = VClosure $
       pure $
         VClosure $
           expect "a type" $ \case
-            VType t ->
+            VType (Type t) ->
               Just $
                 case t of
                   TInt -> lookupDefault m "int"

@@ -15,6 +15,7 @@ import Control.Monad.Writer.Lazy
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BSU
+import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Hashable
@@ -275,3 +276,14 @@ foldMNF :: Monad m => (Value r -> m r) -> NF -> m r
 foldMNF f = go
   where
     go (NF v) = traverse go v >>= f
+
+foldType :: (TypeF r -> r) -> Type -> r
+foldType f = go where go (Type t) = f (go <$> t)
+
+structuralZip :: (Eq (t ()), Applicative m, Traversable t) => (a -> b -> m c) -> m (t c) -> t a -> t b -> m (t c)
+structuralZip f s0 a b =
+  if (() <$ a) == (() <$ b)
+    then substitute a <$> zipWithM f (toList a) (toList b)
+    else s0
+  where
+    substitute t = evalState (traverse (const $ state $ \(e : es) -> (e, es)) t)
