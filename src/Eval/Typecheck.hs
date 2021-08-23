@@ -13,6 +13,7 @@
 
 module Eval.Typecheck (typeCheck) where
 
+import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.ST
@@ -65,12 +66,25 @@ runCheck deps m = runST $ runExceptT $ runReaderT m deps
 
 newtype TypeVar s = TypeVar (UF.Point s (Judgement s))
 
+-- TODO
+-- I think the type system is too advanced.  We should be able to say that
+-- types should follow immediately from values, or at least from the context.
+-- We don't need this level of inference.
+-- Maybe you always know the type of the context, that sounds doable
+-- TODO
+-- Unify TTuple and TKnownTuple into TTuple (Maybe (Seq f))?  Maybe there's a
+-- better way of recursively filling in information that works across all
+-- `Maybe` fields? Just some kind of fixpoint. In the case of something like
+-- Seq you could make sure the structures match using (() <$ a) == (() <$ b)...
+--
+-- The above two points are related
 data Type' f
   = TVoid'
   | TBool'
   | TInt'
   | TDouble'
-  | TPointer' f
+  | TPointer' f -- TODO Rename TPtr'
+  | TArray' (Maybe Int) f
   | TKnownTuple' (Seq f)
   | TTuple' (IntMap f) -- TODO there probably is a better way to represent constraints, maybe somehow combine with OneOf
   deriving (Eq, Ord, Functor, Foldable, Traversable)
@@ -116,6 +130,10 @@ unify (TypeVar a) (TypeVar b) = do
     TInt' <+> TInt' = pure TInt'
     TDouble' <+> TDouble' = pure TDouble'
     TPointer' ta <+> TPointer' tb = TPointer' ta <$ unify ta tb
+    TArray' (Just na) ta <+> TArray' (Just nb) tb = do
+      when (na /= nb) $ throwError "array length mismatch"
+      TArray' (Just na) ta <$ unify ta tb
+    TArray' mna ta <+> TArray' mnb tb = TArray' (mna <|> mnb) ta <$ unify ta tb
     TKnownTuple' as <+> TKnownTuple' bs = do
       when (Seq.length as /= Seq.length bs) $ throwError "tuple length mismatch"
       TKnownTuple' <$> sequence (Seq.zipWith (\a b -> a <$ unify a b) as bs)
@@ -146,6 +164,7 @@ unify (TypeVar a) (TypeVar b) = do
         describeType (TTuple' _) = "tuple"
         describeType (TKnownTuple' _) = "tuple"
         describeType (TPointer' _) = "pointer"
+        describeType (TArray' _ _) = "array"
 
     (<=>) :: Judgement s -> Judgement s -> Check s (Judgement s)
     Any <=> t = pure t
@@ -173,6 +192,7 @@ fromType TBool = fresh $ Exactly TBool'
 fromType TVoid = fresh $ Exactly TVoid'
 fromType (TTuple ts) = traverse fromType ts >>= fresh . Exactly . TKnownTuple'
 fromType (TPtr t) = fromType t >>= fresh . Exactly . TPointer'
+fromType (TArray n t) = fromType t >>= fresh . Exactly . TArray' (Just n)
 
 resolve :: TypeVar s -> Check s Type
 resolve (TypeVar v) =
@@ -186,6 +206,8 @@ resolve (TypeVar v) =
     resolveType TDouble' = pure TDouble
     resolveType TInt' = pure TInt
     resolveType TBool' = pure TBool
+    resolveType (TArray' (Just n) t) = TArray n <$> resolve t
+    resolveType (TArray' Nothing _) = throwError "Array of ambiguous length"
     resolveType (TKnownTuple' s) = TTuple <$> traverse resolve s
     resolveType (TTuple' _) = throwError "Ambiguous tuple type"
     resolveType (TPointer' t) = TPtr <$> resolve t
