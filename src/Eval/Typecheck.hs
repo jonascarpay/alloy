@@ -23,15 +23,16 @@ import Data.UnionFind.ST qualified as UF
 import Data.Void
 import Eval.Lib (labels, structuralZip, types, vars)
 import Eval.Types
+import Expr (Prim)
 import Lens.Micro.Platform
 
 typeCheck ::
-  RTValue (Bind Int Void) Void (Either FuncIX Hash) () ->
+  RTValue (Bind Int Void) Void (Either FuncIX Hash) Prim () ->
   [Type] ->
   Type ->
   HashMap Hash Sig ->
   Map FuncIX Sig ->
-  Either String (RTValue (Bind Int Void) Void (Either FuncIX Hash) Type)
+  Either String (RTValue (Bind Int Void) Void (Either FuncIX Hash) Prim Type)
 typeCheck body args ret closedSigs openSigs =
   runCheck (closedSigs, openSigs) $ do
     ctx <- freshT ret
@@ -110,10 +111,10 @@ data Typed s a = Typed
 
 -- TODO like other placees, this should be renamed to something more expr-y
 checkValue ::
-  forall a s var blk.
+  forall a s var blk lit.
   TypeVar s ->
-  RTValue (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
-  Check s (RTValue var blk (Either FuncIX Hash) (Typed s a))
+  RTValue (Typed s var) (Typed s blk) (Either FuncIX Hash) lit a ->
+  Check s (RTValue var blk (Either FuncIX Hash) lit (Typed s a))
 checkValue ctx (RTArith op l r a) = do
   l' <- checkValue ctx l
   r' <- checkValue ctx r
@@ -172,8 +173,8 @@ checkValue ctx (RTRef plc a) = do
 
 checkPlace ::
   TypeVar s ->
-  RTPlace (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
-  Check s (RTPlace var blk (Either FuncIX Hash) (Typed s a))
+  RTPlace (Typed s var) (Typed s blk) (Either FuncIX Hash) lit a ->
+  Check s (RTPlace var blk (Either FuncIX Hash) lit (Typed s a))
 checkPlace ctx (Place (Typed var t) a) = do
   unify ctx t
   pure $ Place var (Typed a ctx)
@@ -201,10 +202,10 @@ checkPlace ctx (RTDeref val a) = do
 -- consistency, which would remove the need for the block context type variable to be
 -- passed around.
 checkProg ::
-  forall a s var blk.
+  forall a s var blk lit.
   TypeVar s ->
-  RTProg (Typed s var) (Typed s blk) (Either FuncIX Hash) a ->
-  Check s (RTProg var blk (Either FuncIX Hash) (Typed s a))
+  RTProg (Typed s var) (Typed s blk) (Either FuncIX Hash) lit a ->
+  Check s (RTProg var blk (Either FuncIX Hash) lit (Typed s a))
 checkProg blk (Decl mtyp val k) = do
   ctx <- fresh Nothing
   forM_ mtyp $ freshT >=> unify ctx

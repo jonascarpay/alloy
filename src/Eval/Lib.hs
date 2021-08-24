@@ -32,20 +32,23 @@ import Lens.Micro.Platform hiding (ix)
 close :: Applicative n => ReaderT r m a -> ReaderT r n (m a)
 close (ReaderT f) = ReaderT $ \r -> pure (f r)
 
-labels :: RTAST f => Traversal (f var lbl fun info) (f var lbl' fun info) lbl lbl'
-labels f = traverseAst pure f pure pure
+labels :: RTAST f => Traversal (f var lbl fun lit info) (f var lbl' fun lit info) lbl lbl'
+labels f = traverseAst pure f pure (const pure) pure
 
-vars :: RTAST f => Traversal (f var lbl fun info) (f var' lbl fun info) var var'
-vars f = traverseAst f pure pure pure
+vars :: RTAST f => Traversal (f var lbl fun lit info) (f var' lbl fun lit info) var var'
+vars f = traverseAst f pure pure (const pure) pure
 
-types :: RTAST f => Traversal (f var lbl fun info) (f var lbl fun info') info info'
-types = traverseAst pure pure pure
+types :: RTAST f => Traversal (f var lbl fun lit info) (f var lbl fun lit info') info info'
+types = traverseAst pure pure pure (const pure)
 
-calls :: RTAST f => Traversal (f var lbl fun info) (f var lbl fun' info) fun fun'
-calls f = traverseAst pure pure f pure
+calls :: RTAST f => Traversal (f var lbl fun lit info) (f var lbl fun' lit info) fun fun'
+calls f = traverseAst pure pure f (const pure) pure
+
+lits :: RTAST f => Traversal (f var lbl fun lit inf) (f var lbl fun lit' inf) lit lit'
+lits f = traverseAst pure pure pure (const f) pure
 
 rtFuncCalls :: Traversal (RTFunc a) (RTFunc b) a b
-rtFuncCalls f (RTFunc a r b) = RTFunc a r <$> traverseAst pure pure f pure b
+rtFuncCalls f (RTFunc a r b) = RTFunc a r <$> traverseAst pure pure f (const pure) pure b
 
 -- TODO Describe primitives in more detail
 describeValue :: Value f -> String
@@ -211,7 +214,7 @@ liftLocal f = mapReaderT (local f)
 
 -- Comonad-y stuff
 
-extractVal :: RTValue var blk fun info -> info
+extractVal :: RTValue var blk fun lit info -> info
 extractVal (RTArith _ _ _ i) = i
 extractVal (RTComp _ _ _ i) = i
 extractVal (RTPrim _ i) = i
@@ -223,50 +226,50 @@ extractVal (PlaceVal _ i) = i
 extractVal (Block _ i) = i
 extractVal (RTRef _ i) = i
 
-extractPlace :: RTPlace var blk fun info -> info
+extractPlace :: RTPlace var blk fun lit info -> info
 extractPlace (Place _ i) = i
 extractPlace (PlaceSel _ _ i) = i
 extractPlace (RTDeref _ i) = i
 
-extendVal ::
-  (forall var blk fun. RTValue var blk fun a -> b) ->
-  (forall var blk fun. RTPlace var blk fun a -> b) ->
-  RTValue var blk fun a ->
-  RTValue var blk fun b
-extendVal fv fp = go
-  where
-    go s@(RTArith op a b _) = RTArith op (go a) (go b) (fv s)
-    go s@(RTComp op a b _) = RTComp op (go a) (go b) (fv s)
-    go s@(RTPrim p _) = RTPrim p (fv s)
-    go s@(ValueSel h n _) = ValueSel (go h) n (fv s)
-    go s@(RTTuple t _) = RTTuple (go <$> t) (fv s)
-    go s@(RTCond c t f _) = RTCond (go c) (go t) (go f) (fv s)
-    go s@(Call f args _) = Call f (go <$> args) (fv s)
-    go s@(PlaceVal pl _) = PlaceVal (extendPlace fv fp pl) (fv s)
-    go s@(Block blk _) = Block (extendProg fv fp blk) (fv s)
-    go s@(RTRef p _) = RTRef (extendPlace fv fp p) (fv s)
+-- extendVal ::
+--   (forall var blk fun. RTValue var blk fun a -> b) ->
+--   (forall var blk fun. RTPlace var blk fun a -> b) ->
+--   RTValue var blk fun a ->
+--   RTValue var blk fun b
+-- extendVal fv fp = go
+--   where
+--     go s@(RTArith op a b _) = RTArith op (go a) (go b) (fv s)
+--     go s@(RTComp op a b _) = RTComp op (go a) (go b) (fv s)
+--     go s@(RTPrim p _) = RTPrim p (fv s)
+--     go s@(ValueSel h n _) = ValueSel (go h) n (fv s)
+--     go s@(RTTuple t _) = RTTuple (go <$> t) (fv s)
+--     go s@(RTCond c t f _) = RTCond (go c) (go t) (go f) (fv s)
+--     go s@(Call f args _) = Call f (go <$> args) (fv s)
+--     go s@(PlaceVal pl _) = PlaceVal (extendPlace fv fp pl) (fv s)
+--     go s@(Block blk _) = Block (extendProg fv fp blk) (fv s)
+--     go s@(RTRef p _) = RTRef (extendPlace fv fp p) (fv s)
 
-extendPlace ::
-  (forall var blk fun. RTValue var blk fun a -> b) ->
-  (forall var blk fun. RTPlace var blk fun a -> b) ->
-  RTPlace var blk fun a ->
-  RTPlace var blk fun b
-extendPlace fv fp = go
-  where
-    go s@(Place var _) = Place var (fp s)
-    go s@(PlaceSel h n _) = PlaceSel (go h) n (fp s)
-    go s@(RTDeref v _) = RTDeref (extendVal fv fp v) (fp s)
+-- extendPlace ::
+--   (forall var blk fun. RTValue var blk fun a -> b) ->
+--   (forall var blk fun. RTPlace var blk fun a -> b) ->
+--   RTPlace var blk fun a ->
+--   RTPlace var blk fun b
+-- extendPlace fv fp = go
+--   where
+--     go s@(Place var _) = Place var (fp s)
+--     go s@(PlaceSel h n _) = PlaceSel (go h) n (fp s)
+--     go s@(RTDeref v _) = RTDeref (extendVal fv fp v) (fp s)
 
-extendProg ::
-  (forall var blk fun. RTValue var blk fun a -> b) ->
-  (forall var blk fun. RTPlace var blk fun a -> b) ->
-  RTProg var blk fun a ->
-  RTProg var blk fun b
-extendProg fv fp (Decl m v k) = Decl m (extendVal fv fp v) (extendProg fv fp k)
-extendProg fv fp (Assign lhs rhs k) = Assign (extendPlace fv fp lhs) (extendVal fv fp rhs) (extendProg fv fp k)
-extendProg fv fp (Break lbl val) = Break lbl (extendVal fv fp val)
-extendProg _ _ (Continue lbl) = Continue lbl
-extendProg fv fp (ExprStmt expr mk) = ExprStmt (extendVal fv fp expr) (extendProg fv fp <$> mk)
+-- extendProg ::
+--   (forall var blk fun. RTValue var blk fun a -> b) ->
+--   (forall var blk fun. RTPlace var blk fun a -> b) ->
+--   RTProg var blk fun a ->
+--   RTProg var blk fun b
+-- extendProg fv fp (Decl m v k) = Decl m (extendVal fv fp v) (extendProg fv fp k)
+-- extendProg fv fp (Assign lhs rhs k) = Assign (extendPlace fv fp lhs) (extendVal fv fp rhs) (extendProg fv fp k)
+-- extendProg fv fp (Break lbl val) = Break lbl (extendVal fv fp val)
+-- extendProg _ _ (Continue lbl) = Continue lbl
+-- extendProg fv fp (ExprStmt expr mk) = ExprStmt (extendVal fv fp expr) (extendProg fv fp <$> mk)
 
 -- TODO maybe move to a fixpoint module?
 foldNF :: (Value r -> r) -> NF -> r

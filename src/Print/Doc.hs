@@ -25,7 +25,7 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String
 import Data.Void
-import Eval.Lib (calls, extractVal, foldMNF, foldType, instantiate1Over, labels, rtFuncCalls, types, unbind, vars)
+import Eval.Lib (extractVal, foldMNF, foldType, instantiate1Over, labels, rtFuncCalls, unbind, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
 import Lens.Micro.Platform (over)
@@ -176,11 +176,14 @@ pFunc (RTFunc args ret body) = do
     pure (Bifix $ Symbol $ "arg_" <> show ix, pType typ)
   let ret' = pType ret
   body' <-
-    pValue 0 $
-      over labels absurd $
-        over vars (unbind (\ix -> fst (args' !! ix)) absurd) $
-          fmap pType body
-  pure $ Bifix $ Func args' ret' body'
+    traverseAst
+      (pure . unbind (\ix -> fst (args' !! ix)) absurd)
+      absurd
+      pure
+      (const $ pure . pPrim)
+      (pure . pType)
+      body
+  Bifix . Func args' ret' <$> pValue 0 body'
 
 pHash :: Hash -> String
 pHash (Hash h) = mappend "fn_" $ take 7 (showHex (fromIntegral h :: Word) "")
@@ -191,14 +194,16 @@ pNF = foldMNF go
     go :: Value Doc -> Fresh Doc
     go (VClosure _) = pure . Bifix $ Symbol "<closure>"
     go (VRTValue deps val) = do
-      val' <-
-        labels (error "impossible -- label escaped scope") val
-          >>= vars (error "impossible -- variable escaped scope")
-          >>= calls (either (error "impossible -- open function escaped scope") (pure . Bifix . Symbol . pHash))
-          >>= types (const $ pure $ Bifix "?")
-          >>= pValue 0
       deps' <- pDeps deps
-      pure $ Bifix $ Module deps' val'
+      val' <-
+        traverseAst
+          (error "impossible - variable escaped scope")
+          (error "impossible - block escaped scope")
+          (either (error "impossible - open function call escaped scope") (pure . Bifix . Symbol . pHash))
+          (const $ pure . pPrim)
+          (const . pure . Bifix $ "?")
+          val
+      Bifix . Module deps' <$> pValue 0 val'
     go (VType typ) = pure $ pType typ
     go (VPrim prim) = pure $ pPrim prim
     go (VFunc deps (Right hash)) = do
@@ -224,7 +229,7 @@ pType = foldType go
     go TDouble = Bifix $ Symbol "double"
     go (TTuple ts) = Bifix $ List $ toList ts
 
-pProg :: RTProg Doc Doc Doc Doc -> Fresh Statement
+pProg :: RTProg Doc Doc Doc Doc Doc -> Fresh Statement
 pProg (Decl _ val k) = do
   val' <- pValue 0 val
   var <- freshVar
@@ -243,7 +248,7 @@ pPrim = go
     go (PBool n) = Bifix $ bool "false" "true" n
     go PVoid = Bifix "void"
 
-pValue :: Int -> RTValue Doc Doc Doc Doc -> Fresh Doc
+pValue :: Int -> RTValue Doc Doc Doc Doc Doc -> Fresh Doc
 pValue prec (RTArith op a b _) = operator pArithOp arithPrec pValue op a b prec
 pValue prec (RTComp op a b _) = operator pCompOp compPrec pValue op a b prec
 pValue prec (ValueSel h n _) = parens (prec > 8) . (\h' -> Bifix . Sel h' . pPrim $ PInt n) <$> pValue 8 h
@@ -257,7 +262,7 @@ pValue _ (Block blk _) = do
 pValue _ (Call f args _) = Bifix . Call' f <$> traverse (pValue 0) args
 pValue prec (PlaceVal pl _) = pPlace prec pl
 
-pPlace :: Int -> RTPlace Doc Doc Doc Doc -> Fresh Doc
+pPlace :: Int -> RTPlace Doc Doc Doc Doc Doc -> Fresh Doc
 pPlace _ (Place sym _) = pure sym
 pPlace _ (PlaceSel h n _) = (\h' -> Bifix $ Sel h' $ pPrim $ PInt n) <$> pPlace 9 h
 pPlace prec (RTDeref val _) = parens (prec > 9) . Bifix . Deref' <$> pValue 9 val
