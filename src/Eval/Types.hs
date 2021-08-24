@@ -154,7 +154,7 @@ data RTProg var blk fun lit info
 data RTValue var blk fun lit info
   = RTArith ArithOp (RTValue var blk fun lit info) (RTValue var blk fun lit info) info
   | RTComp CompOp (RTValue var blk fun lit info) (RTValue var blk fun lit info) info
-  | RTLit Prim info
+  | RTLit lit info
   | ValueSel (RTValue var blk fun lit info) Int info
   | RTTuple (Seq (RTValue var blk fun lit info)) info
   | RTCond (RTValue var blk fun lit info) (RTValue var blk fun lit info) (RTValue var blk fun lit info) info
@@ -227,7 +227,7 @@ instance RTAST RTValue where
       go (Block blk t) = Block <$> traverseAst fv (traverse fb) ff fl fi blk <*> fi t
       go (RTCond cond true false t) = RTCond <$> go cond <*> go true <*> go false <*> fi t
       go (RTTuple tup t) = RTTuple <$> traverse go tup <*> fi t
-      go (RTLit p t) = RTLit p <$> fi t
+      go (RTLit lit t) = RTLit <$> fl t lit <*> fi t
       go (RTRef r i) = RTRef <$> traverseAst fv fb ff fl fi r <*> fi i
 
 instance RTAST RTPlace where

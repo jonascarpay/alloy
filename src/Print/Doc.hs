@@ -254,7 +254,7 @@ pValue prec (RTComp op a b _) = operator pCompOp compPrec pValue op a b prec
 pValue prec (ValueSel h n _) = parens (prec > 8) . (\h' -> Bifix . Sel h' . pPrim $ PInt n) <$> pValue 8 h
 pValue prec (RTCond c t f _) = parens (prec > 0) . Bifix <$> liftA3 Cond (pValue 0 c) (pValue 0 t) (pValue 0 f)
 pValue _ (RTTuple tup _) = Bifix . List <$> traverse (pValue 0) (toList tup)
-pValue _ (RTLit prim _) = pure $ pPrim prim
+pValue _ (RTLit lit _) = pure lit
 pValue _ (Block blk _) = do
   lbl <- Bifix . Symbol <$> freshBlk
   blk' <- pProg $ instantiate1Over labels lbl blk
