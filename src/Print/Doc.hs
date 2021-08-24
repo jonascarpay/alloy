@@ -25,12 +25,13 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String
 import Data.Void
-import Eval.Lib (extractVal, foldMNF, foldType, instantiate1Over, labels, rtFuncCalls, unbind, vars)
+import Eval.Lib (extractVal, foldMNF, foldType, labels, rtFuncCalls, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
 import Lens.Micro.Platform (over)
 import Numeric (showHex)
 import Print.Bifree
+import Rebound
 
 toDoc :: NF -> Doc
 toDoc = runFresh . pNF

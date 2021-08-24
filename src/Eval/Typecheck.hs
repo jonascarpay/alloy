@@ -25,6 +25,7 @@ import Eval.Lib (labels, structuralZip, types, vars)
 import Eval.Types
 import Expr (Prim (..))
 import Lens.Micro.Platform
+import Rebound
 
 typeCheck ::
   RTValue (Bind Int Void) Void (Either FuncIX Hash) Prim () ->

@@ -97,29 +97,6 @@ freshVar = VarIX <$> fresh
 freshFunc :: MonadFresh m => m FuncIX
 freshFunc = FuncIX <$> fresh
 
-abstractOver :: Traversal s t a (Bind b a) -> (a -> Maybe b) -> s -> t
-abstractOver t f = over t (\a -> maybe (Free a) Bound (f a))
-
-abstract1Over :: Eq a => Traversal s t a (Bind () a) -> a -> s -> t
-abstract1Over t a = over t (\var -> if var == a then Bound () else Free var)
-
-closedOver :: Traversal s t a b -> s -> Maybe t
-closedOver t = t (const Nothing)
-
-instantiateOver :: Traversal s t (Bind b a) a -> (b -> a) -> s -> t
-instantiateOver t f = over t $ \case
-  Free a -> a
-  Bound b -> f b
-
-instantiate1Over :: Traversal s t (Bind () a) a -> a -> s -> t
-instantiate1Over t sub = over t $ \case
-  Free a -> a
-  Bound () -> sub
-
-unbind :: (b -> r) -> (a -> r) -> (Bind b a -> r)
-unbind fb _ (Bound b) = fb b
-unbind _ fa (Free a) = fa a
-
 -- TODO prisms?
 ensureValue :: MonadError String m => String -> (WHNF -> Maybe r) -> WHNF -> m r
 ensureValue ex f v = case f v of

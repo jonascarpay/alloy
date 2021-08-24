@@ -24,6 +24,7 @@ import Eval.Typecheck
 import Eval.Types
 import Expr
 import Lens.Micro.Platform hiding (ix)
+import Rebound
 
 runEval :: Expr -> IO (Either String NF)
 runEval expr = do
@@ -182,8 +183,8 @@ compileFunc mlbl args ret body = do
         lift (whnf body) >>= coerceRTValue
     closedBody <- do
       let scoped = abstractOver vars (`elemIndex` (view _3 <$> args')) body'
-      closedVars <- maybe (throwError "Vars would escape scope") pure $ closedOver (vars . traverse) scoped
-      maybe (throwError "Labels would escape scope") pure $ closedOver labels closedVars
+      closedVars <- maybe (throwError "Vars would escape scope") pure $ maybeClosedOver (vars . traverse) scoped
+      maybe (throwError "Labels would escape scope") pure $ maybeClosedOver labels closedVars
     typeChecked <- do
       let closedSigs = funcSig <$> closed
           subSigs = mkSubSigs open

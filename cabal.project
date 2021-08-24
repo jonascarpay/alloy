@@ -3,3 +3,9 @@ packages:
 
 package alloy
   tests: True
+
+source-repository-package
+    type: git
+    location: https://github.com/jonascarpay/rebound.git
+    tag: 1f06870432bcd4693f9114dfb908210a74250b6b
+    --sha256: sha256-z+14lnlA+S8wmFBGQ5A6TYtfy3elBBVagzQGjmmopxw=

@@ -27,6 +27,7 @@ import Data.Void
 import Expr
 import GHC.Generics
 import Lens.Micro.Platform (makeLenses)
+import Rebound
 
 -- TODO
 -- Compile-time numbers should probably be represented as Scientific
@@ -127,15 +128,11 @@ instance Hashable f => Hashable (TypeF f) where
   hashWithSalt s (TPtr t) = hashWithSalt s (5 :: Int, t)
   hashWithSalt s (TArray n t) = hashWithSalt s (6 :: Int, n, t)
 
-data Bind b a
-  = Bound b
-  | Free a
-  deriving stock (Eq, Show, Ord, Functor, Foldable, Traversable, Generic, Generic1)
-  deriving anyclass (Hashable, Hashable1)
-
 instance Hashable a => Hashable (Seq a) where hashWithSalt salt as = hashWithSalt salt (toList as)
 
 instance Hashable1 Seq where liftHashWithSalt f salt as = liftHashWithSalt f salt (toList as)
+
+instance (Hashable b, Hashable a) => Hashable (Bind b a)
 
 -- TODO The RT* data types don't gain anything by being traversable
 
