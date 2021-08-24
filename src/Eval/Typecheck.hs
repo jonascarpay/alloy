@@ -23,7 +23,7 @@ import Data.UnionFind.ST qualified as UF
 import Data.Void
 import Eval.Lib (labels, structuralZip, types, vars)
 import Eval.Types
-import Expr (Prim)
+import Expr (Prim (..))
 import Lens.Micro.Platform
 
 typeCheck ::
@@ -46,7 +46,18 @@ typeCheck body args ret closedSigs openSigs =
     -- TODO
     -- After type checking is done, make sure that primitives have the correct type
     -- Currently, ints might still be doubles
-    vars instantiateArg body' >>= checkValue ctx >>= types (resolve . getVar)
+    vars instantiateArg body' >>= checkValue ctx >>= types (resolve . getVar) >>= instantiateLits
+
+instantiateLits :: RTValue var lbl fun Prim Type -> Check s (RTValue var lbl fun Prim Type)
+instantiateLits = traverseAst pure pure pure go pure
+  where
+    go :: Type -> Prim -> Check s Prim
+    go (Type TInt) (PInt n) = pure $ PInt n
+    go (Type TDouble) (PInt n) = pure $ PDouble (fromIntegral n)
+    go (Type TDouble) (PDouble n) = pure $ PDouble n
+    go (Type TBool) (PBool b) = pure $ PBool b
+    go (Type TVoid) PVoid = pure PVoid
+    go typ lit = throwError $ "Couldn't instantiate " <> show lit <> " at type " <> show typ
 
 type Check s = ReaderT Sigs (ExceptT String (ST s))
 

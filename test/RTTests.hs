@@ -6,8 +6,6 @@ module RTTests where
 
 import Control.Monad
 import Data.Either
-import Debug.Pretty.Simple
-import Debug.Trace
 import Eval.Types
 import Print
 import Test.Hspec
@@ -55,7 +53,7 @@ rtTests = describe "rt" $ do
     saFunc "empty break" "[] -> builtins.types.void here@{ break here; }"
     saFunc "declaration" "with builtins.types; [] -> void { var i: int = 0; }"
     saFunc "assignment" "with builtins.types; [] -> void { var i: int = 0; i = 9; }"
-    saFunc "expression statement" "with builtins.types; [] -> void { 3; builtins.void }"
+    saFunc "expression statement" "with builtins.types; [] -> void { var q: int = 3; q; builtins.void }"
     saFunc "assignment with lhs expression" "with builtins.types; [] -> void { var i: int = 0; (x: x) i = 9; }"
     saFunc "with" "with builtins.types; [] -> int here@{ break here 0; }"
     saFunc "terminator expression" "[] -> builtins.types.int { 9 }"
