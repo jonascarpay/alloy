@@ -53,7 +53,7 @@ data DocF stm doc
   | Sel doc doc
   | Call' doc [doc]
   | Func [(doc, doc)] doc doc
-  | Prog doc stm
+  | Prog (Maybe doc) stm
   | Attrs' (Map Name doc)
   | Module (Map String doc) doc
   | Cond doc doc doc
@@ -74,7 +74,7 @@ instance Bifunctor DocF where
   bimap _ r (Attrs' m) = Attrs' (r <$> m)
   bimap _ r (Module m d) = Module (r <$> m) (r d)
   bimap _ r (Cond c t f) = Cond (r c) (r t) (r f)
-  bimap l r (Prog sym blk) = Prog (r sym) (l blk)
+  bimap l r (Prog sym blk) = Prog (r <$> sym) (l blk)
 
 instance Bifoldable DocF where
   bifoldr _ r a (Parens doc) = r doc a
@@ -145,7 +145,7 @@ freshBlk :: Fresh Symbol
 freshBlk = (\i -> "lbl_" <> show i) <$> fresh
 
 freshVar :: Fresh Symbol
-freshVar = (\i -> "var_" <> show i) <$> fresh
+freshVar = (\i -> "x" <> show i) <$> fresh
 
 pCompOp :: CompOp -> Symbol
 pCompOp Eq = "=="
@@ -256,10 +256,12 @@ pValue prec (ValueSel h n _) = parens (prec > 8) . (\h' -> Bifix . Sel h' . pPri
 pValue prec (RTCond c t f _) = parens (prec > 0) . Bifix <$> liftA3 Cond (pValue 0 c) (pValue 0 t) (pValue 0 f)
 pValue _ (RTTuple tup _) = Bifix . List <$> traverse (pValue 0) (toList tup)
 pValue _ (RTLit lit _) = pure lit
-pValue _ (Block blk _) = do
-  lbl <- Bifix . Symbol <$> freshBlk
-  blk' <- pProg $ instantiate1Over labels lbl blk
-  pure $ Bifix $ Prog lbl blk'
+pValue _ (Block blk _) =
+  case maybeUnusedOver labels blk of
+    Just blk' -> Bifix . Prog Nothing <$> pProg blk'
+    Nothing -> do
+      lbl <- Bifix . Symbol <$> freshBlk
+      Bifix . Prog (Just lbl) <$> pProg (instantiate1Over labels lbl blk)
 pValue _ (Call f args _) = Bifix . Call' f <$> traverse (pValue 0) args
 pValue prec (PlaceVal pl _) = pPlace prec pl
 

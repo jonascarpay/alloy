@@ -15,6 +15,10 @@ import Print.Printer as P
 data Style = Single | Multi
   deriving (Eq, Show, Ord)
 
+style :: r -> r -> Style -> r
+style s _ Single = s
+style _ m Multi = m
+
 type AnnDoc = Bicofree StatementF DocF Style
 
 render :: Doc -> ByteString
@@ -24,8 +28,7 @@ space :: Printer
 space = emit " "
 
 renderDoc :: Style -> DocF Printer Printer -> Printer
-renderDoc Single (Parens doc) = "(" <> doc <> ")"
-renderDoc Multi (Parens doc) = "(" <> indent doc <> newline <> ")"
+renderDoc sty (Parens doc) = "(" <> style doc (indent doc <> newline) sty <> ")"
 renderDoc _ (Symbol sym) = emit sym
 renderDoc Single (List doc) = "[" <> fold (intersperse ", " doc) <> "]"
 renderDoc Multi (List doc) =
@@ -37,8 +40,7 @@ renderDoc Multi (List doc) =
         "]"
       ]
 renderDoc _ (Deref' d) = "*" <> d
-renderDoc Single (Operator op l r) = l <> space <> op <> space <> r
-renderDoc Multi (Operator op l r) = l <> newline <> op <> space <> r
+renderDoc sty (Operator op l r) = l <> style space newline sty <> op <> space <> r
 renderDoc _ (Module deps body) | null deps = body
 renderDoc _ (Module deps body) =
   indent $
@@ -53,8 +55,7 @@ renderDoc _ (Module deps body) =
 renderDoc _ (Func args ret body) = renderDoc Single (List $ (\(arg, typ) -> arg <> ": " <> typ) <$> args) <> " -> " <> ret <> space <> body
 renderDoc _ (Sel h n) = h <> "." <> n
 renderDoc sty (Call' fn args) = fn <> renderDoc sty (List args)
-renderDoc Single (Prog lbl blk) = lbl <> "@{ " <> blk <> " }"
-renderDoc Multi (Prog lbl blk) = lbl <> "@{" <> newline <> indent blk <> newline <> "}"
+renderDoc sty (Prog mlbl blk) = maybe mempty (`mappend` " @") mlbl <> "{ " <> style blk (newline <> indent blk <> newline) sty <> " }"
 renderDoc Single (Attrs' m) = "{ " <> foldMap (\(nm, d) -> emitSbs nm <> " = " <> d <> "; ") (M.toList m) <> "}"
 renderDoc Multi (Attrs' m) =
   let render (nm, d) = emitSbs nm <> " = " <> d <> ";"
