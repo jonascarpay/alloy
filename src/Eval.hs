@@ -62,7 +62,7 @@ whnf (Lam arg body) = do
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) = do
   blk <- freshBlock
-  fromComp (\deps prog' -> VRTValue deps (Block (abstract1Over labels blk prog') ())) $
+  fromComp (\deps prog' -> VRTValue deps (flattenBlockExpr (abstract1Over labels blk prog'))) $
     case mlbl of
       Nothing -> compileBlock prog
       Just lbl -> do
@@ -211,6 +211,23 @@ compileFunc mlbl args ret body = do
       case mlbl of
         Nothing -> k
         Just lbl -> local (binds . at lbl ?~ tnk) k
+
+-- _@{expr} -> expr
+-- TODO
+-- This function traverses all labels in the program to see if it binds any.
+-- That happens shortly after it allocated and abstracted the labels, so
+-- they're traversed twice. Worse, this happens every time we enter a block, so
+-- it's at least quadratic.  It even happens if the block was never labeled,
+-- since we forget that a label might not have been applied.  This is currently
+-- also annoying when printing, since we print way too many labels.  An easy
+-- improvement would be to split labeled and non-labeled cases, but maybe
+-- there's a better, more holistic solution.
+flattenBlockExpr ::
+  RTProg VarIX (Bind () BlockIX) (Either FuncIX Hash) Prim () ->
+  EvalPhase RTValue
+flattenBlockExpr (ExprStmt val Nothing) | Just val' <- maybeUnusedOver labels val = val'
+flattenBlockExpr (Break (Bound ()) val) | Just val' <- maybeUnusedOver labels val = val'
+flattenBlockExpr prog = Block prog ()
 
 compileBlock ::
   ProgE ->

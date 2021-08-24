@@ -126,12 +126,26 @@ rtTests = describe "rt" $ do
           in
             [] -> int { a[] + b[] }
       |]
-    xfuncWithNDeps "deduplication behind bodyless function" 2 $
+    funcWithNDeps "deduplication behind bodyless function" 2 $
       [r| with builtins.types;
           let
             a = [] -> int  c[] ;
             b = [] -> int { c[] };
             c = [] -> int { 4 };
+          in [] -> int { a[] + b[] }
+      |]
+    funcWithNDeps "deduplication with unused labels" 1 $
+      [r| with builtins.types;
+          let
+            a = [] -> int 4;
+            b = [] -> int lbl@{ 4 };
+          in [] -> int { a[] + b[] }
+      |]
+    funcWithNDeps "deduplication with immediate break" 1 $
+      [r| with builtins.types;
+          let
+            a = [] -> int 4;
+            b = [] -> int lbl@{ break lbl 4; };
           in [] -> int { a[] + b[] }
       |]
     funcWithNDeps "identical functions" 2 $
