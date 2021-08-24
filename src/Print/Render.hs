@@ -55,7 +55,7 @@ renderDoc _ (Module deps body) =
 renderDoc _ (Func args ret body) = renderDoc Single (List $ (\(arg, typ) -> arg <> ": " <> typ) <$> args) <> " -> " <> ret <> space <> body
 renderDoc _ (Sel h n) = h <> "." <> n
 renderDoc sty (Call' fn args) = fn <> renderDoc sty (List args)
-renderDoc sty (Prog mlbl blk) = maybe mempty (`mappend` " @") mlbl <> "{ " <> style blk (newline <> indent blk <> newline) sty <> " }"
+renderDoc sty (Prog mlbl blk) = maybe mempty (`mappend` " @") mlbl <> "{" <> style blk (newline <> indent blk <> newline) sty <> "}"
 renderDoc Single (Attrs' m) = "{ " <> foldMap (\(nm, d) -> emitSbs nm <> " = " <> d <> "; ") (M.toList m) <> "}"
 renderDoc Multi (Attrs' m) =
   let render (nm, d) = emitSbs nm <> " = " <> d <> ";"
