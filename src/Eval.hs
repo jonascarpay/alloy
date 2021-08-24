@@ -62,7 +62,7 @@ whnf (Lam arg body) = do
 whnf (Prim prim) = pure (VPrim prim)
 whnf (Run mlbl prog) = do
   blk <- freshBlock
-  fromComp (\deps prog' -> VRTValue deps (flattenBlockExpr (abstract1Over labels blk prog'))) $
+  fromComp (\deps prog' -> VRTValue deps (rewriteBlockExpr (abstract1Over labels blk prog'))) $
     case mlbl of
       Nothing -> compileBlock prog
       Just lbl -> do
@@ -222,23 +222,23 @@ compileFunc mlbl args ret body = do
 -- also annoying when printing, since we print way too many labels.  An easy
 -- improvement would be to split labeled and non-labeled cases, but maybe
 -- there's a better, more holistic solution.
-flattenBlockExpr ::
+rewriteBlockExpr ::
   RTProg VarIX (Bind () BlockIX) (Either FuncIX Hash) Prim () ->
   EvalPhase RTValue
-flattenBlockExpr (ExprStmt val Nothing) | Just val' <- maybeUnusedOver labels val = val'
-flattenBlockExpr (Break (Bound ()) val) | Just val' <- maybeUnusedOver labels val = val'
-flattenBlockExpr prog = Block prog ()
+rewriteBlockExpr (ExprStmt val Nothing) | Just val' <- maybeUnusedOver labels val = val'
+rewriteBlockExpr (Break (Bound ()) val) | Just val' <- maybeUnusedOver labels val = val'
+rewriteBlockExpr prog = Block prog ()
 
--- {void; b} -> b
+-- {void; b} -> {b}
 -- {_@{foo; bar;}; baz} -> {foo; bar; baz}
 -- {_@{foo; bar}} -> {foo; bar}
 -- Essentially means that if you have {a; b}, we try replacing the tail of a with b.
-spliceExprStmts ::
+rewriteExprStmt ::
   EvalPhase RTValue ->
   Maybe (EvalPhase RTProg) ->
   EvalPhase RTProg
-spliceExprStmts (RTLit PVoid ()) (Just k) = k
-spliceExprStmts (Block val ()) k | Just val' <- maybeUnusedOver labels val >>= go k = val'
+rewriteExprStmt (RTLit PVoid ()) (Just k) = k
+rewriteExprStmt (Block val ()) k | Just val' <- maybeUnusedOver labels val >>= go k = val'
   where
     go :: Maybe (EvalPhase RTProg) -> EvalPhase RTProg -> Maybe (EvalPhase RTProg)
     go Nothing val = pure val
@@ -251,7 +251,7 @@ spliceExprStmts (Block val ()) k | Just val' <- maybeUnusedOver labels val >>= g
     splice Decl {} _ = Nothing
     splice Continue {} _ = Nothing
     splice Break {} _ = Nothing
-spliceExprStmts val k = ExprStmt val k
+rewriteExprStmt val k = ExprStmt val k
 
 compileBlock ::
   ProgE ->
@@ -282,4 +282,4 @@ compileBlock = go
     go (ExprE val k) = do
       val' <- lift (whnf val) >>= coerceRTValue
       k' <- traverse go k
-      pure $ spliceExprStmts val' k'
+      pure $ rewriteExprStmt val' k'
