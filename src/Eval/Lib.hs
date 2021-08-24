@@ -153,7 +153,7 @@ withError err m = catchError m (const $ throwError err)
 coerceRTValue :: WHNF -> Comp (EvalPhase RTValue)
 coerceRTValue (VRTValue deps val) = val <$ tell deps
 coerceRTValue (VRTPlace deps plc) = PlaceVal plc () <$ tell deps
-coerceRTValue (VPrim prim) = pure (RTPrim prim ())
+coerceRTValue (VPrim prim) = pure (RTLit prim ())
 coerceRTValue (VList l) = flip RTTuple () <$> traverse (lift . lift . force >=> coerceRTValue) l
 coerceRTValue val = throwError ("Could not coerce " <> describeValue val <> " into a runtime value")
 
@@ -217,7 +217,7 @@ liftLocal f = mapReaderT (local f)
 extractVal :: RTValue var blk fun lit info -> info
 extractVal (RTArith _ _ _ i) = i
 extractVal (RTComp _ _ _ i) = i
-extractVal (RTPrim _ i) = i
+extractVal (RTLit _ i) = i
 extractVal (ValueSel _ _ i) = i
 extractVal (RTTuple _ i) = i
 extractVal (RTCond _ _ _ i) = i
@@ -240,7 +240,7 @@ extractPlace (RTDeref _ i) = i
 --   where
 --     go s@(RTArith op a b _) = RTArith op (go a) (go b) (fv s)
 --     go s@(RTComp op a b _) = RTComp op (go a) (go b) (fv s)
---     go s@(RTPrim p _) = RTPrim p (fv s)
+--     go s@(RTLit p _) = RTLit p (fv s)
 --     go s@(ValueSel h n _) = ValueSel (go h) n (fv s)
 --     go s@(RTTuple t _) = RTTuple (go <$> t) (fv s)
 --     go s@(RTCond c t f _) = RTCond (go c) (go t) (go f) (fv s)

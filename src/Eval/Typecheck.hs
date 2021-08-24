@@ -125,7 +125,7 @@ checkValue ctx (RTComp op l r a) = do
   l' <- checkValue var l
   r' <- checkValue var r
   pure $ RTComp op l' r' (Typed a ctx)
-checkValue ctx (RTPrim prim a) = pure $ RTPrim prim (Typed a ctx)
+checkValue ctx (RTLit prim a) = pure $ RTLit prim (Typed a ctx)
 checkValue ctx (RTTuple tup a) = do
   (types, exprs) <- fmap Seq.unzip $
     forM tup $ \expr -> do
