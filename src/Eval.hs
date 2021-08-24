@@ -229,6 +229,30 @@ flattenBlockExpr (ExprStmt val Nothing) | Just val' <- maybeUnusedOver labels va
 flattenBlockExpr (Break (Bound ()) val) | Just val' <- maybeUnusedOver labels val = val'
 flattenBlockExpr prog = Block prog ()
 
+-- {void; b} -> b
+-- {_@{foo; bar;}; baz} -> {foo; bar; baz}
+-- {_@{foo; bar}} -> {foo; bar}
+-- Essentially means that if you have {a; b}, we try replacing the tail of a with b.
+spliceExprStmts ::
+  EvalPhase RTValue ->
+  Maybe (EvalPhase RTProg) ->
+  EvalPhase RTProg
+spliceExprStmts (RTLit PVoid ()) (Just k) = k
+spliceExprStmts (Block val ()) k | Just val' <- maybeUnusedOver labels val >>= go k = val'
+  where
+    go :: Maybe (EvalPhase RTProg) -> EvalPhase RTProg -> Maybe (EvalPhase RTProg)
+    go Nothing val = pure val
+    go (Just k) val = splice val k
+    splice :: EvalPhase RTProg -> EvalPhase RTProg -> Maybe (EvalPhase RTProg)
+    splice (ExprStmt (RTLit PVoid ()) Nothing) k = pure k
+    splice (ExprStmt val Nothing) k = pure $ ExprStmt val (Just k)
+    splice (ExprStmt val (Just k')) k = ExprStmt val . Just <$> splice k' k
+    splice (Assign lhs rhs k') k = Assign lhs rhs <$> splice k' k
+    splice Decl {} _ = Nothing
+    splice Continue {} _ = Nothing
+    splice Break {} _ = Nothing
+spliceExprStmts val k = ExprStmt val k
+
 compileBlock ::
   ProgE ->
   Comp (EvalPhase RTProg)
@@ -258,4 +282,4 @@ compileBlock = go
     go (ExprE val k) = do
       val' <- lift (whnf val) >>= coerceRTValue
       k' <- traverse go k
-      pure $ ExprStmt val' k'
+      pure $ spliceExprStmts val' k'
