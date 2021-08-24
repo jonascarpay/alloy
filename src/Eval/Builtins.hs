@@ -27,6 +27,7 @@ builtins =
         ("listToAttrs", vListToAttrs),
         ("types", vTypes),
         ("matchType", vMatchType),
+        ("known", vKnown),
         ("void", vVoid)
       ]
 
@@ -93,6 +94,14 @@ vTypes =
     mkPtr = forceExpect "builtins.types.ptr" "a type" $ \case
       VType t -> Just $ pure $ VType $ Type $ TPtr t
       _ -> Nothing
+
+vKnown :: Value f
+vKnown =
+  VClosure $
+    force >=> \case
+      (VRTPlace _ _) -> pure (VPrim $ PBool False)
+      (VRTValue _ _) -> pure (VPrim $ PBool False)
+      _ -> pure (VPrim $ PBool True)
 
 -- TODO
 -- Instead of pattern matching on the matchers and applying arguments in the
