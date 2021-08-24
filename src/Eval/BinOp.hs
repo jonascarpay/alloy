@@ -23,6 +23,11 @@ rtBinOp ::
 rtBinOp (ArithOp op) l r = pure $ RTArith op l r ()
 rtBinOp (CompOp op) l r = pure $ RTComp op l r ()
 
+-- TODO
+-- Ideally, there is a way make this a single function that describes both
+-- compile time and run time behaviour.  At compile time, it'd describe the
+-- evaluation and at run time, it'd describe type checking?
+-- Currently, we don't reject invalid arithmetic expressions at all.
 binPrim :: BinOp -> Prim -> Prim -> Eval WHNF
 binPrim op (PInt a) (PInt b) = VPrim <$> binInt op a b
 binPrim op (PDouble a) (PDouble b) = VPrim <$> binDouble op a b

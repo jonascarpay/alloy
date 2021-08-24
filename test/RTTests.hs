@@ -351,6 +351,15 @@ rtTests = describe "rt" $ do
             sum
           }
       |]
+    markPending $
+      nocompile "addition of non-numeric types fails" $
+        [r| with builtins.types;
+            [] -> int {
+              var b: bool = true;
+              b + false;
+              3
+            }
+        |]
   describe "tuples" $ do
     saFunc "simple tuple literal" $
       [r| let inherit (builtins.types) tuple void int double;
