@@ -7,5 +7,5 @@ package alloy
 source-repository-package
     type: git
     location: https://github.com/jonascarpay/rebound.git
-    tag: 1f06870432bcd4693f9114dfb908210a74250b6b
-    --sha256: sha256-z+14lnlA+S8wmFBGQ5A6TYtfy3elBBVagzQGjmmopxw=
+    tag: 2adcd068ba662fa5c7715faee0de346e6b0c83ae
+    --sha256: sha256-94uQ98/yTEDiOLdSxLyQd7TjX7W1YWxvikWZuDM5fEY=

@@ -132,8 +132,6 @@ instance Hashable a => Hashable (Seq a) where hashWithSalt salt as = hashWithSal
 
 instance Hashable1 Seq where liftHashWithSalt f salt as = liftHashWithSalt f salt (toList as)
 
-instance (Hashable b, Hashable a) => Hashable (Bind b a)
-
 -- TODO The RT* data types don't gain anything by being traversable
 
 -- TODO The (Maybe Type) field in Decl doesn't make sense after type checking, maybe make it
