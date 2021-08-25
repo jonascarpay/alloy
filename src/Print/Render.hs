@@ -39,8 +39,8 @@ renderDoc Multi (List doc) =
         newline,
         "]"
       ]
-renderDoc _ (Deref' d) = "*" <> d
 renderDoc sty (Operator op l r) = l <> style space newline sty <> op <> space <> r
+renderDoc _ (Unary op doc) = op <> doc
 renderDoc _ (Module deps body) | null deps = body
 renderDoc _ (Module deps body) =
   indent $

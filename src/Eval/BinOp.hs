@@ -28,6 +28,7 @@ rtBinOp (CompOp op) l r = pure $ RTComp op l r ()
 -- compile time and run time behaviour.  At compile time, it'd describe the
 -- evaluation and at run time, it'd describe type checking?
 -- Currently, we don't reject invalid arithmetic expressions at all.
+-- Might not make sense because of e.g. pointer arithmetic?
 binPrim :: BinOp -> Prim -> Prim -> Eval WHNF
 binPrim op (PInt a) (PInt b) = VPrim <$> binInt op a b
 binPrim op (PDouble a) (PDouble b) = VPrim <$> binDouble op a b

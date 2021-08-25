@@ -48,9 +48,9 @@ data DocF stm doc
   = Parens doc
   | Symbol Symbol
   | List [doc]
-  | Deref' doc
   | Operator doc doc doc
-  | Sel doc doc
+  | Sel doc doc -- Combine with Operator?
+  | Unary doc doc
   | Call' doc [doc]
   | Func [(doc, doc)] doc doc
   | Prog (Maybe doc) stm
@@ -66,8 +66,8 @@ instance Bifunctor DocF where
   bimap _ r (Parens doc) = Parens (r doc)
   bimap _ _ (Symbol sym) = Symbol sym
   bimap _ r (List docs) = List (r <$> docs)
-  bimap _ r (Deref' doc) = Deref' (r doc)
   bimap _ r (Operator sym lhs rhs) = Operator (r sym) (r lhs) (r rhs)
+  bimap _ r (Unary op d) = Unary (r op) (r d)
   bimap _ r (Sel h n) = Sel (r h) (r n)
   bimap _ r (Call' sym args) = Call' (r sym) (r <$> args)
   bimap _ r (Func args ret body) = Func (bimap r r <$> args) (r ret) (r body)
@@ -80,8 +80,8 @@ instance Bifoldable DocF where
   bifoldr _ r a (Parens doc) = r doc a
   bifoldr _ _ a (Symbol _) = a
   bifoldr _ r a (List docs) = foldr r a docs
-  bifoldr _ r a (Deref' doc) = r doc a
   bifoldr _ r a (Operator _ lhs rhs) = r lhs (r rhs a)
+  bifoldr _ r a (Unary op d) = r op (r d a)
   bifoldr _ r a (Sel h n) = r h (r n a)
   bifoldr _ r a (Call' _ args) = foldr r a args
   bifoldr _ r a (Func args ret body) = foldr (flip $ bifoldr r r) (r ret (r body a)) args
@@ -229,6 +229,7 @@ pType = foldType go
     go TInt = Bifix $ Symbol "int"
     go TDouble = Bifix $ Symbol "double"
     go (TTuple ts) = Bifix $ List $ toList ts
+    go (TPtr t) = Bifix $ Unary (Bifix $ Symbol "*") t
 
 pProg :: RTProg Doc Doc Doc Doc Doc -> Fresh Statement
 pProg (Decl _ val k) = do
@@ -264,8 +265,9 @@ pValue _ (Block blk _) =
       Bifix . Prog (Just lbl) <$> pProg (instantiate1Over labels lbl blk)
 pValue _ (Call f args _) = Bifix . Call' f <$> traverse (pValue 0) args
 pValue prec (PlaceVal pl _) = pPlace prec pl
+pValue prec (RTRef r _) = parens (prec > 9) . Bifix . Unary (Bifix $ Symbol "&") <$> pPlace 9 r
 
 pPlace :: Int -> RTPlace Doc Doc Doc Doc Doc -> Fresh Doc
 pPlace _ (Place sym _) = pure sym
 pPlace _ (PlaceSel h n _) = (\h' -> Bifix $ Sel h' $ pPrim $ PInt n) <$> pPlace 9 h
-pPlace prec (RTDeref val _) = parens (prec > 9) . Bifix . Deref' <$> pValue 9 val
+pPlace prec (RTDeref val _) = parens (prec > 9) . Bifix . Unary (Bifix $ Symbol "^") <$> pValue 9 val
