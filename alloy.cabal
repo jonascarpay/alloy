@@ -42,6 +42,7 @@ library
     , microlens-platform
     , parser-combinators
     , rebound
+    , text
     , union-find
     , unordered-containers
     , vector
@@ -93,5 +94,6 @@ test-suite alloy-test
     , HUnit
     , pretty-simple
     , raw-strings-qq
+    , utf8-string
 
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N

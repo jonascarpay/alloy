@@ -5,7 +5,7 @@
 module TestLib where
 
 import Control.Exception (throwIO)
-import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.UTF8 qualified as UTF8
 import Data.Map qualified as M
 import Eval
 import Eval.Types
@@ -22,7 +22,7 @@ assertFile :: FilePath -> IO String
 assertFile = readFile
 
 assertParse :: HasCallStack => String -> IO Expr
-assertParse str = either assertFailure pure $ parse (BS8.pack str)
+assertParse str = either assertFailure pure $ parse (UTF8.fromString str)
 
 assertEval :: HasCallStack => Expr -> IO NF
 assertEval expr = do
@@ -30,7 +30,7 @@ assertEval expr = do
     Left err -> assertFailure $ show err
     Right val -> pure val
 
-shallowEq :: (f -> f -> Bool) -> Value f -> Value f -> Bool
+shallowEq :: HasCallStack => (f -> f -> Bool) -> Value f -> Value f -> Bool
 shallowEq f = go
   where
     go VClosure {} _ = False
@@ -47,7 +47,7 @@ shallowEq f = go
     go (VAttr _) _ = False
     go (VBlk _) _ = error "impossible"
 
-nfEq :: NF -> NF -> Bool
+nfEq :: HasCallStack => NF -> NF -> Bool
 nfEq (NF a) (NF b) = shallowEq nfEq a b
 
 nocompile :: HasCallStack => String -> String -> Spec
@@ -61,7 +61,7 @@ assertValueEq :: HasCallStack => NF -> NF -> Expectation
 assertValueEq exp got
   | nfEq exp got = pure ()
   | otherwise =
-    throwIO $ HUnitFailure (Just loc) $ ExpectedButGot Nothing (BS8.unpack (printNF exp)) (BS8.unpack (printNF got))
+    throwIO $ HUnitFailure (Just loc) $ ExpectedButGot Nothing (UTF8.toString (printNF exp)) (UTF8.toString (printNF got))
   where
     loc = snd $ head $ getCallStack callStack
 
