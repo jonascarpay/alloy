@@ -7,7 +7,7 @@ module Parser.Lexer
 
 import Parser.Token
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.ByteString (ByteString)
 import Data.Word (Word8)
 }
@@ -22,32 +22,32 @@ tokens :-
   $white+	;
   "#".*		;
 
-  let		{ tok Let }
-  in		{ tok In }
+  let			{ tok Let }
+  in			{ tok In }
   with		{ tok With }
   inherit	{ tok Inherit }
 
-  if		{ tok If }
+  if			{ tok If }
   then		{ tok Then }
   else		{ tok Else }
   true		{ tok TTrue }
   false		{ tok TFalse }
 
-  break		{ tok Break }
+  break			{ tok Break }
   continue	{ tok Continue }
-  var		{ tok Var }
+  var				{ tok Var }
 
-  "+"		{ tok Add }
-  "-"		{ tok Sub }
-  "*"		{ tok Mul }
-  "/"		{ tok Div }
+  "+"			{ tok Add }
+  "-"			{ tok Sub }
+  "*"			{ tok Mul }
+  "/"			{ tok Div }
   "=="		{ tok Eq }
   "/="		{ tok Neq }
-  "<"		{ tok Lt }
-  ">"		{ tok Gt }
+  "<"			{ tok Lt }
+  ">"			{ tok Gt }
   "<="		{ tok Leq }
   ">="		{ tok Geq }
-  "."		{ tok Dot }
+  "."			{ tok Dot }
   "<-"		{ tok LArr }
   "->"		{ tok RArr }
 
@@ -67,44 +67,50 @@ tokens :-
   "{"		{ tok LBrace }
   "}"		{ tok RBrace }
 
-  $digit+			{ tok_num }
-  $idHead $idTail*		{ Ident }
+  $digit+											{ tok_num }
+  $idHead $idTail*						{ Ident }
   \" ($stringChars # \")* \"	{ tok_string } -- TODO Use start codes to signal unterminated strings
 
 {
 lexer :: BS.ByteString -> Either SourcePos [(Token, SourcePos)]
-lexer bs = go (AlexInput bs 0 0)
+lexer bs = go (AlexInput '\n' pos0 bs 0)
   where
-    go input@(AlexInput bs line col) =
+    go input@(AlexInput _ pos bs b) =
       case alexScan input 0 of
         AlexEOF -> pure []
-        AlexError (AlexInput _ line col) -> Left $ SourcePos line col
+        AlexError (AlexInput _ pos _ _) -> Left $ pos
         AlexSkip rem _ -> go rem
         -- TODO There are places where it seems this length is in characters, not bytes
         -- investigate whether UTF breaks things
-        AlexToken rem len act ->
-          let token = act (BS.unsafeTake len bs)
-           in ((token, SourcePos line col) :) <$> go rem
+        AlexToken rem _ act ->
+          let token = act (BS.take (aiOffset rem - b) bs)
+           in ((token, pos) :) <$> go rem
+
+posMove :: SourcePos -> Char -> SourcePos
+posMove (SourcePos l c b) '\t' = SourcePos l (c + tab - (mod (c-1) tab)) (b+1) where tab = 8
+posMove (SourcePos l _ b) '\n' = SourcePos (l+1) 1 (b+1)
+posMove (SourcePos l c b) _ = SourcePos l (c+1) (b+1)
+
+pos0 :: SourcePos
+pos0 = SourcePos 1 1 0
 
 data AlexInput = AlexInput
-  { aiBS :: ByteString
-  , aiLine :: Int
-  , aiColumn :: Int
+  { aiPrevChar :: {-# UNPACK #-} !Char
+  , aiPos :: !SourcePos
+  , aiBS :: !ByteString
+  , aiOffset :: !Int
   }
 
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
-alexGetByte (AlexInput bs line col)
-  | BS.null bs = Nothing
-  | otherwise = Just $
-      let b = BS.unsafeHead bs
-          (line', col') = if isNewLine b then (line + 1, 0) else (line, col + 1)
-       in (b, AlexInput (BS.unsafeTail bs) line' col')
-
-isNewLine :: Word8 -> Bool
-isNewLine = (== 10)
+alexGetByte (AlexInput _ pos bs by) =
+  case BS.uncons bs of
+    Nothing -> Nothing
+    Just (b, bs') ->
+      let c = BSI.w2c b
+       in Just (b, AlexInput c (posMove pos c) bs' (by+1))
 
 alexInputPrevChar :: AlexInput -> Char
-alexInputPrevChar = error "we don't use this"
+alexInputPrevChar = aiPrevChar
 }
 
 -- vim: ft=text:noet

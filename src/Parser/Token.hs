@@ -10,13 +10,14 @@ import Data.Char (toLower)
 -- λ
 
 data SourcePos = SourcePos
-  { lineNumber :: Int,
-    columnNumber :: Int
+  { lineNumber :: {-# UNPACK #-} !Int,
+    columnNumber :: {-# UNPACK #-} !Int,
+    byteOffset :: {-# UNPACK #-} !Int
   }
   deriving (Eq)
 
 instance Show SourcePos where
-  show (SourcePos l c) = "L" <> show (l + 1) <> ":" <> show (c + 1)
+  show (SourcePos l c _) = "L" <> show l <> ":" <> show c
 
 data Token
   = -- Compile time keywords
