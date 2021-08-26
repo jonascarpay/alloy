@@ -116,8 +116,8 @@ evalTests = describe "eval" $ do
     is9 "list index expression" "[1, 3, 9, 27].(1+1)"
     is9 "string indexing" [r| if "139".2 == "9" then 9 else builtins.undefined |]
   describe "unicode" $ do
-    is9 "unicode strings" [r| if "λ" + "Δ" == "λΔ" then 9 else 10 |]
-    is9 "unicode variable names" [r| (λ: λ) 9 |]
+    is9 "unicode strings" [r| if "α" + "ω" == "αω" then 9 else 10 |]
+    is9 "unicode identifiers" [r| (珍穴子🤯️: 渦巻: 珍穴子🤯️) 9 "💩" |]
   is9 "list length" "builtins.length [1, 2, 3, 4, 5, 6, 7, 8, 9]"
   is9 "string length" "builtins.length \"123456789\""
   is9 "list concat" "([] + [9] + []).0"

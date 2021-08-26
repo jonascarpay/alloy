@@ -13,8 +13,11 @@ import Data.Word (Word8)
 }
 
 $digit = 0-9
-$idHead = [a-z A-Z]
-$idTail = [a-z A-Z 0-9 \_ \']
+$ascLower = [a-z]
+$ascUpper = [A-Z]
+$uniChar = [\192-\x10ffff]
+$idHead = [ $ascLower $ascUpper $uniChar \_ ]
+$idTail = [ $ascLower $ascUpper $uniChar 0-9 \_ \' ]
 $stringChars = [$printable \n]
 
 tokens :-
