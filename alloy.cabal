@@ -26,6 +26,7 @@ common common-options
     , bytestring
     , containers
     , mtl
+    , text
 
   default-language:   Haskell2010
   default-extensions: ImportQualifiedPost
@@ -94,6 +95,7 @@ test-suite alloy-test
     , HUnit
     , pretty-simple
     , raw-strings-qq
+    , text
     , utf8-string
 
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N

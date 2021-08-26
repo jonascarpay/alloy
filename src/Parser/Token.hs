@@ -4,6 +4,8 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BS
 import Data.Char (toLower)
+import Data.Text (Text)
+import Data.Text.Encoding qualified as TE
 
 -- TODO
 -- unicode
@@ -65,13 +67,15 @@ data Token
   | RBrace
   | LBrack
   | RBrack
-  | Ident ByteString
-  | String ByteString
+  | Ident !Text
+  | String !Text
   | Num Int
   deriving (Eq, Show)
 
-tok :: Token -> ByteString -> Token
+tok :: Token -> a -> Token
 tok = const
+
+{-# ANN module ("hlint: ignore Use camelCase" :: String) #-}
 
 tok_num :: ByteString -> Token
 tok_num bs = Num (parse bs)
@@ -80,7 +84,10 @@ tok_num bs = Num (parse bs)
     f acc b = acc * 10 + fromIntegral b - 48
 
 tok_string :: ByteString -> Token
-tok_string = String . BS.unsafeInit . BS.unsafeTail
+tok_string = String . TE.decodeUtf8 . BS.unsafeInit . BS.unsafeTail
+
+tok_ident :: ByteString -> Token
+tok_ident = Ident . TE.decodeUtf8
 
 descrToken :: Token -> String
 descrToken (Ident x) = "identifier " <> show x

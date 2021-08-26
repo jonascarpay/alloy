@@ -14,7 +14,6 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.ByteString (ByteString)
 import Data.Foldable
 import Data.HashMap.Strict (HashMap)
 import Data.Hashable
@@ -23,6 +22,7 @@ import Data.IORef
 import Data.Map (Map)
 import Data.Sequence (Seq)
 import Data.Set (Set)
+import Data.Text (Text)
 import Data.Void
 import Expr
 import GHC.Generics
@@ -39,6 +39,11 @@ import Rebound
 -- Maybe they exist as a different binding in a different transformer, it's hard to really call them thunks in the first place
 -- In any case, it needs to be stressed that for these, their dynamc scope is their lexical scope.
 -- Another clue is that variables should never be printable as values, which makes any handling outside the evaluator somewhat awkwars.
+--
+-- TODO
+-- Our Strings shouldn't be Text.
+-- Indexing, length, concat is all O(n).
+-- Maybe just use Seq Char?
 data Value f
   = VClosure (Thunk -> EvalBase WHNF) -- TODO params
   | VRTValue Deps (EvalPhase RTValue)
@@ -46,7 +51,7 @@ data Value f
   | VFunc Deps (Either FuncIX Hash)
   | VType Type
   | VPrim Prim
-  | VString ByteString
+  | VString Text
   | VBlk BlockIX
   | VAttr (Map Name f)
   | VList (Seq f)

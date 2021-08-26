@@ -7,10 +7,10 @@
 
 module Print (printNF) where
 
-import Data.ByteString (ByteString)
+import Data.Text (Text)
 import Eval.Types (NF)
 import Print.Doc (toDoc)
 import Print.Render (render)
 
-printNF :: NF -> ByteString
+printNF :: NF -> Text
 printNF = render . toDoc

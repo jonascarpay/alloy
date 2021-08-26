@@ -8,8 +8,6 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as BSS
 import Data.Foldable
 import Data.List (elemIndex)
 import Data.Map (Map)
@@ -17,6 +15,7 @@ import Data.Map qualified as M
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as S
+import Data.Text qualified as T
 import Eval.BinOp
 import Eval.Builtins (builtins)
 import Eval.Lib
@@ -89,11 +88,11 @@ whnf (Sel haystack needle) =
       whnf needle >>= \case
         VPrim (PInt ix) -> case indexMaybe bs ix of
           Nothing -> throwError $ "String index " <> show ix <> " is out of bounds"
-          Just t -> pure . VString $ BS.singleton t
+          Just t -> pure . VString $ T.singleton t
         val -> throwError $ "indexing into strings requires an integer, but got " <> describeValue val
     VAttr attrs ->
       whnf needle >>= \case
-        VString str -> case M.lookup (BSS.toShort str) attrs of
+        VString str -> case M.lookup str attrs of
           Nothing -> throwError $ "Attribute set does not contain field " <> show str
           Just t -> lift $ force t
         val -> throwError $ "indexing into an attr set requires a string, but got " <> describeValue val

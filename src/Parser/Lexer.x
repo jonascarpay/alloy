@@ -68,7 +68,7 @@ tokens :-
   "}"		{ tok RBrace }
 
   $digit+											{ tok_num }
-  $idHead $idTail*						{ Ident }
+  $idHead $idTail*						{ tok_ident }
   \" ($stringChars # \")* \"	{ tok_string } -- TODO Use start codes to signal unterminated strings
 
 {

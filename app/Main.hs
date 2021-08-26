@@ -1,8 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
 import Data.Foldable
+import Data.Text.IO qualified as T
 import Eval
 import Options.Applicative
 import Parser.Parser
@@ -24,7 +24,7 @@ runCommand (Evaluate fp) = do
     Right expr ->
       runEval expr >>= \case
         Left err -> die err
-        Right nf -> BS8.putStrLn $ printNF nf
+        Right nf -> T.putStrLn $ printNF nf
 
 main :: IO ()
 main = execParser opts >>= runCommand

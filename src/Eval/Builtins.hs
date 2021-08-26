@@ -4,11 +4,10 @@
 module Eval.Builtins (builtins) where
 
 import Control.Monad.Except
-import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as BSS
 import Data.Foldable (toList)
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Text qualified as T
 import Eval.Lib
 import Eval.Types
 import Expr
@@ -44,7 +43,7 @@ vLength :: Value f
 vLength = VClosure $ \tList ->
   force tList >>= \case
     VList l -> pure . VPrim . PInt $ length l
-    VString s -> pure . VPrim . PInt $ BS.length s
+    VString s -> pure . VPrim . PInt $ T.length s
     val -> throwError $ "builtins.length: Cannot get the length of " <> describeValue val
 
 vListToAttrs :: Value f
@@ -54,7 +53,7 @@ vListToAttrs = VClosure . expect "a list" $ \case
       VAttr attrs -> Just $ case M.lookup "key" attrs of
         Just tKey -> flip (expect "a string") tKey $ \case
           VString key -> Just $ case M.lookup "value" attrs of
-            Just value -> pure (BSS.toShort key, value)
+            Just value -> pure (key, value)
             Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"value\""
           _ -> Nothing
         Nothing -> throwError "builtins.listToAttrs: Attribute set did not contain field \"key\""

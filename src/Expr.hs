@@ -4,13 +4,12 @@
 
 module Expr where
 
-import Data.ByteString (ByteString)
-import Data.ByteString.Short (ShortByteString)
 import Data.Hashable
 import Data.Sequence (Seq)
+import Data.Text (Text)
 import GHC.Generics
 
-type Name = ShortByteString
+type Name = Text
 
 data Expr
   = Var Name
@@ -22,7 +21,7 @@ data Expr
   | Run (Maybe Name) ProgE
   | Let [Binding] Expr
   | Attr [Binding]
-  | String ByteString -- TODO better representation for strings
+  | String Text -- TODO better representation for strings
   | Sel Expr Expr
   | With Expr Expr
   | List (Seq Expr)

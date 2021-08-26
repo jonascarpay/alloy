@@ -7,6 +7,7 @@ module TestLib where
 import Control.Exception (throwIO)
 import Data.ByteString.UTF8 qualified as UTF8
 import Data.Map qualified as M
+import Data.Text qualified as T
 import Eval
 import Eval.Types
 import Expr
@@ -61,7 +62,7 @@ assertValueEq :: HasCallStack => NF -> NF -> Expectation
 assertValueEq exp got
   | nfEq exp got = pure ()
   | otherwise =
-    throwIO $ HUnitFailure (Just loc) $ ExpectedButGot Nothing (UTF8.toString (printNF exp)) (UTF8.toString (printNF got))
+    throwIO $ HUnitFailure (Just loc) $ ExpectedButGot Nothing (T.unpack (printNF exp)) (T.unpack (printNF got))
   where
     loc = snd $ head $ getCallStack callStack
 

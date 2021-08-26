@@ -1,8 +1,8 @@
 module Eval.BinOp where
 
 import Control.Monad.Except
-import Data.ByteString (ByteString)
 import Data.Sequence (Seq)
+import Data.Text (Text)
 import Eval.Types
 import Expr
 
@@ -55,7 +55,7 @@ binDouble (ArithOp op) l r = pure . PDouble $ arithDouble op l r
     arithDouble Div = (/)
 binDouble (CompOp op) l r = pure . PBool $ compOp op l r
 
-binString :: BinOp -> ByteString -> ByteString -> Eval WHNF
+binString :: BinOp -> Text -> Text -> Eval WHNF
 binString (CompOp op) l r = pure . VPrim . PBool $ compOp op l r
 binString (ArithOp Add) l r = pure . VString $ l <> r
 binString (ArithOp _) _ _ = throwError "Cannot perform arithmetic on strings"

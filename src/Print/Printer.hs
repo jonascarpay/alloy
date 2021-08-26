@@ -9,21 +9,20 @@ module Print.Printer
     newline,
     indent,
     emit,
-    emitSbs,
+    emitText,
     emitShow,
   )
 where
 
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.ByteString (ByteString)
-import Data.ByteString.Builder (Builder)
-import Data.ByteString.Builder qualified as BSB
-import Data.ByteString.Lazy qualified as BSL
-import Data.ByteString.Short (ShortByteString)
-import Data.ByteString.Short qualified as SBS
 import Data.Semigroup (mtimesDefault, stimes)
 import Data.String
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Builder (Builder)
+import Data.Text.Lazy.Builder qualified as TB
 import Lens.Micro.Platform
 
 newtype PrinterContext = PrinterContext {_pcIndent :: Int}
@@ -49,8 +48,8 @@ instance Monoid Printer where
 instance IsString Printer where
   fromString = emit . fromString
 
-runPrinter :: Printer -> ByteString
-runPrinter (Printer m) = BSL.toStrict . BSB.toLazyByteString . view psBuilder $ execState (runReaderT m c0) s0
+runPrinter :: Printer -> Text
+runPrinter (Printer m) = TL.toStrict . TB.toLazyText . view psBuilder $ execState (runReaderT m c0) s0
   where
     c0 = PrinterContext 0
     s0 = PrinterState mempty 0
@@ -81,10 +80,10 @@ emitRaw fcol s = do
   psColumn %= fcol
 
 emit :: String -> Printer
-emit s = Printer $ emitRaw (+ length s) (BSB.stringUtf8 s)
+emit s = Printer $ emitRaw (+ length s) (TB.fromString s)
 
-emitSbs :: ShortByteString -> Printer
-emitSbs s = Printer $ emitRaw (+ SBS.length s) (BSB.shortByteString s)
+emitText :: Text -> Printer
+emitText t = Printer $ emitRaw (+ T.length t) (TB.fromText t)
 
 emitShow :: Show a => a -> Printer
 emitShow = emit . show

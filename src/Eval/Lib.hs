@@ -24,6 +24,8 @@ import Data.Map (Map)
 import Data.Map qualified as M
 import Data.Set (Set)
 import Data.Set qualified as S
+import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Word (Word8)
 import Eval.Types
 import Expr
@@ -116,12 +118,13 @@ ensureBlock = ensureValue "a block" $ \case
 fromComp :: (Deps -> a -> r) -> Comp a -> Eval r
 fromComp f m = (\(a, dep) -> f dep a) <$> runWriterT m
 
--- TODO replace with indexMaybe from BS 0.11
-indexMaybe :: ByteString -> Int -> Maybe Word8
+-- TODO This is one of the situations in which we see that Text is not great
+-- for our String; indexing and lookups are O(n)
+indexMaybe :: Text -> Int -> Maybe Char
 indexMaybe ps n
   | n < 0 = Nothing
-  | n >= BS.length ps = Nothing
-  | otherwise = Just $! BSU.unsafeIndex ps n
+  | n >= T.length ps = Nothing
+  | otherwise = Just $! T.index ps n
 {-# INLINE indexMaybe #-}
 
 withError :: MonadError e m => e -> m a -> m a

@@ -8,7 +8,6 @@ import Control.Applicative.Combinators
 import Control.Monad.Combinators.Expr
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
-import Data.ByteString.Short qualified as BSS
 import Data.Foldable (foldl')
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
@@ -189,7 +188,7 @@ pVar = Var <$> pIdent
 
 pIdent :: Parser Name
 pIdent = expect "identifier" $ \case
-  (T.Ident name) -> Just $ BSS.toShort name
+  (T.Ident name) -> Just name
   _ -> Nothing
 
 pList :: Parser Expr
