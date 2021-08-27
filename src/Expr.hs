@@ -9,16 +9,16 @@ import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics
 
-type Name = Text
+type Symbol = Text
 
 data Expr
-  = Var Name
+  = Var Symbol
   | App Expr Expr
-  | Lam Name Expr
+  | Lam Symbol Expr
   | Prim Prim
-  | Func (Maybe Name) [(Name, Expr)] Expr Expr
+  | Func (Maybe Symbol) [(Symbol, Expr)] Expr Expr
   | BinExpr BinOp Expr Expr
-  | Run (Maybe Name) ProgE
+  | Run (Maybe Symbol) ProgE
   | Let [Binding] Expr
   | Attr [Binding]
   | String Text -- TODO better representation for strings
@@ -31,7 +31,7 @@ data Expr
   deriving stock (Eq, Show, Generic)
 
 data ProgE
-  = DeclE Name (Maybe Expr) Expr ProgE
+  = DeclE Symbol (Maybe Expr) Expr ProgE
   | AssignE Expr Expr ProgE
   | BreakE Expr (Maybe Expr)
   | ContinueE Expr
@@ -39,9 +39,9 @@ data ProgE
   deriving stock (Eq, Show, Generic)
 
 data Binding
-  = Simple Name [Name] Expr
-  | Inherit [Name]
-  | InheritFrom Expr [Name]
+  = Simple Symbol [Symbol] Expr
+  | Inherit [Symbol]
+  | InheritFrom Expr [Symbol]
   deriving stock (Eq, Show, Generic)
 
 data Prim

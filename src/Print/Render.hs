@@ -29,7 +29,7 @@ space = emit " "
 
 renderDoc :: Style -> DocF Printer Printer -> Printer
 renderDoc sty (Parens doc) = "(" <> style doc (indent doc <> newline) sty <> ")"
-renderDoc _ (Symbol sym) = emit sym
+renderDoc _ (Symbol sym) = emitText sym
 renderDoc Single (List doc) = "[" <> fold (intersperse ", " doc) <> "]"
 renderDoc Multi (List doc) =
   indent $
@@ -47,7 +47,7 @@ renderDoc _ (Module deps body) =
     mconcat
       [ "Module dependencies:",
         indent . mconcat . intersperse newline . flip fmap (M.toList deps) $ \(str, p) ->
-          emit str <> " = " <> p <> ";",
+          emitText str <> " = " <> p <> ";",
         newline,
         "Module body:",
         indent body
@@ -70,7 +70,7 @@ renderDoc Multi (Cond c t f) = "if" <> space <> c <> newline <> indent ("then" <
 
 renderStmt :: Style -> StatementF Printer Printer -> Printer
 renderStmt _ (SDecl sym typ rhs k) =
-  "var" <> space <> emit sym <> ":" <> space <> typ <> space <> "=" <> space <> rhs <> ";" <> newline <> k
+  "var" <> space <> emitText sym <> ":" <> space <> typ <> space <> "=" <> space <> rhs <> ";" <> newline <> k
 renderStmt _ (SAssign lhs rhs k) = lhs <> space <> "=" <> space <> rhs <> ";" <> newline <> k
 renderStmt _ (SBreak sym expr) = "break" <> space <> sym <> space <> expr <> ";"
 renderStmt _ (SContinue sym) = "continue" <> space <> sym <> ";"

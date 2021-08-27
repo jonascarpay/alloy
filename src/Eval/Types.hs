@@ -53,7 +53,7 @@ data Value f
   | VPrim Prim
   | VString Text
   | VBlk BlockIX
-  | VAttr (Map Name f)
+  | VAttr (Map Symbol f)
   | VList (Seq f)
   deriving (Functor, Foldable, Traversable)
 
@@ -202,7 +202,7 @@ unEval = flip runReaderT env0
 
 type Comp = WriterT Deps Eval
 
-newtype EvalEnv = EvalEnv {_binds :: Map Name Thunk} -- TODO Just `type`?
+newtype EvalEnv = EvalEnv {_binds :: Map Symbol Thunk} -- TODO Just `type`?
 
 -- TODO Maybe all things get an `inf` argument
 class RTAST f where

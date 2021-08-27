@@ -186,7 +186,7 @@ semicolon = token T.Semicolon
 pVar :: Parser Expr
 pVar = Var <$> pIdent
 
-pIdent :: Parser Name
+pIdent :: Parser Symbol
 pIdent = expect "identifier" $ \case
   (T.Ident name) -> Just name
   _ -> Nothing

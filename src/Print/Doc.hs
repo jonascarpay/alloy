@@ -24,6 +24,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.Map (Map)
 import Data.Map qualified as M
 import Data.String
+import Data.Text qualified as T
 import Data.Void
 import Eval.Lib (extractVal, foldMNF, foldType, labels, rtFuncCalls, vars)
 import Eval.Types
@@ -39,8 +40,6 @@ toDoc = runFresh . pNF
 newtype Fresh a = Fresh {_unFresh :: State Int a}
   deriving newtype (Functor, Applicative, Monad)
 
-type Symbol = String
-
 runFresh :: Fresh a -> a
 runFresh (Fresh m) = evalState m 0
 
@@ -54,8 +53,8 @@ data DocF stm doc
   | Call' doc [doc]
   | Func [(doc, doc)] doc doc
   | Prog (Maybe doc) stm
-  | Attrs' (Map Name doc)
-  | Module (Map String doc) doc
+  | Attrs' (Map Symbol doc)
+  | Module (Map Symbol doc) doc
   | Cond doc doc doc
   deriving (Functor, Foldable, Traversable)
 
@@ -142,10 +141,10 @@ fresh :: Fresh Int
 fresh = Fresh $ state (\n -> (n, n + 1))
 
 freshBlk :: Fresh Symbol
-freshBlk = (\i -> "lbl_" <> show i) <$> fresh
+freshBlk = (\i -> "lbl_" <> T.pack (show i)) <$> fresh
 
 freshVar :: Fresh Symbol
-freshVar = (\i -> "x" <> show i) <$> fresh
+freshVar = (\i -> "x" <> T.pack (show i)) <$> fresh
 
 pCompOp :: CompOp -> Symbol
 pCompOp Eq = "=="
@@ -164,7 +163,7 @@ operator pOp opPrec pRec op l r precCtx =
   where
     prec = opPrec op
 
-pDeps :: Deps -> Fresh (Map String Doc)
+pDeps :: Deps -> Fresh (Map Symbol Doc)
 pDeps (Deps closed _) = M.fromList <$> traverse (bitraverse (pure . pHash) toDoc) (HM.toList closed)
   where
     toDoc :: RTFunc Hash -> Fresh Doc
@@ -174,7 +173,7 @@ pFunc :: RTFunc Doc -> Fresh Doc
 pFunc (RTFunc args ret body) = do
   args' <- forM args $ \typ -> do
     ix <- fresh
-    pure (Bifix $ Symbol $ "arg_" <> show ix, pType typ)
+    pure (Bifix $ Symbol $ "arg_" <> T.pack (show ix), pType typ)
   let ret' = pType ret
   body' <-
     traverseAst
@@ -186,8 +185,8 @@ pFunc (RTFunc args ret body) = do
       body
   Bifix . Func args' ret' <$> pValue 0 body'
 
-pHash :: Hash -> String
-pHash (Hash h) = mappend "fn_" $ take 7 (showHex (fromIntegral h :: Word) "")
+pHash :: Hash -> Symbol
+pHash (Hash h) = mappend "fn_" $ T.pack $ take 7 (showHex (fromIntegral h :: Word) "")
 
 pNF :: NF -> Fresh Doc
 pNF = foldMNF go
@@ -218,7 +217,7 @@ pNF = foldMNF go
     go (VRTPlace _ _) = pure $ Bifix "<lvalue, how did you do this this is a bug>"
 
 showDoc :: Show a => a -> Doc
-showDoc = Bifix . Symbol . show
+showDoc = Bifix . Symbol . T.pack . show
 
 pType :: Type -> Doc
 pType = foldType go

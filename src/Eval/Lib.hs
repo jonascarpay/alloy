@@ -12,9 +12,6 @@ import Control.Monad.RWS
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer.Lazy
-import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
-import Data.ByteString.Unsafe qualified as BSU
 import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -26,7 +23,6 @@ import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Word (Word8)
 import Eval.Types
 import Expr
 import Lens.Micro.Platform hiding (ix)
@@ -65,7 +61,7 @@ describeValue VAttr {} = "an attribute set"
 describeValue VString {} = "a string"
 describeValue VList {} = "a list"
 
-lookupName :: Name -> Eval Thunk
+lookupName :: Symbol -> Eval Thunk
 lookupName name =
   view (binds . at name) >>= \case
     Nothing -> throwError $ "Unknown variable: " <> show name

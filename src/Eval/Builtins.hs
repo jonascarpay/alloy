@@ -145,7 +145,7 @@ vMatchType = VClosure $
   where
     expect = forceExpect "builtins.matchType"
     {-# INLINE lookupDefault #-}
-    lookupDefault :: Map Name Thunk -> Name -> EvalBase WHNF
+    lookupDefault :: Map Symbol Thunk -> Symbol -> EvalBase WHNF
     lookupDefault m name
       | Just r <- M.lookup name m = force r
       | Just r <- M.lookup "default" m = force r

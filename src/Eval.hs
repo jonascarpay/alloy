@@ -137,7 +137,7 @@ binOp op a b =
       b' <- coerceRTValue b
       rtBinOp op a' b'
 
-resolveBindings :: [Binding] -> Eval (Map Name Thunk)
+resolveBindings :: [Binding] -> Eval (Map Symbol Thunk)
 resolveBindings bindings = mfix $ \env -> -- witchcraft
   flip execStateT mempty $
     forM bindings $ \case
@@ -160,13 +160,13 @@ resolveBindings bindings = mfix $ \env -> -- witchcraft
                   val -> throwError $ "Expression in a inherit-from did not evaluate to an attribute set but " <> describeValue val
            in lift (close acc >>= defer) >>= tell1 name
   where
-    tell1 :: Name -> Thunk -> StateT (Map Name Thunk) Eval ()
+    tell1 :: Symbol -> Thunk -> StateT (Map Symbol Thunk) Eval ()
     tell1 name thunk = do
       use (at name) >>= \case
         Nothing -> at name ?= thunk
         Just _ -> throwError $ "Double name: " <> show name
 
-compileFunc :: Maybe Name -> [(Name, Expr)] -> Expr -> Expr -> Eval (Deps, Either FuncIX Hash)
+compileFunc :: Maybe Symbol -> [(Symbol, Expr)] -> Expr -> Expr -> Eval (Deps, Either FuncIX Hash)
 compileFunc mlbl args ret body = do
   retType <- whnf ret >>= ensureType
   args' <- forM args $ \(name, expr) -> do
@@ -200,7 +200,7 @@ compileFunc mlbl args ret body = do
     funcSig fn = (fnArgs fn, fnRet fn)
     mkSubSigs :: Set CallGraph -> Map FuncIX Sig
     mkSubSigs = foldMap $ \(CallGraph ix fn _ _ sub) -> M.singleton ix (funcSig fn) <> mkSubSigs sub
-    bindVars :: [(Name, Type, VarIX)] -> Comp a -> Comp a
+    bindVars :: [(Symbol, Type, VarIX)] -> Comp a -> Comp a
     bindVars argIxs m = do
       argThunks <- forM argIxs $ \(name, _, ix) -> (name,) <$> refer (VRTPlace mempty $ Place ix ())
       local (binds %~ mappend (M.fromList argThunks)) m
