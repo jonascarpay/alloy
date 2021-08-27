@@ -265,7 +265,7 @@ compileBlock = go
         t <- refer (VRTPlace mempty $ Place ix ())
         local (binds . at name ?~ t) $
           abstract1Over vars ix <$> go k
-      pure (Decl mtyp' val' k')
+      pure (Decl (Name name) mtyp' val' k')
     go (AssignE lhs rhs k) = do
       lhs' <- lift (whnf lhs) >>= coerceRTPlace
       rhs' <- lift (whnf rhs) >>= coerceRTValue

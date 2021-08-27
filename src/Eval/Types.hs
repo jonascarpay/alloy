@@ -66,6 +66,15 @@ newtype NF = NF {unNF :: Value NF}
 newtype Hash = Hash {unHash :: Int}
   deriving newtype (Eq, Show, Ord, Hashable)
 
+newtype Name = Name Symbol
+  deriving newtype (Show)
+
+instance Eq Name where _ == _ = True
+
+instance Ord Name where compare _ _ = EQ
+
+instance Hashable Name where hashWithSalt s _ = s
+
 -- Function calls form a sort of directed bigraph in which
 --   - there always is an edge between a parent and its direct children
 --   - edges can only go to direct ancestors/descendants (not cousins)
@@ -142,7 +151,7 @@ instance Hashable1 Seq where liftHashWithSalt f salt as = liftHashWithSalt f sal
 -- TODO The (Maybe Type) field in Decl doesn't make sense after type checking, maybe make it
 -- variable that becomes () after TC. This should also help with printing
 data RTProg var blk fun lit info
-  = Decl (Maybe Type) (RTValue var blk fun lit info) (RTProg (Bind () var) blk fun lit info)
+  = Decl Name (Maybe Type) (RTValue var blk fun lit info) (RTProg (Bind () var) blk fun lit info)
   | Assign (RTPlace var blk fun lit info) (RTValue var blk fun lit info) (RTProg var blk fun lit info)
   | Break blk (RTValue var blk fun lit info)
   | Continue blk
@@ -240,7 +249,7 @@ instance RTAST RTPlace where
 
 instance RTAST RTProg where
   {-# INLINE traverseAst #-}
-  traverseAst fv fb ff fl fi (Decl typ val k) = Decl typ <$> traverseAst fv fb ff fl fi val <*> traverseAst (traverse fv) fb ff fl fi k
+  traverseAst fv fb ff fl fi (Decl name typ val k) = Decl name typ <$> traverseAst fv fb ff fl fi val <*> traverseAst (traverse fv) fb ff fl fi k
   traverseAst fv fb ff fl fi (Assign lhs rhs k) = Assign <$> traverseAst fv fb ff fl fi lhs <*> traverseAst fv fb ff fl fi rhs <*> traverseAst fv fb ff fl fi k
   traverseAst fv fb ff fl fi (Break blk val) = Break <$> fb blk <*> traverseAst fv fb ff fl fi val
   traverseAst fv fb ff fl fi (ExprStmt val k) = ExprStmt <$> traverseAst fv fb ff fl fi val <*> traverse (traverseAst fv fb ff fl fi) k

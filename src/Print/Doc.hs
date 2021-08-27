@@ -30,18 +30,13 @@ import Eval.Lib (extractVal, foldMNF, foldType, labels, rtFuncCalls, vars)
 import Eval.Types
 import Expr hiding (Expr (..))
 import Lens.Micro.Platform (over)
+import Lib.Fresh
 import Numeric (showHex)
 import Print.Bifree
 import Rebound
 
 toDoc :: NF -> Doc
 toDoc = runFresh . pNF
-
-newtype Fresh a = Fresh {_unFresh :: State Int a}
-  deriving newtype (Functor, Applicative, Monad)
-
-runFresh :: Fresh a -> a
-runFresh (Fresh m) = evalState m 0
 
 data DocF stm doc
   = Parens doc
@@ -137,15 +132,6 @@ compPrec Eq = 1
 compPrec Neq = 1
 compPrec _ = 2
 
-fresh :: Fresh Int
-fresh = Fresh $ state (\n -> (n, n + 1))
-
-freshBlk :: Fresh Symbol
-freshBlk = (\i -> "lbl_" <> T.pack (show i)) <$> fresh
-
-freshVar :: Fresh Symbol
-freshVar = (\i -> "x" <> T.pack (show i)) <$> fresh
-
 pCompOp :: CompOp -> Symbol
 pCompOp Eq = "=="
 pCompOp Neq = "!="
@@ -172,8 +158,8 @@ pDeps (Deps closed _) = M.fromList <$> traverse (bitraverse (pure . pHash) toDoc
 pFunc :: RTFunc Doc -> Fresh Doc
 pFunc (RTFunc args ret body) = do
   args' <- forM args $ \typ -> do
-    ix <- fresh
-    pure (Bifix $ Symbol $ "arg_" <> T.pack (show ix), pType typ)
+    arg <- fresh "arg"
+    pure (Bifix $ Symbol arg, pType typ)
   let ret' = pType ret
   body' <-
     traverseAst
@@ -231,9 +217,9 @@ pType = foldType go
     go (TPtr t) = Bifix $ Unary (Bifix $ Symbol "*") t
 
 pProg :: RTProg Doc Doc Doc Doc Doc -> Fresh Statement
-pProg (Decl _ val k) = do
+pProg (Decl (Name n) _ val k) = do
   val' <- pValue 0 val
-  var <- freshVar
+  var <- fresh n
   k' <- pProg $ instantiate1Over vars (Bifix $ Symbol var) k
   pure $ Bifix $ SDecl var (extractVal val) val' k'
 pProg (Assign plc val k) = Bifix <$> liftA3 SAssign (pPlace 0 plc) (pValue 0 val) (pProg k)
@@ -260,7 +246,7 @@ pValue _ (Block blk _) =
   case maybeUnusedOver labels blk of
     Just blk' -> Bifix . Prog Nothing <$> pProg blk'
     Nothing -> do
-      lbl <- Bifix . Symbol <$> freshBlk
+      lbl <- Bifix . Symbol <$> fresh "lbl"
       Bifix . Prog (Just lbl) <$> pProg (instantiate1Over labels lbl blk)
 pValue _ (Call f args _) = Bifix . Call' f <$> traverse (pValue 0) args
 pValue prec (PlaceVal pl _) = pPlace prec pl

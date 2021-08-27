@@ -57,6 +57,7 @@ library
     Eval.Typecheck
     Eval.Types
     Expr
+    Lib.Fresh
     Parser.Lexer
     Parser.Parsec
     Parser.Parser
