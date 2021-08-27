@@ -190,7 +190,7 @@ data RTPlace var blk fun lit info
 type EvalPhase ast = ast VarIX BlockIX (Either FuncIX Hash) Prim ()
 
 data RTFunc fun = RTFunc
-  { fnArgs :: [Type],
+  { fnArgs :: [(Name, Type)],
     fnRet :: Type,
     fnBody :: RTValue (Bind Int Void) Void fun Prim Type
   }

@@ -157,8 +157,8 @@ pDeps (Deps closed _) = M.fromList <$> traverse (bitraverse (pure . pHash) toDoc
 
 pFunc :: RTFunc Doc -> Fresh Doc
 pFunc (RTFunc args ret body) = do
-  args' <- forM args $ \typ -> do
-    arg <- fresh "arg"
+  args' <- forM args $ \(Name nm, typ) -> do
+    arg <- fresh nm
     pure (Bifix $ Symbol arg, pType typ)
   let ret' = pType ret
   body' <-

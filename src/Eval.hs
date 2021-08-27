@@ -189,7 +189,7 @@ compileFunc mlbl args ret body = do
           subSigs = mkSubSigs open
       superSigs <- lift ask
       typeChecked <- liftEither $ typeCheck closedBody argTypes retType closedSigs (superSigs <> subSigs)
-      pure $ RTFunc argTypes retType typeChecked
+      pure $ RTFunc ((\(nm, typ, _) -> (Name nm, typ)) <$> args') retType typeChecked
     pure $
       let cg = mkCallGraph fun typeChecked open
        in case closeFunc cg of
@@ -197,7 +197,7 @@ compileFunc mlbl args ret body = do
             Just (guid, closed') -> (Deps (closed <> closed') mempty, Right guid)
   where
     funcSig :: RTFunc fun -> Sig
-    funcSig fn = (fnArgs fn, fnRet fn)
+    funcSig fn = (snd <$> fnArgs fn, fnRet fn)
     mkSubSigs :: Set CallGraph -> Map FuncIX Sig
     mkSubSigs = foldMap $ \(CallGraph ix fn _ _ sub) -> M.singleton ix (funcSig fn) <> mkSubSigs sub
     bindVars :: [(Symbol, Type, VarIX)] -> Comp a -> Comp a
