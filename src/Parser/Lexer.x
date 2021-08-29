@@ -17,7 +17,7 @@ $ascLower = [a-z]
 $ascUpper = [A-Z]
 $uniChar = [\192-\x10ffff]
 $idHead = [ $ascLower $ascUpper $uniChar \_ ]
-$idTail = [ $ascLower $ascUpper $uniChar 0-9 \_ \' ]
+$idTail = [ $idHead 0-9 \' ]
 $stringChars = [$printable \n]
 
 tokens :-
