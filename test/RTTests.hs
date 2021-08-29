@@ -168,6 +168,12 @@ rtTests = describe "rt" $ do
              f (f (f (f self))) []
            }
       |]
+    funcWithNDeps "labeling does not influence dedup" 1 $
+      [r| let inherit (builtins.types) int;
+              foo = [] -> int 3;
+              bar = rec@[] -> int 3;
+           in [] -> int (foo[] + bar[])
+      |]
   describe "labels" $ do
     saFunc "named blocks parse" "[] -> builtins.types.void { lbl@{ }; }"
     saFunc "labeled function body" "with builtins.types; [] -> int lbl@{ 9 }"
