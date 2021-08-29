@@ -23,11 +23,9 @@ import Parser.Parsec qualified as P
 import Parser.Token (SourcePos (..), Token, descrToken)
 import Parser.Token qualified as T
 import System.Directory (makeAbsolute)
-import System.FilePath (takeDirectory)
+import System.FilePath
 
-type Parser = ReaderT Path (P.Parser (Maybe Token) (Set String))
-
-type Path = Text
+type Parser = ReaderT FilePath (P.Parser (Maybe Token) (Set String))
 
 newtype AbsPath = AbsPath FilePath
 
@@ -140,7 +138,7 @@ pString = pStringRaw <|> pPath
     pPath =
       ask >>= \base ->
         expect "path" $ \case
-          T.Path path -> Just $ base <> "/" <> path
+          T.Path path -> Just $ Text.pack $ normalise $ base </> Text.unpack path
           _ -> Nothing
 
 pBlock :: Parser Expr
@@ -295,5 +293,5 @@ parse bs (AbsPath fp) = do
   (tokens, sps) <- first (\p -> "Lexical error at " <> show p) (tokenize bs)
   first (formatError tokens sps) $
     P.runParser (tokens V.!?) $
-      flip runReaderT (Text.pack fp) $
+      flip runReaderT fp $
         pExpr <* eof

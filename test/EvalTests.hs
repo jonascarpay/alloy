@@ -10,6 +10,9 @@ import Test.Hspec
 import TestLib
 import Text.RawString.QQ
 
+-- TODO Instead of just testing (==9) everywhere, have some more sensible
+-- assertEqual between two values, where appropriate
+
 is9 :: HasCallStack => String -> String -> Spec
 is9 name prog =
   it name $
@@ -133,4 +136,8 @@ evalTests = describe "eval" $ do
                 ";
       in 9
     |]
-  is9 "paths" "let path = ./foo/bar.baz; in if path == \"/testPath/foo/bar.baz\" then 9 else path"
+  describe "paths" $ do
+    is9 "directory path" "let path = ./foo/; in if path == \"/testPath/foo/\" then 9 else path"
+    is9 "file path" "let path = ./foo/bar.baz; in if path == \"/testPath/foo/bar.baz\" then 9 else path"
+    describe "normalization" $ do
+      is9 "./." "let path = ./.; in if path == \"/testPath/\" then 9 else path"

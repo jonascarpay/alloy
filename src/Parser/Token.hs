@@ -71,7 +71,7 @@ data Token
     Ident !Text
   | String !Text
   | Num Int
-  | Path !Text
+  | Path !Text -- TODO FilePath? We perform operations from `filepath` on it before turning into string
   deriving (Eq, Show)
 
 tok :: Token -> a -> Token
