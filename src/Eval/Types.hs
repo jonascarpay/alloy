@@ -197,17 +197,14 @@ data RTFunc fun = RTFunc
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (Hashable)
 
+-- TODO
+-- convince myself that this context is preserved across import
 newtype EvalBase a = EvalBase {unEvalBase :: ReaderT (Map FuncIX Sig) (StateT Int (ExceptT String IO)) a}
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadFix, MonadError String, MonadFresh, MonadReader (Map FuncIX Sig))
 
 type Eval = ReaderT EvalEnv EvalBase
 
 type MonadFresh = MonadState Int -- TODO proper class
-
-unEval :: Eval a -> EvalBase a
-unEval = flip runReaderT env0
-  where
-    env0 = EvalEnv mempty
 
 type Comp = WriterT Deps Eval
 

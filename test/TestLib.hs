@@ -29,7 +29,7 @@ assertParse str = do
 
 assertEval :: HasCallStack => Expr -> IO NF
 assertEval expr = do
-  runEval expr >>= \case
+  runEvalExpr expr >>= \case
     Left err -> assertFailure $ show err
     Right val -> pure val
 
@@ -56,7 +56,7 @@ nfEq (NF a) (NF b) = shallowEq nfEq a b
 nocompile :: HasCallStack => String -> String -> Spec
 nocompile name prog = it name $ do
   expr <- assertParse prog
-  runEval expr >>= \case
+  runEvalExpr expr >>= \case
     Right _ -> expectationFailure "Compiled"
     Left _ -> pure ()
 

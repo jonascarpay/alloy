@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- TODO export list
--- TODO Things not related to any of the eval types should probably be moved to a more general Eval module
+-- TODO export list TODO Things not related to any of the eval types should probably be moved to a more general Eval module
 module Eval.Lib where
 
 import Control.Monad.Except
@@ -72,6 +72,9 @@ defer = fmap Thunk . liftIO . newIORef . Left
 
 refer :: MonadIO m => WHNF -> m Thunk
 refer = fmap Thunk . liftIO . newIORef . Right
+
+overrideThunk :: MonadIO m => Thunk -> Either (EvalBase WHNF) WHNF -> m ()
+overrideThunk (Thunk ref) val = liftIO $ writeIORef ref val
 
 force :: Thunk -> EvalBase WHNF
 force (Thunk ref) = do
@@ -266,3 +269,8 @@ structuralZip f s0 a b =
     else s0
   where
     substitute t = evalState (traverse (const $ state $ \(e : es) -> (e, es)) t)
+
+unEval :: Thunk -> Eval a -> EvalBase a
+unEval tBuiltins = flip runReaderT env0
+  where
+    env0 = EvalEnv (M.singleton "builtins" tBuiltins)

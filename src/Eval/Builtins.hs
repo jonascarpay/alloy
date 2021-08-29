@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Eval.Builtins (builtins) where
+module Eval.Builtins (builtins, forceExpect) where
 
 import Control.Monad.Except
 import Data.Foldable (toList)
@@ -11,9 +11,6 @@ import Data.Text qualified as T
 import Eval.Lib
 import Eval.Types
 import Expr
-
--- TODO
--- import
 
 {-# ANN module ("hlint: ignore Use >=>" :: String) #-}
 
