@@ -4,7 +4,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- TODO export list TODO Things not related to any of the eval types should probably be moved to a more general Eval module
+-- TODO export list
+-- TODO Things not related to any of the eval types should probably be moved to a more general Eval module
 module Eval.Lib where
 
 import Control.Monad.Except
@@ -191,8 +192,6 @@ flattenCallgraph cg = evalRWST (go cg) () mempty
 liftLocal :: MonadReader r m => (r -> r) -> ReaderT r' m a -> ReaderT r' m a
 liftLocal f = mapReaderT (local f)
 
--- Comonad-y stuff
-
 extractVal :: RTValue var blk fun lit info -> info
 extractVal (RTArith _ _ _ i) = i
 extractVal (RTComp _ _ _ i) = i
@@ -209,46 +208,6 @@ extractPlace :: RTPlace var blk fun lit info -> info
 extractPlace (Place _ i) = i
 extractPlace (PlaceSel _ _ i) = i
 extractPlace (RTDeref _ i) = i
-
--- extendVal ::
---   (forall var blk fun. RTValue var blk fun a -> b) ->
---   (forall var blk fun. RTPlace var blk fun a -> b) ->
---   RTValue var blk fun a ->
---   RTValue var blk fun b
--- extendVal fv fp = go
---   where
---     go s@(RTArith op a b _) = RTArith op (go a) (go b) (fv s)
---     go s@(RTComp op a b _) = RTComp op (go a) (go b) (fv s)
---     go s@(RTLit p _) = RTLit p (fv s)
---     go s@(ValueSel h n _) = ValueSel (go h) n (fv s)
---     go s@(RTTuple t _) = RTTuple (go <$> t) (fv s)
---     go s@(RTCond c t f _) = RTCond (go c) (go t) (go f) (fv s)
---     go s@(Call f args _) = Call f (go <$> args) (fv s)
---     go s@(PlaceVal pl _) = PlaceVal (extendPlace fv fp pl) (fv s)
---     go s@(Block blk _) = Block (extendProg fv fp blk) (fv s)
---     go s@(RTRef p _) = RTRef (extendPlace fv fp p) (fv s)
-
--- extendPlace ::
---   (forall var blk fun. RTValue var blk fun a -> b) ->
---   (forall var blk fun. RTPlace var blk fun a -> b) ->
---   RTPlace var blk fun a ->
---   RTPlace var blk fun b
--- extendPlace fv fp = go
---   where
---     go s@(Place var _) = Place var (fp s)
---     go s@(PlaceSel h n _) = PlaceSel (go h) n (fp s)
---     go s@(RTDeref v _) = RTDeref (extendVal fv fp v) (fp s)
-
--- extendProg ::
---   (forall var blk fun. RTValue var blk fun a -> b) ->
---   (forall var blk fun. RTPlace var blk fun a -> b) ->
---   RTProg var blk fun a ->
---   RTProg var blk fun b
--- extendProg fv fp (Decl m v k) = Decl m (extendVal fv fp v) (extendProg fv fp k)
--- extendProg fv fp (Assign lhs rhs k) = Assign (extendPlace fv fp lhs) (extendVal fv fp rhs) (extendProg fv fp k)
--- extendProg fv fp (Break lbl val) = Break lbl (extendVal fv fp val)
--- extendProg _ _ (Continue lbl) = Continue lbl
--- extendProg fv fp (ExprStmt expr mk) = ExprStmt (extendVal fv fp expr) (extendProg fv fp <$> mk)
 
 -- TODO maybe move to a fixpoint module?
 foldNF :: (Value r -> r) -> NF -> r
