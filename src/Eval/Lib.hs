@@ -268,7 +268,7 @@ structuralZip f s0 a b =
     then substitute a <$> zipWithM f (toList a) (toList b)
     else s0
   where
-    substitute t = evalState (traverse (const $ state $ \(e : es) -> (e, es)) t)
+    substitute t = evalState (traverse (const $ state $ \case (e : es) -> (e, es); [] -> error "impossible") t)
 
 unEval :: Thunk -> Eval a -> EvalBase a
 unEval tBuiltins = flip runReaderT env0
