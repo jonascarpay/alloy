@@ -67,9 +67,11 @@ data Token
   | RBrace
   | LBrack
   | RBrack
-  | Ident !Text
+  | -- Other things
+    Ident !Text
   | String !Text
   | Num Int
+  | Path !Text
   deriving (Eq, Show)
 
 tok :: Token -> a -> Token
@@ -88,6 +90,10 @@ tok_string = String . TE.decodeUtf8 . BS.unsafeInit . BS.unsafeTail
 
 tok_ident :: ByteString -> Token
 tok_ident = Ident . TE.decodeUtf8
+
+-- Drops the leading "./"
+tok_path :: ByteString -> Token
+tok_path = Path . TE.decodeUtf8 . BS.drop 2
 
 descrToken :: Token -> String
 descrToken (Ident x) = "identifier " <> show x

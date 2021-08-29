@@ -20,6 +20,8 @@ $idHead = [ $ascLower $ascUpper $uniChar \_ ]
 $idTail = [ $idHead 0-9 \' ]
 $stringChars = [$printable \n]
 
+$pathChar = [ $ascLower $ascUpper $digit \_ \. ]
+
 tokens :-
 
   $white+	;
@@ -73,6 +75,7 @@ tokens :-
   $digit+											{ tok_num }
   $idHead $idTail*						{ tok_ident }
   \" ($stringChars # \")* \"	{ tok_string } -- TODO Use start codes to signal unterminated strings
+  "." ("/" $pathChar+)+ "/"?	{ tok_path }
 
 {
 lexer :: BS.ByteString -> Either SourcePos [(Token, SourcePos)]

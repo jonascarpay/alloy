@@ -39,6 +39,8 @@ library
   import:             common-options
   build-depends:
     , array
+    , directory
+    , filepath
     , hashable
     , microlens-platform
     , parser-combinators

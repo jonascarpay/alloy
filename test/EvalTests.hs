@@ -133,3 +133,4 @@ evalTests = describe "eval" $ do
                 ";
       in 9
     |]
+  is9 "paths" "let path = ./foo/bar.baz; in if path == \"/testPath/foo/bar.baz\" then 9 else path"

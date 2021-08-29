@@ -19,7 +19,8 @@ commandParser =
 runCommand :: Command -> IO ()
 runCommand (Evaluate fp) = do
   input <- BS.readFile fp
-  case parse input of
+  path <- mkAbsPath fp
+  case parse input path of
     Left err -> putStrLn err
     Right expr ->
       runEval expr >>= \case

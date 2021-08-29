@@ -1,17 +1,20 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Parser (parse) where
+module Parser.Parser (parse, AbsPath, mkAbsPath) where
 
 import Control.Applicative
 import Control.Applicative.Combinators
 import Control.Monad.Combinators.Expr
+import Control.Monad.Reader
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.Foldable (foldl')
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Expr
@@ -19,8 +22,17 @@ import Parser.Lexer qualified as Lex
 import Parser.Parsec qualified as P
 import Parser.Token (SourcePos (..), Token, descrToken)
 import Parser.Token qualified as T
+import System.Directory (makeAbsolute)
+import System.FilePath (takeDirectory)
 
-type Parser = P.Parser (Maybe Token) (Set String)
+type Parser = ReaderT Path (P.Parser (Maybe Token) (Set String))
+
+type Path = Text
+
+newtype AbsPath = AbsPath FilePath
+
+mkAbsPath :: FilePath -> IO AbsPath
+mkAbsPath fp = AbsPath . takeDirectory <$> makeAbsolute fp
 
 -- TODO some kind of slicing?
 -- may be pass what the expression should end with as an argument?
@@ -103,7 +115,7 @@ pTerm = do
         [ Prim <$> pAtom,
           pList,
           pAttr,
-          pString,
+          String <$> pString,
           pBlock,
           parens pExpr,
           pVar
@@ -119,10 +131,17 @@ pAccessor = lit <|> expr
       _ -> Nothing
     expr = parens pExpr
 
-pString :: Parser Expr
-pString = expect "string" $ \case
-  T.String str -> Just (String str)
-  _ -> Nothing
+pString :: Parser Text
+pString = pStringRaw <|> pPath
+  where
+    pStringRaw = expect "string" $ \case
+      T.String str -> Just str
+      _ -> Nothing
+    pPath =
+      ask >>= \base ->
+        expect "path" $ \case
+          T.Path path -> Just $ base <> "/" <> path
+          _ -> Nothing
 
 pBlock :: Parser Expr
 pBlock = do
@@ -243,16 +262,17 @@ token tk = expect (T.descrToken tk) $
   \tk' -> if tk == tk' then Just () else Nothing
 
 expect :: String -> (Token -> Maybe a) -> Parser a
-expect msg f =
+expect msg f = lift $
   P.throwAt $ \throw ->
     let err = throw $ Set.singleton msg
      in P.token >>= maybe err (maybe err pure . f)
 
 eof :: Parser ()
-eof = P.throwAt $ \throw ->
-  P.token >>= \case
-    Nothing -> pure ()
-    _ -> throw $ Set.singleton "eof"
+eof = lift $
+  P.throwAt $ \throw ->
+    P.token >>= \case
+      Nothing -> pure ()
+      _ -> throw $ Set.singleton "eof"
 
 tokenize :: ByteString -> Either SourcePos (Vector Token, Vector SourcePos)
 tokenize bs = case Lex.lexer bs of
@@ -270,7 +290,10 @@ formatError tokens sps (errIndex, expected) =
       let errPos = sps V.! errIndex
        in unwords ["unexpected", descrToken tk, "at", show errPos, ", expected one of:", unwords (Set.toList expected)]
 
-parse :: ByteString -> Either String Expr
-parse bs = do
+parse :: ByteString -> AbsPath -> Either String Expr
+parse bs (AbsPath fp) = do
   (tokens, sps) <- first (\p -> "Lexical error at " <> show p) (tokenize bs)
-  first (formatError tokens sps) $ P.runParser (tokens V.!?) (pExpr <* eof)
+  first (formatError tokens sps) $
+    P.runParser (tokens V.!?) $
+      flip runReaderT (Text.pack fp) $
+        pExpr <* eof

@@ -23,7 +23,9 @@ assertFile :: FilePath -> IO String
 assertFile = readFile
 
 assertParse :: HasCallStack => String -> IO Expr
-assertParse str = either assertFailure pure $ parse (UTF8.fromString str)
+assertParse str = do
+  fp <- mkAbsPath "/testPath/"
+  either assertFailure pure $ parse (UTF8.fromString str) fp
 
 assertEval :: HasCallStack => Expr -> IO NF
 assertEval expr = do
