@@ -55,6 +55,7 @@ library
     Eval
     Eval.BinOp
     Eval.Builtins
+    Eval.Eval
     Eval.Lib
     Eval.Typecheck
     Eval.Types
