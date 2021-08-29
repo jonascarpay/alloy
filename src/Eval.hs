@@ -32,14 +32,16 @@ runEval expr = do
       flip runReaderT mempty $
         unEvalBase $ do
           val <- unEval $ do
-            tBuiltins <- lift $ deepRefer builtins >>= refer
+            tBuiltins <- lift $ mkBuiltins builtins
             local (binds . at "builtins" ?~ tBuiltins) (whnf expr)
           deepseq val
   where
     deepseq :: WHNF -> EvalBase NF
     deepseq = fmap NF . traverse (force >=> deepseq)
-    deepRefer :: NF -> EvalBase WHNF
-    deepRefer = traverse (deepRefer >=> refer) . unNF
+    deepRefer :: NF -> EvalBase Thunk
+    deepRefer = traverse deepRefer . unNF >=> refer
+    mkBuiltins :: Map Symbol (Value NF) -> EvalBase Thunk
+    mkBuiltins m = traverse (deepRefer . NF) m >>= refer . VAttr
 
 whnf :: Expr -> Eval WHNF
 whnf (Var name) = lookupName name >>= lift . force

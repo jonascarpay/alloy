@@ -46,7 +46,6 @@ evalTests = describe "eval" $ do
   is9 "scoping test" "(id: x: (id id) (id x)) (x: x) 9"
   is9 "let scoping test" "let id = x: x; x = 9; in (id id) (id x)"
   is9 "laziness test" "let diverge = (x: x x) (x: x x); in 9"
-  is9 "builtin nine" "builtins.nine"
   is9 "inherit from" $
     [r| let attr = { a = builtins.undefined; b = 9; };
             inherit (attr) b;

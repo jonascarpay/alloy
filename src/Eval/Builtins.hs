@@ -17,18 +17,16 @@ import Expr
 
 {-# ANN module ("hlint: ignore Use >=>" :: String) #-}
 
-builtins :: NF
+builtins :: Map Symbol (Value NF)
 builtins =
-  NF . VAttr . fmap NF $
-    M.fromList
-      [ ("nine", VPrim $ PInt 9),
-        ("length", vLength),
-        ("listToAttrs", vListToAttrs),
-        ("types", vTypes),
-        ("matchType", vMatchType),
-        ("known", vKnown),
-        ("void", vVoid)
-      ]
+  M.fromList
+    [ ("length", vLength),
+      ("listToAttrs", vListToAttrs),
+      ("types", vTypes),
+      ("matchType", vMatchType),
+      ("known", vKnown),
+      ("void", vVoid)
+    ]
 
 -- TODO maybe do something prismy instead?
 {-# INLINE forceExpect #-}
