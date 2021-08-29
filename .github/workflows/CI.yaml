@@ -28,31 +28,32 @@ jobs:
       - name: Build alloy shell
         run: nix build -L '.#devShell.x86_64-linux'
 
-  stack-build:
-    name: Stack ${{ matrix.resolver }} on ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        resolver: [ lts-18, lts-17 ]
-        os: [ macos-latest, ubuntu-latest ]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v2
-      - uses: haskell/actions/setup@v1
-        with:
-          enable-stack: true
-      ## For some reason, stack caching seems to be very brittle, and cause a lot of build failures.
-      ## I haven't investigated very thoroughly what to best do about this, but for now, I'm just not caching stack builds.
-      # - uses: actions/cache@v2
-      #   with:
-      #     path: |
-      #       ~/.stack
-      #       .stack-work
-      #     key: stack-cache-${{ matrix.os }}-${{ matrix.resolver }}-${{ hashFiles('**/*.cabal') }}
-      - run: stack init --resolver ${{ matrix.resolver }}
-      - run: stack build --resolver ${{ matrix.resolver }} --only-dependencies
-      - run: stack build --resolver ${{ matrix.resolver }}
-      - run: stack build --resolver ${{ matrix.resolver }} --haddock --test --bench --no-run-benchmarks
+  #  TODO stack is disabled until `rebound` is in stackage
+  #  stack-build:
+  #    name: Stack ${{ matrix.resolver }} on ${{ matrix.os }}
+  #    strategy:
+  #      fail-fast: false
+  #      matrix:
+  #        resolver: [ lts-18, lts-17 ]
+  #        os: [ macos-latest, ubuntu-latest ]
+  #    runs-on: ${{ matrix.os }}
+  #    steps:
+  #      - uses: actions/checkout@v2
+  #      - uses: haskell/actions/setup@v1
+  #        with:
+  #          enable-stack: true
+  #      ## For some reason, stack caching seems to be very brittle, and cause a lot of build failures.
+  #      ## I haven't investigated very thoroughly what to best do about this, but for now, I'm just not caching stack builds.
+  #      # - uses: actions/cache@v2
+  #      #   with:
+  #      #     path: |
+  #      #       ~/.stack
+  #      #       .stack-work
+  #      #     key: stack-cache-${{ matrix.os }}-${{ matrix.resolver }}-${{ hashFiles('**/*.cabal') }}
+  #      - run: stack init --resolver ${{ matrix.resolver }}
+  #      - run: stack build --resolver ${{ matrix.resolver }} --only-dependencies
+  #      - run: stack build --resolver ${{ matrix.resolver }}
+  #      - run: stack build --resolver ${{ matrix.resolver }} --haddock --test --bench --no-run-benchmarks
 
   cabal-build:
     name: Cabal GHC ${{ matrix.ghc }} on ${{ matrix.os }}
