@@ -45,12 +45,12 @@ renderDoc _ (Module deps body) | null deps = body
 renderDoc _ (Module deps body) =
   indent $
     mconcat
-      [ "Module dependencies:",
-        indent . mconcat . intersperse newline . flip fmap (M.toList deps) $ \(str, p) ->
-          emitText str <> " = " <> p <> ";",
+      [ "Module body:",
+        indent body,
         newline,
-        "Module body:",
-        indent body
+        "Module dependencies:",
+        indent . mconcat . intersperse newline . flip fmap (M.toList deps) $ \(str, p) ->
+          emitText str <> " = " <> p <> ";"
       ]
 renderDoc _ (Func args ret body) = renderDoc Single (List $ (\(arg, typ) -> arg <> ": " <> typ) <$> args) <> " -> " <> ret <> space <> body
 renderDoc _ (Sel h n) = h <> "." <> n
