@@ -22,7 +22,8 @@ builtins =
       ("types", vTypes),
       ("matchType", vMatchType),
       ("known", vKnown),
-      ("void", vVoid)
+      ("void", vVoid),
+      ("error", vError)
     ]
 
 -- TODO maybe do something prismy instead?
@@ -96,6 +97,12 @@ vKnown =
       (VRTPlace _ _) -> pure (VPrim $ PBool False)
       (VRTValue _ _) -> pure (VPrim $ PBool False)
       _ -> pure (VPrim $ PBool True)
+
+vError :: Value f
+vError = VClosure $
+  forceExpect "builtins.error" "an error string" $ \case
+    VString str -> Just $ throwError $ T.unpack str
+    _ -> Nothing
 
 -- TODO
 -- Instead of pattern matching on the matchers and applying arguments in the
