@@ -14,7 +14,6 @@ import Control.Monad (MonadPlus)
 {-# INLINE runParser #-}
 runParser ::
   Monoid e =>
-  -- | Function to read a single token. Nothing means EOF/OOB.
   (Int -> t) ->
   Parser t e a ->
   Either (Int, e) a
@@ -33,6 +32,7 @@ instance Monoid e => Monoid (Err e) where
 
 -- | A simple backtracking parser.
 -- Maintains the error message of whatever branch managed to consume the most input.
+-- Reducing the state to an integer means we can associate errors with the index at which they occurred.
 newtype Parser t e a = Parser
   { unParser ::
       forall b.
@@ -72,8 +72,20 @@ instance Monoid e => MonadPlus (Parser t e)
 token :: Parser t e t
 token = Parser $ \t i e ok _ -> ok (t i) (i + 1) e
 
+-- | Enter a context with a function to throw an error at the start of the context.
+-- A simple motivating example is `expect`:
+--
+-- > expect :: Error -> (Token -> Maybe a) -> Parser a
+-- > expect err f =
+-- >   P.throwAt $ \throw ->
+-- >      P.token >>= maybe (throw err) pure . f
+--
+-- In this example, we first consume a token, and then see if it matches our expectation.
+-- However since consuming a token advanced the parser past the token, simply throwing an error in place reports the error after the token.
+--
+-- By having 'throwAt' be the only way to throw errors, it's always clear and explicit where you are reporting an error.
 {-# INLINE throwAt #-}
-throwAt :: Semigroup e => ((forall err. e -> Parser t e err) -> Parser t e a) -> Parser t e a
+throwAt :: Semigroup e => ((forall a. e -> Parser t e a) -> Parser t e r) -> Parser t e r
 throwAt k = Parser $ \t i e ok err ->
   let throw' e = Parser $ \_ _ e' _ err' -> err' (e' <> Err i e)
    in unParser (k throw') t i e ok err
