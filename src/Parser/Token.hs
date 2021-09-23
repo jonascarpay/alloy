@@ -1,4 +1,17 @@
-module Parser.Token where
+{-# LANGUAGE BangPatterns #-}
+
+module Parser.Token
+  ( Token (..),
+    SourcePos (..),
+    tok,
+    tok_int,
+    tok_frac,
+    tok_ident,
+    tok_string,
+    tok_path,
+    descrToken,
+  )
+where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -70,7 +83,8 @@ data Token
   | -- Other things
     Ident !Text
   | String !Text
-  | Num Int
+  | Int Int
+  | Double Double
   | Path !Text -- TODO FilePath? We perform operations from `filepath` on it before turning into string
   deriving (Eq, Show)
 
@@ -79,11 +93,23 @@ tok = const
 
 {-# ANN module ("hlint: ignore Use camelCase" :: String) #-}
 
-tok_num :: ByteString -> Token
-tok_num bs = Num (parse bs)
+unsafeParseInt :: ByteString -> Int
+unsafeParseInt = BS.foldl' f 0
   where
-    parse = BS.foldl' f 0
     f acc b = acc * 10 + fromIntegral b - 48
+
+unsafeParseFrac :: ByteString -> Double
+unsafeParseFrac = fst . BS.foldl' f (0, 0.1)
+  where
+    f (!acc, !fac) b = (acc + fac * fromIntegral (b -48), fac * 0.1)
+
+tok_int :: ByteString -> Token
+tok_int = Int . unsafeParseInt
+
+tok_frac :: ByteString -> Token
+tok_frac bs = Double $ case BS.split 46 bs of
+  [int, frac] -> fromIntegral (unsafeParseInt int) + unsafeParseFrac frac
+  _ -> error "impossible parse for a number"
 
 tok_string :: ByteString -> Token
 tok_string = String . TE.decodeUtf8 . BS.unsafeInit . BS.unsafeTail

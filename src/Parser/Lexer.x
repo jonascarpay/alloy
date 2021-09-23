@@ -72,7 +72,8 @@ tokens :-
   "{"		{ tok LBrace }
   "}"		{ tok RBrace }
 
-  $digit+											{ tok_num }
+  $digit+											{ tok_int }
+  $digit+	"." $digit+					{ tok_frac }
   $idHead $idTail*						{ tok_ident }
   \" ($stringChars # \")* \"	{ tok_string } -- TODO Use start codes to signal unterminated strings
   "." ("/" $pathChar+)+ "/"?	{ tok_path }
@@ -119,4 +120,4 @@ alexInputPrevChar :: AlexInput -> Char
 alexInputPrevChar = aiPrevChar
 }
 
--- vim: ft=text:noet
+-- vim: ft=text:set noet:

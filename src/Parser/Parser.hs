@@ -123,7 +123,7 @@ pAccessor :: Parser Expr
 pAccessor = lit <|> expr
   where
     lit = expect "accessor" $ \case
-      T.Num ix -> Just (Prim $ PInt ix)
+      T.Int ix -> Just (Prim $ PInt ix)
       T.Ident ix -> Just (String ix)
       T.String ix -> Just (String ix)
       _ -> Nothing
@@ -226,7 +226,8 @@ pLet = do
 
 pAtom :: Parser Prim
 pAtom = expect "atom" $ \case
-  T.Num n -> Just $ PInt n
+  T.Int n -> Just $ PInt n
+  T.Double n -> Just $ PDouble n
   T.TTrue -> Just $ PBool True
   T.TFalse -> Just $ PBool False
   _ -> Nothing
