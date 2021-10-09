@@ -86,7 +86,7 @@ pWith =
 -- TODO think about unambiguous attr parsing
 -- Unforunately, [] means you can't tell the difference between empty attrs and the empty list
 pAttr :: Parser Expr
-pAttr = braces $ Attr <$> many pBinding
+pAttr = braces $ Attr <$> sepEndBy pBinding comma
 
 pFunc :: Parser Expr
 pFunc = do
@@ -200,6 +200,9 @@ pBlock = do
 semicolon :: Parser ()
 semicolon = token T.Semicolon
 
+comma :: Parser ()
+comma = token T.Comma
+
 pVar :: Parser Expr
 pVar = Var <$> pIdent
 
@@ -220,7 +223,7 @@ pLam = do
 pLet :: Parser Expr
 pLet = do
   token T.Let
-  binds <- many pBinding
+  binds <- many (pBinding <* semicolon)
   token T.In
   Let binds <$> pExpr
 
@@ -233,14 +236,14 @@ pAtom = expect "atom" $ \case
   _ -> Nothing
 
 pBinding :: Parser Binding
-pBinding = choice (fmap (<* semicolon) [pBind, pInherit, pInheritFrom])
+pBinding = choice [pBind, pInherit, pInheritFrom]
   where
     pBind = do
       name <- pIdent
       args <- many pIdent
       token T.Assign
       Simple name args <$> pExpr
-    pInherit = token T.Inherit *> (Inherit <$> many pIdent)
+    pInherit = token T.Inherit *> (Inherit <$> some pIdent)
     pInheritFrom = do
       token T.Inherit
       from <- parens pExpr

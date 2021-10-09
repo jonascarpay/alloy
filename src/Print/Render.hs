@@ -56,9 +56,9 @@ renderDoc _ (Func args ret body) = renderDoc Single (List $ (\(arg, typ) -> arg 
 renderDoc _ (Sel h n) = h <> "." <> n
 renderDoc sty (Call' fn args) = fn <> renderDoc sty (List args)
 renderDoc sty (Prog mlbl blk) = maybe mempty (`mappend` " @") mlbl <> "{" <> style blk (newline <> indent blk <> newline) sty <> "}"
-renderDoc Single (Attrs' m) = "{ " <> foldMap (\(nm, d) -> emitText nm <> " = " <> d <> "; ") (M.toList m) <> "}"
+renderDoc Single (Attrs' m) = "{ " <> foldMap (\(nm, d) -> emitText nm <> " = " <> d <> ", ") (M.toList m) <> "}"
 renderDoc Multi (Attrs' m) =
-  let render (nm, d) = emitText nm <> " = " <> d <> ";"
+  let render (nm, d) = emitText nm <> " = " <> d <> ","
    in mconcat
         [ "{",
           indent $ mconcat $ intersperse newline $ fmap render (M.toList m),
